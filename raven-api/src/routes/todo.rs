@@ -74,6 +74,8 @@ async fn translate_legacy_error(response: Response, status: StatusCode) -> Optio
                 message: error.detail,
                 fields,
                 request_id: Uuid::new_v4(),
+                committed: None,
+                record_id: None,
             }),
         )
             .into_response(),

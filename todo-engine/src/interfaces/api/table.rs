@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use time::Date;
 
-use super::{ApiResult, ApiState, validation_rejection, with_service};
+use super::{ApiResult, ApiState, validation_rejection, with_read_service};
 use crate::application::error::TodoError;
 use crate::application::table::{
     FilterMode, GroupSort, PlannerFilterField, PlannerSortField, PlannerTableGroup,
@@ -347,7 +347,7 @@ pub(super) async fn query_table(
         group_settings,
         reference_date,
     )?;
-    let page = with_service(&state, |service| service.query_table(&query))?;
+    let page = with_read_service(&state, |service| service.query_table(&query))?;
     Ok(Json(json!(page)))
 }
 
@@ -356,7 +356,7 @@ pub(super) async fn table_lookups(
     query: Result<Query<TableLookupQuery>, QueryRejection>,
 ) -> ApiResult<Json<Value>> {
     let Query(query) = query.map_err(|error| TodoError::Validation(error.body_text()))?;
-    let items = with_service(&state, |service| {
+    let items = with_read_service(&state, |service| {
         service.table_lookups(query.scope.application())
     })?;
     Ok(Json(json!({"items": items})))

@@ -30,16 +30,25 @@ impl LocalMediaStore {
         Self::with_limit(root, DEFAULT_MAX_MEDIA_BYTES)
     }
 
+    /// Open an existing guarded media directory without creating it or changing permissions.
+    pub fn open_existing(root: impl AsRef<Path>) -> HealthResult<Self> {
+        Self::open_root(root.as_ref(), DEFAULT_MAX_MEDIA_BYTES, false)
+    }
+
     pub fn with_limit(root: impl AsRef<Path>, max_bytes: u64) -> HealthResult<Self> {
+        Self::open_root(root.as_ref(), max_bytes, true)
+    }
+
+    fn open_root(root: &Path, max_bytes: u64, create: bool) -> HealthResult<Self> {
         validate_max_bytes(max_bytes)?;
         #[cfg(unix)]
-        let (root, directory) = prepare_root_unix_with_hook(root.as_ref(), |_| {})?;
+        let (root, directory) = prepare_root_unix_with_hook(root, create, |_| {})?;
         #[cfg(windows)]
-        let (root, directory) = prepare_root_windows(root.as_ref())?;
+        let (root, directory) = prepare_root_windows(root, create)?;
         #[cfg(any(unix, windows))]
         let directory = Arc::new(directory);
         #[cfg(not(any(unix, windows)))]
-        let root = prepare_root_unsupported(root.as_ref())?;
+        let root = prepare_root_unsupported(root)?;
         Ok(Self {
             root,
             max_bytes,
@@ -308,10 +317,10 @@ impl Drop for LocalStagedMedia {
         let Some(temporary) = self.temporary.take() else {
             return;
         };
-        if temporary.close().is_ok() {
-            if let Ok(root) = staged_root_portable(self) {
-                let _ = remove_recovery_portable(&root, &self.recovery);
-            }
+        if temporary.close().is_ok()
+            && let Ok(root) = staged_root_portable(self)
+        {
+            let _ = remove_recovery_portable(&root, &self.recovery);
         }
     }
 }
@@ -1069,6 +1078,7 @@ fn atomic_finalize_unix(
 #[cfg(unix)]
 fn prepare_root_unix_with_hook(
     root: &Path,
+    create: bool,
     mut before_open: impl FnMut(bool),
 ) -> HealthResult<(PathBuf, File)> {
     if fs::symlink_metadata(root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
@@ -1123,7 +1133,7 @@ fn prepare_root_unix_with_hook(
         let descriptor = match rustix::fs::openat(&current, &name, flags, rustix::fs::Mode::empty())
         {
             Ok(descriptor) => descriptor,
-            Err(rustix::io::Errno::NOENT) => {
+            Err(rustix::io::Errno::NOENT) if create => {
                 match rustix::fs::mkdirat(
                     &current,
                     &name,
@@ -1155,16 +1165,18 @@ fn prepare_root_unix_with_hook(
         };
         current = File::from(descriptor);
     }
-    rustix::fs::fchmod(
-        &current,
-        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR | rustix::fs::Mode::XUSR,
-    )
-    .map_err(|error| {
-        media_storage_error(
-            "could not secure the configured media directory",
-            &std::io::Error::from(error),
+    if create {
+        rustix::fs::fchmod(
+            &current,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR | rustix::fs::Mode::XUSR,
         )
-    })?;
+        .map_err(|error| {
+            media_storage_error(
+                "could not secure the configured media directory",
+                &std::io::Error::from(error),
+            )
+        })?;
+    }
     Ok((root, current))
 }
 
@@ -1227,7 +1239,7 @@ fn normalize_root_anchor(root: &Path) -> HealthResult<PathBuf> {
 }
 
 #[cfg(windows)]
-fn prepare_root_windows(root: &Path) -> HealthResult<(PathBuf, File)> {
+fn prepare_root_windows(root: &Path, create: bool) -> HealthResult<(PathBuf, File)> {
     let absolute = if root.is_absolute() {
         root.to_path_buf()
     } else {
@@ -1252,14 +1264,16 @@ fn prepare_root_windows(root: &Path) -> HealthResult<(PathBuf, File)> {
         if !matches!(component, Component::Normal(_)) {
             continue;
         }
-        match fs::create_dir(&current) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => {
-                return Err(media_storage_error(
-                    "could not create the media directory",
-                    &error,
-                ));
+        if create {
+            match fs::create_dir(&current) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    return Err(media_storage_error(
+                        "could not create the media directory",
+                        &error,
+                    ));
+                }
             }
         }
         guards.push(open_directory_windows(&current)?);
@@ -1663,6 +1677,20 @@ mod root_race_tests {
     use super::*;
 
     #[test]
+    fn existing_root_deleted_before_open_is_not_recreated() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("media");
+        fs::create_dir(&root).unwrap();
+        let result = prepare_root_unix_with_hook(&root, false, |is_final| {
+            if is_final {
+                fs::remove_dir(&root).unwrap();
+            }
+        });
+        assert!(matches!(result, Err(HealthError::Storage(_))));
+        assert!(!root.exists());
+    }
+
+    #[test]
     fn root_swap_barrier_cannot_redirect_the_opened_directory() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("media");
@@ -1672,7 +1700,7 @@ mod root_race_tests {
         fs::create_dir(&outside).unwrap();
         let mut swapped = false;
 
-        let result = prepare_root_unix_with_hook(&root, |is_final| {
+        let result = prepare_root_unix_with_hook(&root, true, |is_final| {
             if is_final && !swapped {
                 fs::rename(&root, &moved).unwrap();
                 std::os::unix::fs::symlink(&outside, &root).unwrap();
@@ -1682,5 +1710,75 @@ mod root_race_tests {
 
         assert!(matches!(result, Err(HealthError::Storage(_))));
         assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    }
+}
+
+impl crate::application::media::MediaReader for LocalMediaStore {
+    fn read(&self, media: &StoredMedia) -> HealthResult<Vec<u8>> {
+        validate_media_relative_path(media.relative_path())?;
+        #[cfg(unix)]
+        let mut file = {
+            use rustix::fs::{Mode, OFlags, openat};
+            let mut directory = self
+                .directory
+                .try_clone()
+                .map_err(|_| HealthError::Storage("stored photo access failed".to_string()))?;
+            let components = media.relative_path().components().collect::<Vec<_>>();
+            for component in &components[..components.len() - 1] {
+                directory = File::from(
+                    openat(
+                        &directory,
+                        component.as_os_str(),
+                        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                        Mode::empty(),
+                    )
+                    .map_err(|_| HealthError::Storage("stored photo access failed".to_string()))?,
+                );
+            }
+            File::from(
+                openat(
+                    &directory,
+                    components.last().expect("validated path").as_os_str(),
+                    OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )
+                .map_err(|_| HealthError::Storage("stored photo access failed".to_string()))?,
+            )
+        };
+        #[cfg(windows)]
+        let (_guards, mut file) = {
+            let guards =
+                lock_media_parents_windows(&self.root, &self.directory, media.relative_path())?;
+            let file =
+                open_regular_windows(&self.root.join(media.relative_path()), "stored photo")?;
+            (guards, file)
+        };
+        #[cfg(not(any(unix, windows)))]
+        return Err(HealthError::Storage(
+            "secure media reads unavailable".to_string(),
+        ));
+        #[cfg(any(unix, windows))]
+        {
+            let before = input_file_identity(&file)?;
+            if before.1 != media.byte_size() || before.1 > self.max_bytes {
+                return Err(HealthError::Storage(
+                    "stored photo size mismatch".to_string(),
+                ));
+            }
+            let mut bytes = Vec::new();
+            (&mut file)
+                .take(self.max_bytes + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| HealthError::Storage("stored photo access failed".to_string()))?;
+            if input_file_identity(&file)? != before
+                || bytes.len() as u64 != before.1
+                || format!("{:x}", Sha256::digest(&bytes)) != media.checksum_sha256()
+            {
+                return Err(HealthError::Storage(
+                    "stored photo integrity mismatch".to_string(),
+                ));
+            }
+            Ok(bytes)
+        }
     }
 }

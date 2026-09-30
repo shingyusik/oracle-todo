@@ -193,7 +193,7 @@ fn init_creates_ledger_and_health_check_is_schema_aware_and_read_only() {
 }
 
 #[test]
-fn all_master_commands_create_update_list_and_purge() {
+fn all_master_commands_create_update_list_and_reject_removed_purge() {
     let home = tempfile::tempdir().unwrap();
     success(home.path(), &["init"]);
 
@@ -314,49 +314,15 @@ fn all_master_commands_create_update_list_and_purge() {
     );
 
     assert_exit(home.path(), &["ledger", "account", "purge", account_id], 2);
-    success(
+    assert_exit(
         home.path(),
-        &[
-            "ledger",
-            "account",
-            "purge",
-            account_id,
-            "--confirm",
-            account_id,
-        ],
+        &["ledger", "category", "purge", category_id],
+        2,
     );
-    success(
+    assert_exit(
         home.path(),
-        &[
-            "ledger",
-            "category",
-            "purge",
-            category_id,
-            "--confirm",
-            category_id,
-        ],
-    );
-    success(
-        home.path(),
-        &[
-            "ledger",
-            "account-category",
-            "purge",
-            account_category_id,
-            "--confirm",
-            account_category_id,
-        ],
-    );
-    success(
-        home.path(),
-        &[
-            "ledger",
-            "currency",
-            "purge",
-            currency_id,
-            "--confirm",
-            currency_id,
-        ],
+        &["ledger", "currency", "purge", currency_id],
+        2,
     );
 }
 
@@ -487,7 +453,7 @@ fn amount_precision_dates_and_json_schema_fail_before_mutation() {
 }
 
 #[test]
-fn transfer_retries_are_idempotent_and_group_purge_requires_preview_confirmation() {
+fn transfer_retries_are_idempotent_and_archive_restore_preserve_the_pair() {
     let home = tempfile::tempdir().unwrap();
     init_and_seed(home.path());
     let operation_key = "018f31c0-5c2a-4e75-9c18-a14d7bddb2a1";
@@ -543,30 +509,15 @@ fn transfer_retries_are_idempotent_and_group_purge_requires_preview_confirmation
     );
     json_success(home.path(), &["ledger", "entry", "restore", out_id]);
 
-    let preview = assert_exit(home.path(), &["ledger", "entry", "purge", out_id], 2);
-    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
-    assert_eq!(preview["confirmation_id"], group_id);
-    assert_eq!(preview["transfer_group_id"], group_id);
-    assert_eq!(preview["entry_ids"].as_array().unwrap().len(), 2);
-
-    assert_exit(
-        home.path(),
-        &["ledger", "entry", "purge", out_id, "--confirm", out_id],
-        2,
-    );
-    success(
-        home.path(),
-        &["ledger", "entry", "purge", out_id, "--confirm", group_id],
-    );
-    assert_exit(
+    assert_exit(home.path(), &["ledger", "entry", "purge", out_id], 2);
+    json_success(
         home.path(),
         &["ledger", "entry", "show", out_id, "--format", "json"],
-        4,
     );
 }
 
 #[test]
-fn reports_balances_briefing_doctor_and_export_are_structured_and_deterministic() {
+fn reports_balances_doctor_and_export_are_structured_and_deterministic() {
     let home = tempfile::tempdir().unwrap();
     init_and_seed(home.path());
     add_lunch(home.path());
@@ -612,21 +563,6 @@ fn reports_balances_briefing_doctor_and_export_are_structured_and_deterministic(
     let balances = json_success(home.path(), &["ledger", "balances", "--format", "json"]);
     assert_eq!(balances["items"].as_array().unwrap().len(), 2);
     assert!(balances["items"][0]["current_balance_minor"].is_number());
-
-    let briefing = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "briefing",
-            "--from",
-            "2026-07-01",
-            "--to",
-            "2026-07-31",
-            "--format",
-            "json",
-        ],
-    );
-    assert!(briefing["markdown"].as_str().unwrap().contains("KRW"));
 
     let doctor = json_success(home.path(), &["ledger", "doctor", "--format", "json"]);
     assert_eq!(doctor["healthy"], true);
@@ -1062,303 +998,6 @@ fn historical_precision_updates_ignore_active_master_pages_and_soft_deletion() {
 }
 
 #[test]
-fn reports_compare_briefing_and_audit_emit_stable_iso_json() {
-    let home = tempfile::tempdir().unwrap();
-    init_and_seed(home.path());
-    let entry = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "entry",
-            "add",
-            "--date",
-            "2024-02-29",
-            "--written-at",
-            "2024-02-29T23:30:00-05:00",
-            "--type",
-            "expense",
-            "--amount",
-            "10",
-            "--currency",
-            "KRW",
-            "--account",
-            "card",
-            "--category",
-            "food",
-            "--content",
-            "Leap day",
-        ],
-    );
-    let entry_id = entry["id"].as_str().unwrap();
-    json_success(
-        home.path(),
-        &["ledger", "entry", "update", entry_id, "--notes", "reviewed"],
-    );
-
-    let report = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "reports",
-            "--from",
-            "2024-02-29",
-            "--to",
-            "2024-03-01",
-            "--format",
-            "json",
-        ],
-    );
-    assert_eq!(
-        report["range"],
-        json!({"start":"2024-02-29","end":"2024-03-01"})
-    );
-
-    let briefing = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "briefing",
-            "--from",
-            "2024-02-29",
-            "--to",
-            "2024-03-01",
-            "--format",
-            "json",
-        ],
-    );
-    assert_eq!(
-        briefing["summary"]["range"],
-        json!({"start":"2024-02-29","end":"2024-03-01"})
-    );
-
-    let comparison = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "compare",
-            "--current-from",
-            "2024-02-29",
-            "--current-to",
-            "2024-03-01",
-            "--previous-from",
-            "2023-02-28",
-            "--previous-to",
-            "2023-03-01",
-            "--format",
-            "json",
-        ],
-    );
-    assert_eq!(
-        comparison["current"]["range"],
-        json!({"start":"2024-02-29","end":"2024-03-01"})
-    );
-    assert_eq!(
-        comparison["previous"]["range"],
-        json!({"start":"2023-02-28","end":"2023-03-01"})
-    );
-    let comparison_table = success(
-        home.path(),
-        &[
-            "ledger",
-            "compare",
-            "--current-from",
-            "2024-02-29",
-            "--current-to",
-            "2024-03-01",
-            "--previous-from",
-            "2023-02-28",
-            "--previous-to",
-            "2023-03-01",
-            "--format",
-            "table",
-        ],
-    );
-    let comparison_table = String::from_utf8(comparison_table.stdout).unwrap();
-    assert!(comparison_table.contains("current\t2024-02-29\t2024-03-01"));
-    assert!(comparison_table.contains("previous\t2023-02-28\t2023-03-01"));
-
-    let first = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "audit",
-            "--record-type",
-            "ledger_entry",
-            "--record-id",
-            entry_id,
-            "--limit",
-            "1",
-            "--format",
-            "json",
-        ],
-    );
-    assert_eq!(first["items"].as_array().unwrap().len(), 1);
-    let occurred_at = first["items"][0]["occurred_at"].as_str().unwrap();
-    let parsed =
-        time::OffsetDateTime::parse(occurred_at, &time::format_description::well_known::Rfc3339)
-            .unwrap();
-    assert_eq!(parsed.offset(), time::UtcOffset::UTC);
-    assert!(occurred_at.ends_with('Z'));
-    assert_eq!(first["items"][0]["after"]["date"], "2024-02-29");
-    assert_eq!(
-        first["items"][0]["after"]["written_at"],
-        "2024-03-01T04:30:00Z"
-    );
-    assert_eq!(first["next"], json!({"offset":1,"limit":1}));
-
-    let second = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "history",
-            "--record-type",
-            "ledger_entry",
-            "--record-id",
-            entry_id,
-            "--offset",
-            "1",
-            "--limit",
-            "1",
-            "--format",
-            "json",
-        ],
-    );
-    assert_eq!(second["items"].as_array().unwrap().len(), 1);
-    assert!(
-        second["items"][0]["occurred_at"]
-            .as_str()
-            .unwrap()
-            .ends_with('Z')
-    );
-    let audit_table = success(
-        home.path(),
-        &[
-            "ledger",
-            "audit",
-            "--record-type",
-            "ledger_entry",
-            "--record-id",
-            entry_id,
-            "--limit",
-            "1",
-            "--format",
-            "table",
-        ],
-    );
-    let audit_table = String::from_utf8(audit_table.stdout).unwrap();
-    assert!(audit_table.contains("OCCURRED_AT"));
-    assert!(audit_table.contains("BEFORE_JSON"));
-    assert!(audit_table.contains(r#""date":"2024-02-29""#));
-
-    let help = String::from_utf8(success(home.path(), &["ledger", "--help"]).stdout).unwrap();
-    assert!(help.contains("compare"));
-    assert!(help.contains("audit"));
-    assert!(help.contains("history"));
-}
-
-#[test]
-fn master_purge_preview_is_service_validated_before_stdout() {
-    let home = tempfile::tempdir().unwrap();
-    init_and_seed(home.path());
-
-    let missing = assert_exit(home.path(), &["ledger", "currency", "purge", "missing"], 4);
-    assert!(missing.stdout.is_empty());
-
-    let krw = json_success(
-        home.path(),
-        &["ledger", "currency", "list", "--format", "json"],
-    );
-    let krw_id = krw["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["code"] == "KRW")
-        .unwrap()["id"]
-        .as_str()
-        .unwrap();
-    let referenced = assert_exit(home.path(), &["ledger", "currency", "purge", krw_id], 2);
-    assert!(referenced.stdout.is_empty());
-    assert!(
-        String::from_utf8(referenced.stderr)
-            .unwrap()
-            .contains("referenced")
-    );
-    let referenced_confirmed = assert_exit(
-        home.path(),
-        &["ledger", "currency", "purge", krw_id, "--confirm", krw_id],
-        2,
-    );
-    assert!(referenced_confirmed.stdout.is_empty());
-    assert!(
-        String::from_utf8(referenced_confirmed.stderr)
-            .unwrap()
-            .contains("referenced")
-    );
-
-    let temporary = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "currency",
-            "create",
-            "--code",
-            "TMP",
-            "--name",
-            "Temporary",
-            "--symbol",
-            "T",
-            "--decimal-places",
-            "2",
-        ],
-    );
-    let temporary_id = temporary["id"].as_str().unwrap();
-    let connection = rusqlite::Connection::open(home.path().join("ledger.sqlite")).unwrap();
-    connection
-        .execute(
-            "UPDATE currencies
-             SET active = 0,
-                 updated_at = '2099-07-30T00:00:00Z',
-                 deleted_at = '2099-07-30T00:00:00Z'
-             WHERE id = ?1",
-            [temporary_id],
-        )
-        .unwrap();
-    drop(connection);
-    let preview = assert_exit(
-        home.path(),
-        &["ledger", "currency", "purge", temporary_id],
-        2,
-    );
-    assert_eq!(
-        serde_json::from_slice::<Value>(&preview.stdout).unwrap(),
-        json!({"confirmation_id":temporary_id,"record_type":"currency"})
-    );
-    json_success(
-        home.path(),
-        &[
-            "ledger",
-            "currency",
-            "purge",
-            temporary_id,
-            "--confirm",
-            temporary_id,
-        ],
-    );
-    assert_exit(
-        home.path(),
-        &[
-            "ledger",
-            "currency",
-            "purge",
-            temporary_id,
-            "--confirm",
-            temporary_id,
-        ],
-        4,
-    );
-}
-
-#[test]
 fn mutation_help_documents_input_modes_and_canonical_formats() {
     let home = tempfile::tempdir().unwrap();
     let entry =
@@ -1367,7 +1006,6 @@ fn mutation_help_documents_input_modes_and_canonical_formats() {
     for required in [
         "--json",
         "--date YYYY-MM-DD",
-        "--written-at RFC3339",
         "--type",
         "--amount",
         "--currency",
@@ -1380,7 +1018,7 @@ fn mutation_help_documents_input_modes_and_canonical_formats() {
             "missing {required:?} in:\n{entry}"
         );
     }
-    assert!(entry.contains("Expense and income entries also require --category"));
+    assert!(entry.contains("Expense and income entries require --category"));
     assert!(entry.contains("--account cash --category food --content Lunch"));
     assert!(entry.contains(r#""account":"cash","category":"food","content":"Lunch""#));
 
@@ -1391,7 +1029,6 @@ fn mutation_help_documents_input_modes_and_canonical_formats() {
         "--operation-key",
         "UUID v4",
         "--date YYYY-MM-DD",
-        "--written-at RFC3339",
         "--from-account",
         "--to-account",
     ] {
@@ -1845,116 +1482,49 @@ fn explicit_currency_precision_matches_service_policy_across_mutations() {
 }
 
 #[test]
-fn briefing_table_escapes_currency_controls_without_changing_json() {
+fn public_entry_metadata_adjustment_creation_and_manual_comparison_are_rejected() {
     let home = tempfile::tempdir().unwrap();
-    success(home.path(), &["init"]);
-    let code = "B\tR\r\n\u{1b}[31m";
-    let currency = json_success(
+    init_and_seed(home.path());
+    for field in ["written_at", "source", "actor", "reason"] {
+        let mut payload = serde_json::json!({"date":"2026-09-30","content":"policy","category":"food","account":"card","entry_type":"expense","amount":"1","currency":"KRW"});
+        payload[field] = Value::String("caller".into());
+        assert_exit(
+            home.path(),
+            &["ledger", "entry", "add", "--json", &payload.to_string()],
+            2,
+        );
+    }
+    for kind in ["adjustment_out", "adjustment_in"] {
+        let payload = serde_json::json!({"date":"2026-09-30","content":"policy","category":"food","account":"card","entry_type":kind,"amount":"1","currency":"KRW"}).to_string();
+        assert_exit(
+            home.path(),
+            &["ledger", "entry", "add", "--json", &payload],
+            2,
+        );
+    }
+    let report = json_success(
         home.path(),
         &[
             "ledger",
-            "currency",
-            "create",
-            "--code",
-            code,
-            "--name",
-            "Briefing control",
-            "--symbol",
-            "B",
-            "--decimal-places",
-            "2",
-        ],
-    );
-    let currency_id = currency["id"].as_str().unwrap();
-    json_success(
-        home.path(),
-        &["ledger", "account-category", "create", "--name", "Cash"],
-    );
-    let account = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "account",
-            "create",
-            "--name",
-            "briefing account",
-            "--category",
-            "Cash",
-            "--currency",
-            currency_id,
-            "--opening-balance",
-            "0.00",
-        ],
-    );
-    let account_id = account["id"].as_str().unwrap();
-    json_success(
-        home.path(),
-        &[
-            "ledger",
-            "category",
-            "create",
-            "--name",
-            "briefing expense",
-            "--kind",
-            "expense",
-        ],
-    );
-    json_success(
-        home.path(),
-        &[
-            "ledger",
-            "entry",
-            "add",
-            "--date",
-            "2024-02-29",
-            "--type",
-            "expense",
-            "--amount",
-            "1.23",
-            "--currency",
-            currency_id,
-            "--account",
-            account_id,
-            "--category",
-            "briefing expense",
-            "--content",
-            "Control",
-        ],
-    );
-
-    let table = success(
-        home.path(),
-        &[
-            "ledger",
-            "briefing",
+            "compare",
             "--from",
-            "2024-02-29",
+            "2026-07-01",
             "--to",
-            "2024-02-29",
-            "--format",
-            "table",
-        ],
-    );
-    let table = String::from_utf8(table.stdout).unwrap();
-    assert_eq!(table.lines().count(), 2);
-    assert!(table.lines().all(|line| line.matches('\t').count() == 6));
-    assert!(!table.contains('\r'));
-    assert!(!table.contains('\u{1b}'));
-    assert!(table.contains(r"B\tR\r\n\u{001b}[31m"));
-
-    let briefing = json_success(
-        home.path(),
-        &[
-            "ledger",
-            "briefing",
-            "--from",
-            "2024-02-29",
-            "--to",
-            "2024-02-29",
+            "2026-07-03",
             "--format",
             "json",
         ],
     );
-    assert_eq!(briefing["summary"]["currencies"][0]["currency_code"], code);
-    assert!(briefing["markdown"].as_str().unwrap().contains(code));
+    assert_eq!(report["current"]["range"]["start"], "2026-07-01");
+    assert_eq!(report["previous"]["range"]["end"], "2026-06-30");
+    assert_exit(
+        home.path(),
+        &["ledger", "compare", "--current-from", "2026-07-01"],
+        2,
+    );
+    let list = json_success(
+        home.path(),
+        &["ledger", "entry", "list", "--format", "json"],
+    );
+    assert!(list["items"].as_array().unwrap().is_empty());
 }

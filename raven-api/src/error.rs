@@ -19,6 +19,10 @@ pub struct ApiErrorBody {
     pub message: String,
     pub fields: Map<String, Value>,
     pub request_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<Uuid>,
 }
 
 #[derive(Debug)]
@@ -32,6 +36,7 @@ enum ErrorKind {
     Conflict,
     NotFound,
     Internal,
+    CleanupPending { record_id: String },
 }
 
 #[derive(Debug)]
@@ -100,6 +105,8 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let request_id = Uuid::new_v4();
+        let mut committed = None;
+        let mut record_id = None;
         let (status, code, message, fields) = match self.kind {
             ErrorKind::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
@@ -139,6 +146,16 @@ impl IntoResponse for ApiError {
                 Map::new(),
             ),
             ErrorKind::NotFound => (StatusCode::NOT_FOUND, "not_found", NOT_FOUND, Map::new()),
+            ErrorKind::CleanupPending { record_id: id } => {
+                committed = Some(true);
+                record_id = Uuid::parse_str(&id).ok();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "cleanup_pending",
+                    "Saved; media cleanup remains pending.",
+                    Map::new(),
+                )
+            }
             ErrorKind::Internal => {
                 tracing::error!(
                     request_id = %request_id,
@@ -160,6 +177,8 @@ impl IntoResponse for ApiError {
                 message: message.to_owned(),
                 fields,
                 request_id,
+                committed,
+                record_id,
             }),
         )
             .into_response()
@@ -202,15 +221,14 @@ impl From<HealthError> for ApiError {
             HealthError::Validation { field, .. } => Self::validation(Some(field)),
             HealthError::UnsupportedMedia => Self::unsupported_media_type(),
             HealthError::MediaTooLarge => Self::payload_too_large(),
-            HealthError::ConfirmationMismatch => Self::validation(None),
             HealthError::NotFound(_) => Self::not_found(),
             HealthError::Conflict(_) | HealthError::Busy(_) => Self::conflict(),
-            HealthError::Storage(_)
-            | HealthError::Migration(_)
-            | HealthError::Cleanup { .. }
-            | HealthError::CleanupPending { .. } => {
+            HealthError::Storage(_) | HealthError::Migration(_) | HealthError::Cleanup { .. } => {
                 Self::internal(anyhow::anyhow!("health engine failure"))
             }
+            HealthError::CleanupPending { record_id, .. } => Self {
+                kind: ErrorKind::CleanupPending { record_id },
+            },
         }
     }
 }

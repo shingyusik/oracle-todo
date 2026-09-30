@@ -40,13 +40,15 @@ fn raven_todo_help_describes_only_the_raven_delegated_surface() {
         assert!(stdout.contains("Policy-enforced personal ToDo engine"));
         assert!(stdout.contains("Usage: raven todo <COMMAND>"));
         assert!(stdout.contains("init"));
-        assert!(stdout.contains("period"));
+        assert!(stdout.contains("archive-list"));
         for legacy in [
             "todo-engine",
             "TODO_ENGINE_HOME",
             "~/.todo-engine",
             "Serve the HTTP API",
             "\n  api ",
+            "\n  period ",
+            "\n  agenda ",
         ] {
             assert!(!stdout.contains(legacy), "{legacy}");
         }

@@ -80,6 +80,38 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         self.repository.list_recent_audit_activity(limit)
     }
 
+    pub fn currencies_including_inactive_page(&self, page: Page) -> LedgerResult<Paged<Currency>> {
+        paged(page, |page| {
+            self.repository.list_currencies_including_inactive(page)
+        })
+    }
+
+    pub fn account_categories_including_inactive_page(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Paged<AccountCategory>> {
+        paged(page, |page| {
+            self.repository
+                .list_account_categories_including_inactive(page)
+        })
+    }
+
+    pub fn accounts_including_inactive_page(&self, page: Page) -> LedgerResult<Paged<Account>> {
+        paged(page, |page| {
+            self.repository.list_accounts_including_inactive(page)
+        })
+    }
+
+    pub fn transaction_categories_including_inactive_page(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Paged<TransactionCategory>> {
+        paged(page, |page| {
+            self.repository
+                .list_transaction_categories_including_inactive(page)
+        })
+    }
+
     pub fn currencies_page(&self, page: Page) -> LedgerResult<Paged<Currency>> {
         paged(page, |page| self.repository.list_active_currencies(page))
     }

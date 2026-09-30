@@ -852,10 +852,9 @@ fn parse_operations(rows: &[DiagnosticRow], issues: &mut Vec<DoctorIssue>) -> Ve
             "transfer_operation",
             &operation_key,
             issues,
-        ) {
-            if OffsetDateTime::parse(&created_at, &Rfc3339).is_err() {
-                operation_issue(issues, &operation_key, "created_at is not RFC 3339");
-            }
+        ) && OffsetDateTime::parse(&created_at, &Rfc3339).is_err()
+        {
+            operation_issue(issues, &operation_key, "created_at is not RFC 3339");
         }
         records.push(OperationRecord {
             operation_key,
@@ -1254,16 +1253,16 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
         let before = audit.before.as_deref().map(validated_json);
         let after = audit.after.as_deref().map(validated_json);
         validate_audit_semantics(audit, before.as_ref(), after.as_ref(), issues);
-        if let (Some(previous), Some(before)) = (previous_after.as_ref(), before.as_ref()) {
-            if !audit_snapshots_equal(&audit.record_type, previous, before) {
-                issues.push(issue(
-                    DoctorSeverity::Error,
-                    "audit_history_discontinuous",
-                    &audit.record_type,
-                    Some(audit.record_id.clone()),
-                    "audit before snapshot does not match the prior after snapshot".to_string(),
-                ));
-            }
+        if let (Some(previous), Some(before)) = (previous_after.as_ref(), before.as_ref())
+            && !audit_snapshots_equal(&audit.record_type, previous, before)
+        {
+            issues.push(issue(
+                DoctorSeverity::Error,
+                "audit_history_discontinuous",
+                &audit.record_type,
+                Some(audit.record_id.clone()),
+                "audit before snapshot does not match the prior after snapshot".to_string(),
+            ));
         }
         previous_after = after;
     }
@@ -2321,21 +2320,21 @@ fn timestamps(
     issues: &mut Vec<DoctorIssue>,
 ) {
     for field in ["created_at", "updated_at"] {
-        if let Some(value) = required_text(row, field, record_type, record_id, issues) {
-            if OffsetDateTime::parse(&value, &Rfc3339).is_err() {
-                invariant_issue(
-                    issues,
-                    record_type,
-                    record_id,
-                    &format!("{field} is not RFC 3339"),
-                );
-            }
+        if let Some(value) = required_text(row, field, record_type, record_id, issues)
+            && OffsetDateTime::parse(&value, &Rfc3339).is_err()
+        {
+            invariant_issue(
+                issues,
+                record_type,
+                record_id,
+                &format!("{field} is not RFC 3339"),
+            );
         }
     }
-    if let Some(value) = optional_text(row, "deleted_at", record_type, record_id, issues) {
-        if OffsetDateTime::parse(&value, &Rfc3339).is_err() {
-            invariant_issue(issues, record_type, record_id, "deleted_at is not RFC 3339");
-        }
+    if let Some(value) = optional_text(row, "deleted_at", record_type, record_id, issues)
+        && OffsetDateTime::parse(&value, &Rfc3339).is_err()
+    {
+        invariant_issue(issues, record_type, record_id, "deleted_at is not RFC 3339");
     }
 }
 

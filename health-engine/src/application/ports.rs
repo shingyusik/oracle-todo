@@ -3,10 +3,9 @@ use time::{Date, OffsetDateTime};
 
 use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::validate_media_relative_path;
-use crate::application::queries::{HealthQuery, TimelineItem};
+use crate::application::queries::HealthRecord;
 use crate::application::reports::ReportRecords;
 use crate::application::table::{HealthTableQuery, HealthTableRow, TablePage};
-use crate::application::trends::TrendRecords;
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, HealthRecordId, MetricKey};
 
 pub const DEFAULT_PAGE_LIMIT: u16 = 100;
@@ -296,7 +295,6 @@ pub(crate) trait HealthTransaction {
     fn insert_diet(&mut self, entry: &DietEntry, local_date: Date) -> HealthResult<()>;
     fn update_diet(&mut self, entry: &DietEntry, local_date: Date) -> HealthResult<()>;
     fn replace_diet_tags(&mut self, entry: &DietEntry) -> HealthResult<()>;
-    fn delete_diet(&mut self, id: &str) -> HealthResult<()>;
     fn insert_event(
         &mut self,
         event: &HealthEvent,
@@ -304,7 +302,6 @@ pub(crate) trait HealthTransaction {
         daily_upsert: bool,
     ) -> HealthResult<()>;
     fn update_event(&mut self, event: &HealthEvent, local_date: Date) -> HealthResult<()>;
-    fn delete_event(&mut self, id: &str) -> HealthResult<()>;
     fn insert_audit_event(&mut self, event: &AuditEvent) -> HealthResult<()>;
     fn commit(self: Box<Self>) -> HealthResult<()>;
     fn rollback(self: Box<Self>) -> HealthResult<()>;
@@ -334,13 +331,7 @@ pub(crate) trait HealthReadRepository: HealthRepository {
     ) -> HealthResult<Vec<AuditEvent>>;
     fn list_recent_audit_activity(&self, limit: u16) -> HealthResult<Vec<AuditActivity>>;
     fn list_pending_media(&self, page: Page) -> HealthResult<Vec<MediaFileRecord>>;
-    fn timeline(&self, query: &HealthQuery) -> HealthResult<Vec<TimelineItem>>;
-    fn trend_records(
-        &self,
-        start_exclusive: OffsetDateTime,
-        end_inclusive: OffsetDateTime,
-        limit: u32,
-    ) -> HealthResult<TrendRecords>;
+    fn records(&self, page: Page) -> HealthResult<Vec<HealthRecord>>;
     fn report_records(
         &self,
         start_inclusive: OffsetDateTime,

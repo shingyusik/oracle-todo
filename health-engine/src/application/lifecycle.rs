@@ -36,7 +36,19 @@ impl<R: HealthReadRepository, M: MediaStore> HealthService<R, M> {
 impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
     pub fn start(repository: R, media_store: M) -> HealthResult<Self> {
         let mut service = Self::new(repository, media_store);
-        service.retry_pending_media(100)?;
+        service
+            .retry_pending_media(100)
+            .map_err(|error| match error {
+                HealthError::CleanupPending { .. } => HealthError::Cleanup {
+                    primary: Box::new(HealthError::Storage(
+                        "prior media recovery blocks the requested mutation".to_string(),
+                    )),
+                    cleanup: "previously committed media cleanup remains pending".to_string(),
+                    recovery: None,
+                    cleanup_path: None,
+                },
+                error => error,
+            })?;
         Ok(service)
     }
 
@@ -88,108 +100,6 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         self.transition_event(id, false, expected_updated_at)
     }
 
-    pub fn purge_diet(&mut self, id: &str, confirmation: &str) -> HealthResult<()> {
-        confirm(id, confirmation)?;
-        HealthRecordId::parse(id)?;
-        let now = OffsetDateTime::now_utc();
-        let request_id = Uuid::new_v4().to_string();
-        let mut transaction = self.repository.begin_transaction()?;
-        let result = (|| {
-            let diet = transaction
-                .get_diet(id, true)?
-                .ok_or_else(|| HealthError::NotFound(format!("diet entry {id}")))?;
-            if diet.deleted_at().is_none() {
-                return Err(HealthError::Conflict(
-                    "diet entry must be archived before purge".to_string(),
-                ));
-            }
-            let pending = diet
-                .media_id()
-                .map(|media_id| {
-                    let before =
-                        transaction
-                            .get_media(media_id.as_str(), true)?
-                            .ok_or_else(|| {
-                                HealthError::Conflict(format!(
-                                    "diet entry references missing media {}",
-                                    media_id.as_str()
-                                ))
-                            })?;
-                    let mut after = before.clone();
-                    after.cleanup_pending = true;
-                    after.updated_at = next_update_time(after.updated_at, "media")?;
-                    after.deleted_at = Some(after.updated_at);
-                    transaction.update_media(&after)?;
-                    transaction.insert_audit_event(&media_audit(
-                        &request_id,
-                        after.updated_at,
-                        "detach",
-                        &before,
-                        Some(&after),
-                    )?)?;
-                    Ok::<_, HealthError>(after)
-                })
-                .transpose()?;
-            transaction.delete_diet(id)?;
-            transaction.insert_audit_event(&audit_event(AuditMutation {
-                request_id: &request_id,
-                occurred_at: now,
-                actor: "local",
-                action: "purge",
-                record_type: "diet_entry",
-                record_id: id,
-                before: Some(&diet),
-                after: None::<&DietEntry>,
-                reason: None,
-            })?)?;
-            Ok(pending)
-        })();
-        let pending = match result {
-            Ok(pending) => pending,
-            Err(primary) => return Err(rollback_with_primary(transaction, primary)),
-        };
-        transaction.commit()?;
-        if let Some(pending) = pending {
-            self.cleanup_pending_media(pending)?;
-        }
-        Ok(())
-    }
-
-    pub fn purge_event(&mut self, id: &str, confirmation: &str) -> HealthResult<()> {
-        confirm(id, confirmation)?;
-        HealthRecordId::parse(id)?;
-        let now = OffsetDateTime::now_utc();
-        let request_id = Uuid::new_v4().to_string();
-        let mut transaction = self.repository.begin_transaction()?;
-        let result = (|| {
-            let event = transaction
-                .get_event(id, true)?
-                .ok_or_else(|| HealthError::NotFound(format!("health event {id}")))?;
-            if event.deleted_at().is_none() {
-                return Err(HealthError::Conflict(
-                    "health event must be archived before purge".to_string(),
-                ));
-            }
-            transaction.delete_event(id)?;
-            transaction.insert_audit_event(&audit_event(AuditMutation {
-                request_id: &request_id,
-                occurred_at: now,
-                actor: "local",
-                action: "purge",
-                record_type: "health_event",
-                record_id: id,
-                before: Some(&event),
-                after: None::<&HealthEvent>,
-                reason: None,
-            })?)?;
-            Ok(())
-        })();
-        if let Err(primary) = result {
-            return Err(rollback_with_primary(transaction, primary));
-        }
-        transaction.commit()
-    }
-
     pub fn retry_pending_media(&mut self, limit: u16) -> HealthResult<u16> {
         let page = Page::new(0, limit)?;
         let pending = self.repository.list_pending_media(page)?;
@@ -230,18 +140,17 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
                 )),
             ));
         }
-        if !archive {
-            if let Some(media_id) = before.media_id() {
-                if transaction.get_media(media_id.as_str(), false)?.is_none() {
-                    return Err(rollback_with_primary(
-                        transaction,
-                        HealthError::Conflict(format!(
-                            "cannot restore diet entry with unavailable media {}",
-                            media_id.as_str()
-                        )),
-                    ));
-                }
-            }
+        if !archive
+            && let Some(media_id) = before.media_id()
+            && transaction.get_media(media_id.as_str(), false)?.is_none()
+        {
+            return Err(rollback_with_primary(
+                transaction,
+                HealthError::Conflict(format!(
+                    "cannot restore diet entry with unavailable media {}",
+                    media_id.as_str()
+                )),
+            ));
         }
         let now = next_update_time(before.updated_at(), "diet")?;
         let after = diet_with_deleted(&before, archive.then_some(now), now)?;
@@ -377,13 +286,6 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
                 message: safe_error_summary(&error),
             })
     }
-}
-
-fn confirm(id: &str, confirmation: &str) -> HealthResult<()> {
-    if confirmation != id {
-        return Err(HealthError::ConfirmationMismatch);
-    }
-    Ok(())
 }
 
 fn ensure_version(

@@ -327,8 +327,6 @@ fn raven_log_omits_sensitive_todo_arguments_and_paths() {
             "task",
             "propose",
             "private title",
-            "--description",
-            "private description",
             "--note",
             "private note",
         ])
@@ -343,7 +341,6 @@ fn raven_log_omits_sensitive_todo_arguments_and_paths() {
     assert!(log.contains("\"exit_code\":0"));
     assert!(!log.contains("\"target\":\"todo_engine"));
     assert!(!log.contains("private title"));
-    assert!(!log.contains("private description"));
     assert!(!log.contains("private note"));
     assert!(!log.contains(home.path().to_str().unwrap()));
 }

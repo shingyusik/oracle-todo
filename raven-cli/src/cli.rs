@@ -7,9 +7,17 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 #[command(
     name = "raven",
     about = "Raven unified personal engine",
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    version
 )]
 pub struct Cli {
+    #[arg(long, value_enum, default_value_t)]
+    pub error_format: ErrorFormat,
+    #[arg(long)]
+    pub request_key: Option<String>,
+    #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u64).range(1..=3600), requires = "request_key")]
+    pub request_timeout_seconds: u64,
+
     #[arg(long, env = "RAVEN_HOME")]
     pub home: Option<PathBuf>,
 
@@ -83,6 +91,8 @@ pub enum LedgerCommand {
     Transfer(TransferArgs),
     /// Show a transfer pair by its group identifier.
     TransferShow(TransferShowArgs),
+    /// Update both sides of an atomic transfer from a strict JSON object.
+    TransferUpdate(TransferUpdateArgs),
     /// Manage account master data.
     Account {
         #[command(subcommand)]
@@ -107,8 +117,6 @@ pub enum LedgerCommand {
     Reports(ReportArgs),
     /// List current account balances.
     Balances(PageReadArgs),
-    /// Produce a concise date-range briefing.
-    Briefing(ReportRangeArgs),
     /// Compare summaries for two explicit inclusive date ranges.
     Compare(CompareArgs),
     /// Page through audit history for one Ledger record.
@@ -128,7 +136,6 @@ pub enum LedgerEntryCommand {
     Show(EntryShowArgs),
     Archive(EntryIdentityArgs),
     Restore(EntryIdentityArgs),
-    Purge(PurgeArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -153,10 +160,10 @@ pub enum HealthCommand {
         #[command(subcommand)]
         command: MetricCommand,
     },
-    /// Show the combined Health Journal timeline.
-    Timeline(HealthTimelineArgs),
-    /// Show bounded Health Journal trends.
-    Trends(HealthTrendsArgs),
+    /// Summarize an inclusive local-date range.
+    Reports(ReportRangeArgs),
+    /// Page through audit history for a Health record.
+    Audit(HealthAuditArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -167,7 +174,6 @@ pub enum DietCommand {
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
-    Purge(HealthPurgeArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -178,7 +184,6 @@ pub enum BowelCommand {
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
-    Purge(HealthPurgeArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -189,29 +194,15 @@ pub enum MedicationCommand {
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
-    Purge(HealthPurgeArgs),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum MetricCommand {
-    Add(MetricAddArgs),
     DailyUpsert(MetricDailyUpsertArgs),
-    Update(MetricUpdateArgs),
     List(MetricListArgs),
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
-    Purge(HealthPurgeArgs),
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-#[value(rename_all = "snake_case")]
-pub enum HealthMetricCategoryArg {
-    Weight,
-    Sleep,
-    Lab,
-    Symptom,
-    OverallCondition,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -248,7 +239,7 @@ pub struct DietAddArgs {
 #[derive(Debug, Args)]
 pub struct DietUpdateArgs {
     pub id: String,
-    #[arg(long, conflicts_with_all = ["at", "meal", "food", "note", "clear_note", "tags", "image", "remove_image", "content_type", "expected_updated_at", "reason"])]
+    #[arg(long, conflicts_with_all = ["at", "meal", "food", "note", "clear_note", "tags", "image", "remove_image", "content_type", "expected_updated_at"])]
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -270,8 +261,6 @@ pub struct DietUpdateArgs {
     pub content_type: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub expected_updated_at: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -291,7 +280,7 @@ pub struct BowelAddArgs {
 #[derive(Debug, Args)]
 pub struct BowelUpdateArgs {
     pub id: String,
-    #[arg(long, conflicts_with_all = ["at", "bristol", "blood_visible", "note", "clear_note", "expected_updated_at", "reason"])]
+    #[arg(long, conflicts_with_all = ["at", "bristol", "blood_visible", "note", "clear_note", "expected_updated_at"])]
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -305,8 +294,6 @@ pub struct BowelUpdateArgs {
     pub clear_note: bool,
     #[arg(long, value_name = "RFC3339")]
     pub expected_updated_at: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -328,7 +315,7 @@ pub struct MedicationAddArgs {
 #[derive(Debug, Args)]
 pub struct MedicationUpdateArgs {
     pub id: String,
-    #[arg(long, conflicts_with_all = ["at", "name", "dose", "unit", "note", "clear_note", "expected_updated_at", "reason"])]
+    #[arg(long, conflicts_with_all = ["at", "name", "dose", "unit", "note", "clear_note", "expected_updated_at"])]
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -344,65 +331,12 @@ pub struct MedicationUpdateArgs {
     pub clear_note: bool,
     #[arg(long, value_name = "RFC3339")]
     pub expected_updated_at: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Args)]
-pub struct MetricAddArgs {
-    #[arg(long, conflicts_with_all = ["at", "category", "key", "name", "value", "unit", "condition_note", "note"])]
-    pub json: Option<String>,
-    #[arg(long, value_name = "RFC3339")]
-    pub at: Option<String>,
-    #[arg(long, value_enum)]
-    pub category: Option<HealthMetricCategoryArg>,
-    #[arg(long)]
-    pub key: Option<String>,
-    #[arg(long)]
-    pub name: Option<String>,
-    #[arg(long)]
-    pub value: Option<f64>,
-    #[arg(long)]
-    pub unit: Option<String>,
-    #[arg(long)]
-    pub condition_note: Option<String>,
-    #[arg(long)]
-    pub note: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct MetricDailyUpsertArgs {
     #[arg(long, help = "Strict JSON array of metric objects")]
     pub json: String,
-}
-
-#[derive(Debug, Args)]
-pub struct MetricUpdateArgs {
-    pub id: String,
-    #[arg(long, conflicts_with_all = ["at", "name", "value", "unit", "clear_unit", "condition_note", "clear_condition_note", "note", "clear_note", "expected_updated_at", "reason"])]
-    pub json: Option<String>,
-    #[arg(long, value_name = "RFC3339")]
-    pub at: Option<String>,
-    #[arg(long)]
-    pub name: Option<String>,
-    #[arg(long)]
-    pub value: Option<f64>,
-    #[arg(long, conflicts_with = "clear_unit")]
-    pub unit: Option<String>,
-    #[arg(long)]
-    pub clear_unit: bool,
-    #[arg(long, conflicts_with = "clear_condition_note")]
-    pub condition_note: Option<String>,
-    #[arg(long)]
-    pub clear_condition_note: bool,
-    #[arg(long, conflicts_with = "clear_note")]
-    pub note: Option<String>,
-    #[arg(long)]
-    pub clear_note: bool,
-    #[arg(long, value_name = "RFC3339")]
-    pub expected_updated_at: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -439,45 +373,11 @@ pub struct HealthIdentityArgs {
     pub expected_updated_at: Option<String>,
 }
 
-#[derive(Debug, Args)]
-pub struct HealthPurgeArgs {
-    pub id: String,
-    #[arg(long)]
-    pub confirm: Option<String>,
-}
-
-#[derive(Debug, Args)]
-pub struct HealthTimelineArgs {
-    #[arg(long, value_name = "RFC3339")]
-    pub from: Option<String>,
-    #[arg(long, value_name = "RFC3339")]
-    pub to: Option<String>,
-    #[arg(long, value_enum)]
-    pub category: Option<HealthEventCategoryArg>,
-    #[arg(long)]
-    pub include_archived: bool,
-    #[arg(long, default_value_t = 0)]
-    pub offset: u32,
-    #[arg(long, default_value_t = 100)]
-    pub limit: u16,
-    #[arg(long, value_enum, default_value_t)]
-    pub format: OutputFormat,
-}
-
-#[derive(Debug, Args)]
-pub struct HealthTrendsArgs {
-    #[arg(long, default_value_t = 30)]
-    pub days: u16,
-    #[arg(long, value_enum, default_value_t)]
-    pub format: OutputFormat,
-}
-
 #[derive(Debug, Subcommand)]
 pub enum CurrencyCommand {
     Create(CurrencyCreateArgs),
     Update(CurrencyUpdateArgs),
     List(PageReadArgs),
-    Purge(PurgeArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -493,7 +393,6 @@ pub enum AccountCommand {
     Create(AccountCreateArgs),
     Update(AccountUpdateArgs),
     List(PageReadArgs),
-    Purge(PurgeArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -501,7 +400,6 @@ pub enum CategoryCommand {
     Create(CategoryCreateArgs),
     Update(CategoryUpdateArgs),
     List(PageReadArgs),
-    Purge(PurgeArgs),
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -534,22 +432,19 @@ pub enum CategoryKindArg {
 pub enum ReportBy {
     #[default]
     Summary,
-    Account,
     Category,
 }
 
 #[derive(Debug, Args)]
 #[command(
     long_about = "Create one Ledger entry from either a strict JSON object or mutation flags.",
-    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --date, --type, --amount, --currency, --account, --content.\n  Expense and income entries also require --category; adjustment entries may omit it.\n\nFormats:\n  --date YYYY-MM-DD\n  --written-at RFC3339\n\nExamples:\n  raven ledger entry add --date 2024-02-29 --type expense --amount 12.34 --currency USD --account cash --category food --content Lunch\n  raven ledger entry add --json '{\"date\":\"2024-02-29\",\"entry_type\":\"expense\",\"amount\":\"12.34\",\"currency\":\"USD\",\"account\":\"cash\",\"category\":\"food\",\"content\":\"Lunch\"}'"
+    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --date, --type, --amount, --currency, --account, --content.\n  Expense and income entries require --category.\n\nFormats:\n  --date YYYY-MM-DD\n\nExamples:\n  raven ledger entry add --date 2024-02-29 --type expense --amount 12.34 --currency USD --account cash --category food --content Lunch\n  raven ledger entry add --json '{\"date\":\"2024-02-29\",\"entry_type\":\"expense\",\"amount\":\"12.34\",\"currency\":\"USD\",\"account\":\"cash\",\"category\":\"food\",\"content\":\"Lunch\"}'"
 )]
 pub struct EntryAddArgs {
     #[arg(long)]
     pub json: Option<String>,
     #[arg(long, value_name = "YYYY-MM-DD")]
     pub date: Option<String>,
-    #[arg(long, value_name = "RFC3339")]
-    pub written_at: Option<String>,
     #[arg(long = "type")]
     pub entry_type: Option<EntryTypeArg>,
     #[arg(long)]
@@ -563,11 +458,7 @@ pub struct EntryAddArgs {
     #[arg(long)]
     pub content: Option<String>,
     #[arg(long)]
-    pub source: Option<String>,
-    #[arg(long)]
     pub notes: Option<String>,
-    #[arg(long)]
-    pub actor: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -577,8 +468,6 @@ pub struct EntryUpdateArgs {
     pub json: Option<String>,
     #[arg(long)]
     pub date: Option<String>,
-    #[arg(long)]
-    pub written_at: Option<String>,
     #[arg(long = "type")]
     pub entry_type: Option<EntryTypeArg>,
     #[arg(long)]
@@ -594,15 +483,9 @@ pub struct EntryUpdateArgs {
     #[arg(long)]
     pub content: Option<String>,
     #[arg(long)]
-    pub source: Option<String>,
-    #[arg(long)]
     pub notes: Option<String>,
     #[arg(long, conflicts_with = "notes")]
     pub clear_notes: bool,
-    #[arg(long)]
-    pub actor: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -653,7 +536,7 @@ pub struct PurgeArgs {
 #[derive(Debug, Args)]
 #[command(
     long_about = "Create an atomic transfer from either a strict JSON object or mutation flags. Retries with the same canonical UUID v4 operation key are idempotent.",
-    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --operation-key, --date, --amount, --currency, --from-account, --to-account, --content.\n\nFormats:\n  --operation-key UUID v4 (canonical lowercase hyphenated form)\n  --date YYYY-MM-DD\n  --written-at RFC3339\n\nExample:\n  raven ledger transfer --operation-key 018f31c0-5c2a-4e75-9c18-a14d7bddb2a1 --date 2024-02-29 --amount 10.00 --currency USD --from-account checking --to-account savings --content Move"
+    after_help = "Input modes:\n  --json <OBJECT>\n  or the complete flag set: --operation-key, --date, --amount, --currency, --from-account, --to-account, --content.\n\nFormats:\n  --operation-key UUID v4 (canonical lowercase hyphenated form)\n  --date YYYY-MM-DD\n\nExample:\n  raven ledger transfer --operation-key 018f31c0-5c2a-4e75-9c18-a14d7bddb2a1 --date 2024-02-29 --amount 10.00 --currency USD --from-account checking --to-account savings --content Move"
 )]
 pub struct TransferArgs {
     #[arg(long)]
@@ -662,8 +545,6 @@ pub struct TransferArgs {
     pub operation_key: Option<String>,
     #[arg(long, value_name = "YYYY-MM-DD")]
     pub date: Option<String>,
-    #[arg(long, value_name = "RFC3339")]
-    pub written_at: Option<String>,
     #[arg(long)]
     pub amount: Option<String>,
     #[arg(long)]
@@ -675,11 +556,7 @@ pub struct TransferArgs {
     #[arg(long)]
     pub content: Option<String>,
     #[arg(long)]
-    pub source: Option<String>,
-    #[arg(long)]
     pub notes: Option<String>,
-    #[arg(long)]
-    pub actor: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -701,8 +578,6 @@ pub struct CurrencyCreateArgs {
     pub symbol: Option<String>,
     #[arg(long)]
     pub decimal_places: Option<u8>,
-    #[arg(long)]
-    pub actor: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -720,10 +595,6 @@ pub struct CurrencyUpdateArgs {
     pub decimal_places: Option<u8>,
     #[arg(long)]
     pub active: Option<bool>,
-    #[arg(long)]
-    pub actor: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -736,8 +607,6 @@ pub struct AccountCategoryCreateArgs {
     pub parent: Option<String>,
     #[arg(long)]
     pub liability: bool,
-    #[arg(long)]
-    pub actor: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -755,10 +624,6 @@ pub struct AccountCategoryUpdateArgs {
     pub liability: Option<bool>,
     #[arg(long)]
     pub active: Option<bool>,
-    #[arg(long)]
-    pub actor: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -773,8 +638,6 @@ pub struct AccountCreateArgs {
     pub currency: Option<String>,
     #[arg(long)]
     pub opening_balance: Option<String>,
-    #[arg(long)]
-    pub actor: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -792,10 +655,6 @@ pub struct AccountUpdateArgs {
     pub opening_balance: Option<String>,
     #[arg(long)]
     pub active: Option<bool>,
-    #[arg(long)]
-    pub actor: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -808,8 +667,6 @@ pub struct CategoryCreateArgs {
     pub parent: Option<String>,
     #[arg(long)]
     pub kind: Option<CategoryKindArg>,
-    #[arg(long)]
-    pub actor: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -827,10 +684,6 @@ pub struct CategoryUpdateArgs {
     pub kind: Option<CategoryKindArg>,
     #[arg(long)]
     pub active: Option<bool>,
-    #[arg(long)]
-    pub actor: Option<String>,
-    #[arg(long)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -863,16 +716,8 @@ pub struct ReportRangeArgs {
 
 #[derive(Debug, Args)]
 pub struct CompareArgs {
-    #[arg(long, value_name = "YYYY-MM-DD")]
-    pub current_from: String,
-    #[arg(long, value_name = "YYYY-MM-DD")]
-    pub current_to: String,
-    #[arg(long, value_name = "YYYY-MM-DD")]
-    pub previous_from: String,
-    #[arg(long, value_name = "YYYY-MM-DD")]
-    pub previous_to: String,
-    #[arg(long, value_enum, default_value_t)]
-    pub format: OutputFormat,
+    #[command(flatten)]
+    pub range: ReportRangeArgs,
 }
 
 #[derive(Debug, Args)]
@@ -939,4 +784,30 @@ impl Command {
             Self::Init | Self::HealthCheck | Self::Api | Self::Ui(_) => "raven",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum ErrorFormat {
+    #[default]
+    Text,
+    Json,
+}
+
+#[derive(Debug, Args)]
+pub struct TransferUpdateArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: String,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthAuditArgs {
+    pub record_type: String,
+    pub record_id: String,
+    #[arg(long, default_value_t = 0)]
+    pub offset: u32,
+    #[arg(long, default_value_t = 100)]
+    pub limit: u16,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
 }

@@ -14,4 +14,4 @@ pub mod service;
 pub mod table;
 pub mod transfers;
 
-pub use lifecycle::{MasterPurgePreview, PurgePreview};
+pub use lifecycle::MasterPurgePreview;

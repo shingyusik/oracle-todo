@@ -45,8 +45,8 @@ async fn required_namespaces_round_trip_exact_json_without_collisions() {
             "planner.v1",
             json!({"filters": ["active"], "nested": {"x": 1}}),
         ),
-        ("ledger.table.v1", json!({"columns": ["date", "amount"]})),
-        ("health.timeline.v1", json!({"days": 30, "categories": []})),
+        ("ledger.views.v1", json!({"columns": ["date", "amount"]})),
+        ("health.views.v1", json!({"days": 30, "categories": []})),
     ];
 
     for (key, value) in &cases {
@@ -152,6 +152,8 @@ async fn malformed_or_unapproved_keys_use_validation_envelope() {
     let paths = [
         "/api/v1/preferences/planner.".to_owned(),
         "/api/v1/preferences/unknown.v1".to_owned(),
+        "/api/v1/preferences/health.timeline.v1".to_owned(),
+        "/api/v1/preferences/ledger.hidden.v1".to_owned(),
         "/api/v1/preferences/Planner.v1".to_owned(),
         "/api/v1/preferences/planner%2Ev1".to_owned(),
         "/api/v1/preferences/planner%252Ev1".to_owned(),
@@ -229,14 +231,14 @@ async fn concurrent_writes_remain_atomic_and_namespaced() {
     );
     let ledger = request(
         "PUT",
-        "/api/v1/preferences/ledger.table.v1",
+        "/api/v1/preferences/ledger.views.v1",
         Body::from(r#"{"value":{"selected":"amount"}}"#),
     );
     let (planner, ledger) = tokio::join!(app.clone().oneshot(planner), app.clone().oneshot(ledger));
     assert_eq!(planner.unwrap().status(), StatusCode::OK);
     assert_eq!(ledger.unwrap().status(), StatusCode::OK);
 
-    for (key, selected) in [("planner.v1", "today"), ("ledger.table.v1", "amount")] {
+    for (key, selected) in [("planner.v1", "today"), ("ledger.views.v1", "amount")] {
         let response = app
             .clone()
             .oneshot(request(

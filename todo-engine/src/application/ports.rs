@@ -2,28 +2,13 @@ use crate::application::error::TodoResult;
 use crate::application::table::{
     TablePage, TodoTableLookup, TodoTableQuery, TodoTableRow, TodoTableScope,
 };
-#[cfg(doc)]
-use crate::domain::OPEN_STATUSES;
 use crate::domain::{ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
 
 pub trait TodoRepository: Send {
     fn save_item(&mut self, item: &TodoItem) -> TodoResult<()>;
     fn get_item(&mut self, id: &str) -> TodoResult<Option<TodoItem>>;
     fn list_items(&mut self, filter: ListFilter) -> TodoResult<Vec<TodoItem>>;
-
-    /// D-10 SQL-pushdown loader for `period_view`: return the flat period-view
-    /// working set (root goals anchored to `(horizon, period_key)` + every
-    /// descendant goal/task reachable via `parent_id`) in ONE indexed query.
-    /// The same D-07 visibility predicate as the InMemory loader is applied:
-    /// goals are kept at ANY status (terminal goals are traversed through, per
-    /// ADR-0006), tasks are restricted to [`OPEN_STATUSES`]. The returned set is
-    /// fed unchanged to the shared `assemble()` walk, so the Persistent and
-    /// InMemory stores produce identical tree shape (D-11). The recursive CTE
-    /// descends only through *goal* parents (D-01), so this flat working set is
-    /// identical to the InMemory frontier walk by construction — not merely by
-    /// an `assemble` coincidence.
-    fn load_period_subtree(&mut self, horizon: &str, period_key: &str)
-    -> TodoResult<Vec<TodoItem>>;
+    fn list_items_page(&mut self, query: &ItemPageQuery) -> TodoResult<Vec<TodoItem>>;
 }
 
 pub trait EventRepository: Send {
@@ -31,7 +16,28 @@ pub trait EventRepository: Send {
 }
 
 pub trait TodoStore: TodoRepository + EventRepository {
+    fn item_history(
+        &mut self,
+        _item_id: &str,
+        _offset: u32,
+        _limit: u32,
+    ) -> TodoResult<Vec<TodoEvent>> {
+        Err(crate::application::error::TodoError::Policy(
+            "Store does not support history reads".into(),
+        ))
+    }
     fn save_item_and_event(&mut self, item: &TodoItem, event: &TodoEvent) -> TodoResult<()>;
+    /// Atomically compare the persisted version and save the item plus audit event.
+    fn save_item_and_event_if_current(
+        &mut self,
+        _item: &TodoItem,
+        _event: &TodoEvent,
+        _expected_updated_at: time::OffsetDateTime,
+    ) -> TodoResult<()> {
+        Err(crate::application::error::TodoError::Policy(
+            "Store does not support conditional updates".to_string(),
+        ))
+    }
     /// Persist every item/event pair as one atomic unit. On error, none of the
     /// supplied items or events may remain visible.
     fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()>;
@@ -53,6 +59,21 @@ pub struct ListFilter {
     pub scheduled: Option<String>,
     pub query: Option<String>,
     pub include_archived: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ItemPageScope {
+    List,
+    Archive,
+    Today(time::Date),
+}
+
+#[derive(Clone, Debug)]
+pub struct ItemPageQuery {
+    pub filter: ListFilter,
+    pub scope: ItemPageScope,
+    pub offset: u32,
+    pub limit: u32,
 }
 
 pub fn apply_list_filter(
@@ -111,6 +132,10 @@ pub fn apply_list_filter(
         .filter(|item| {
             filter.query.as_ref().is_none_or(|query| {
                 item.title.contains(query)
+                    || item
+                        .note
+                        .as_ref()
+                        .is_some_and(|value| value.contains(query))
                     || item
                         .description
                         .as_ref()

@@ -7,25 +7,19 @@ use super::Patch;
 #[serde(deny_unknown_fields)]
 pub struct CreateEntryBody {
     pub date: String,
-    pub written_at: String,
     pub content: String,
     pub category: Option<String>,
     pub account: String,
     pub entry_type: PublicEntryType,
     pub amount: String,
     pub currency: String,
-    #[serde(default = "default_source")]
-    pub source: String,
     pub notes: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateEntryBody {
     pub date: Option<String>,
-    pub written_at: Option<String>,
     pub content: Option<String>,
     #[serde(default)]
     pub category: Patch<String>,
@@ -35,10 +29,6 @@ pub struct UpdateEntryBody {
     pub currency: Option<String>,
     #[serde(default)]
     pub notes: Patch<String>,
-    pub source: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -46,8 +36,6 @@ pub struct UpdateEntryBody {
 pub enum PublicEntryType {
     Expense,
     Income,
-    AdjustmentOut,
-    AdjustmentIn,
 }
 
 impl From<PublicEntryType> for EntryType {
@@ -55,8 +43,6 @@ impl From<PublicEntryType> for EntryType {
         match value {
             PublicEntryType::Expense => Self::Expense,
             PublicEntryType::Income => Self::Income,
-            PublicEntryType::AdjustmentOut => Self::AdjustmentOut,
-            PublicEntryType::AdjustmentIn => Self::AdjustmentIn,
         }
     }
 }
@@ -66,17 +52,12 @@ impl From<PublicEntryType> for EntryType {
 pub struct TransferBody {
     pub operation_key: String,
     pub date: String,
-    pub written_at: String,
     pub content: String,
     pub from_account: String,
     pub to_account: String,
     pub amount: String,
     pub currency: String,
-    #[serde(default = "default_source")]
-    pub source: String,
     pub notes: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,9 +70,6 @@ pub struct UpdateTransferBody {
     pub amount: String,
     pub currency: String,
     pub notes: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,8 +79,6 @@ pub struct CreateCurrencyBody {
     pub name: String,
     pub symbol: String,
     pub decimal_places: u8,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,9 +89,6 @@ pub struct UpdateCurrencyBody {
     pub symbol: Option<String>,
     pub decimal_places: Option<u8>,
     pub active: Option<bool>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,8 +98,6 @@ pub struct CreateAccountCategoryBody {
     pub parent: Option<String>,
     #[serde(default)]
     pub liability: bool,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,9 +108,6 @@ pub struct UpdateAccountCategoryBody {
     pub parent: Patch<String>,
     pub liability: Option<bool>,
     pub active: Option<bool>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,8 +117,6 @@ pub struct CreateAccountBody {
     pub category: String,
     pub currency: String,
     pub opening_balance: String,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,9 +127,6 @@ pub struct UpdateAccountBody {
     pub currency: Option<String>,
     pub opening_balance: Option<String>,
     pub active: Option<bool>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,8 +135,6 @@ pub struct CreateCategoryBody {
     pub name: String,
     pub parent: Option<String>,
     pub kind: TransactionCategoryKind,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,9 +145,6 @@ pub struct UpdateCategoryBody {
     pub parent: Patch<String>,
     pub kind: Option<TransactionCategoryKind>,
     pub active: Option<bool>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -199,12 +157,4 @@ pub struct PurgeBody {
 pub struct PageBody<T> {
     pub items: Vec<T>,
     pub next_offset: Option<u32>,
-}
-
-fn default_actor() -> String {
-    "raven-api".to_string()
-}
-
-fn default_source() -> String {
-    "api".to_string()
 }

@@ -18,7 +18,9 @@ mod repository;
 mod schema;
 #[path = "integration/table_query.rs"]
 mod table_query;
-#[path = "integration/timeline.rs"]
-mod timeline;
-#[path = "integration/trends.rs"]
-mod trends;
+
+#[path = "integration/legacy_support.rs"]
+mod legacy_support;
+
+#[path = "integration/ui_policy.rs"]
+mod ui_policy;

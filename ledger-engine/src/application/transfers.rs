@@ -107,7 +107,19 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         if let Some(existing) =
             transaction.get_transfer_operation(command.operation_key.as_str())?
         {
-            if existing.payload_json != payload_json {
+            // Server-assigned timestamps remain in receipts for audit but do not change retry identity.
+            let mut existing_payload: serde_json::Value =
+                serde_json::from_str(&existing.payload_json)
+                    .map_err(|error| LedgerError::Storage(error.to_string()))?;
+            if let Some(object) = existing_payload.as_object_mut() {
+                object.remove("written_at");
+            }
+            let mut current_payload: serde_json::Value = serde_json::from_str(&payload_json)
+                .map_err(|error| LedgerError::Storage(error.to_string()))?;
+            if let Some(object) = current_payload.as_object_mut() {
+                object.remove("written_at");
+            }
+            if existing_payload != current_payload {
                 return Err(LedgerError::Conflict(format!(
                     "transfer operation key {} was already used with a different payload",
                     command.operation_key.as_str()

@@ -1,6 +1,6 @@
 use todo_engine::application::error::TodoError;
 use todo_engine::application::ports::{ListFilter, TodoRepository};
-use todo_engine::application::service::{ProposeProject, ProposeRoutine, TodoService, UpdateItem};
+use todo_engine::application::service::{ProposeProject, ProposeRoutine, TodoService};
 use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem, terminal_status};
 use todo_engine::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
 
@@ -91,7 +91,7 @@ fn materialization_snapshots_the_routine_task_template() {
             future_occurrences: 7,
             area: None,
             project_id: Some(project.id.clone()),
-            description: Some("500ml를 마신다".to_string()),
+            description: None,
             priority: Some(2),
             note: Some("찬물 제외".to_string()),
             tags: vec!["health".to_string()],
@@ -101,7 +101,7 @@ fn materialization_snapshots_the_routine_task_template() {
     service.materialize_routines("2026-05-31").unwrap();
 
     let task = tasks(&mut service, &routine.id).remove(0);
-    assert_eq!(task.description.as_deref(), Some("500ml를 마신다"));
+    assert!(task.description.is_none());
     assert_eq!(task.note.as_deref(), Some("찬물 제외"));
     assert_eq!(task.priority, Some(2));
     assert_eq!(task.tags, vec!["health"]);
@@ -140,13 +140,7 @@ fn reducing_the_target_keeps_existing_tasks_and_pauses_replenishment() {
     let routine = routine(&mut service, "per_occurrence");
     service.materialize_routines("2026-05-31").unwrap();
     service
-        .update_item(
-            &routine.id,
-            UpdateItem {
-                future_occurrences: Some(3),
-                ..Default::default()
-            },
-        )
+        .materialize_routine(&routine.id, "2026-05-31", Some(3))
         .unwrap();
     let first = tasks(&mut service, &routine.id).remove(0);
 
@@ -229,17 +223,14 @@ fn paused_routine_waits_until_resume_to_replenish() {
 
 #[test]
 fn invalid_recurrence_fails_before_materialization() {
-    let mut service = TodoService::in_memory();
-    let mut routine = routine(&mut service, "per_occurrence");
-    routine = service
-        .update_item(
-            &routine.id,
-            UpdateItem {
-                recurrence_rule: Some("every dayzz".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+    let mut source = TodoService::in_memory();
+    let mut routine = routine(&mut source, "per_occurrence");
+    routine.recurrence_rule = Some("every dayzz".into());
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut repository = SqliteTodoRepository::new(conn);
+    repository.save_item(&routine).unwrap();
+    let mut service = TodoService::persistent(repository);
 
     assert_eq!(
         service

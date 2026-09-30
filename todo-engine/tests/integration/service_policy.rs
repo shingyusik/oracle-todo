@@ -245,7 +245,7 @@ fn completed_event_can_be_reopened() {
         .propose_event(ProposeEvent {
             title: "다시 여는 일정".to_string(),
             actor: Actor::User,
-            scheduled: Some("2026-07-14T10:00:00".to_string()),
+            scheduled: Some("2026-07-14T10:00:00Z".to_string()),
             ..Default::default()
         })
         .unwrap();
@@ -292,7 +292,7 @@ fn reopen_rejects_non_completed_event() {
         .propose_event(ProposeEvent {
             title: "진행 중 일정".to_string(),
             actor: Actor::User,
-            scheduled: Some("2026-07-14T10:00:00".to_string()),
+            scheduled: Some("2026-07-14T10:00:00Z".to_string()),
             ..Default::default()
         })
         .unwrap();
@@ -340,9 +340,9 @@ fn update_item_changes_core_fields_and_records_event() {
             &item.id,
             todo_engine::application::service::UpdateItem {
                 title: Some("새 제목".to_string()),
-                description: Some("설명".to_string()),
+                note: Some("설명".to_string()),
                 due: Some("2026-05-31".to_string()),
-                scheduled: Some("today".to_string()),
+                scheduled: Some("2026-05-31".to_string()),
                 priority: Some(3),
                 reason: Some("정리".to_string()),
                 ..Default::default()
@@ -351,9 +351,9 @@ fn update_item_changes_core_fields_and_records_event() {
         .unwrap();
 
     assert_eq!(updated.title, "새 제목");
-    assert_eq!(updated.description.as_deref(), Some("설명"));
+    assert_eq!(updated.note.as_deref(), Some("설명"));
     assert_eq!(updated.due.as_deref(), Some("2026-05-31"));
-    assert_eq!(updated.scheduled.as_deref(), Some("today"));
+    assert_eq!(updated.scheduled.as_deref(), Some("2026-05-31"));
     assert_eq!(updated.priority, Some(3));
     assert_eq!(service.events().last().unwrap().action, "update_item");
 }
@@ -431,7 +431,7 @@ fn update_rejects_terminal_items_and_invalid_materialization_policy() {
 
     assert_eq!(
         error,
-        TodoError::Policy("Unsupported materialization_policy: many".to_string())
+        TodoError::Validation("routine fields is unsupported on task".into())
     );
 }
 
@@ -508,7 +508,7 @@ fn relationships_must_reference_expected_item_types() {
         .unwrap_err();
     assert_eq!(
         error,
-        TodoError::Policy(format!("Routine must be routine: {}", project.id))
+        TodoError::Validation("routine_id is assigned only by routine materialization".into())
     );
 }
 
@@ -543,7 +543,7 @@ fn postpone_task_preserves_business_fields_and_emits_paired_audit_events() {
                 due: Some("2026-06-30".to_string()),
                 scheduled: Some("2026-05-31".to_string()),
                 priority: Some(2),
-                description: Some("체크리스트를 검토한다".to_string()),
+                description: None,
                 note: Some("배포 창 확인".to_string()),
                 tags: vec!["release".to_string(), "urgent".to_string()],
                 ..Default::default()
@@ -602,10 +602,10 @@ fn postpone_event_keeps_event_fields_and_changes_only_its_schedule() {
         .propose_event(ProposeEvent {
             title: "고객 미팅".to_string(),
             actor: Actor::User,
-            scheduled: Some("2026-05-31T10:00:00".to_string()),
+            scheduled: Some("2026-05-31T10:00:00Z".to_string()),
             due: Some("2026-06-07".to_string()),
             priority: Some(1),
-            description: Some("분기 리뷰".to_string()),
+            description: None,
             location: Some("회의실 A".to_string()),
             participants: vec!["민수".to_string()],
             commitment_type: "appointment".to_string(),
@@ -620,7 +620,7 @@ fn postpone_event_keeps_event_fields_and_changes_only_its_schedule() {
         .unwrap();
 
     assert_eq!(source.status, ItemStatus::Missed);
-    assert_eq!(source.scheduled.as_deref(), Some("2026-05-31T10:00:00"));
+    assert_eq!(source.scheduled.as_deref(), Some("2026-05-31T10:00:00Z"));
     assert_eq!(follow_up.item_type, ItemType::Event);
     assert_eq!(follow_up.status, ItemStatus::Active);
     assert_eq!(follow_up.scheduled.as_deref(), Some("2026-06-01"));
@@ -678,7 +678,7 @@ fn miss_and_postpone_reject_non_active_tasks() {
             },
         )
         .unwrap();
-    let waiting = service.pause(&waiting.id, None).unwrap();
+    let waiting = service.archive(&waiting.id, None).unwrap();
     let completed = service
         .propose_task("완료한 일", Default::default())
         .unwrap();
@@ -756,9 +756,9 @@ fn postpone_rejects_terminal_sources() {
     let completed = service.propose_task("완료", Default::default()).unwrap();
     let completed = service.complete(&completed.id, None).unwrap();
     let cancelled = service.propose_task("취소", Default::default()).unwrap();
-    let cancelled = service.cancel(&cancelled.id, None).unwrap();
+    let cancelled = service.archive(&cancelled.id, None).unwrap();
     let dropped = service.propose_task("중단", Default::default()).unwrap();
-    let dropped = service.drop(&dropped.id, None).unwrap();
+    let dropped = service.archive(&dropped.id, None).unwrap();
     let archived = service.propose_task("보관", Default::default()).unwrap();
     let archived = service.archive(&archived.id, None).unwrap();
     let postponed = service

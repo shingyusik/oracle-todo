@@ -56,27 +56,25 @@ pub(super) fn archive(home: &Path, args: ItemTransitionArgs) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn drop_item(home: &Path, args: ItemTransitionArgs) -> Result<()> {
-    let mut service = service(home)?;
-    let item = service.drop(&args.item_id, args.reason.as_deref())?;
-    print_json(&item)?;
-    Ok(())
-}
-
-pub(super) fn cancel(home: &Path, args: ItemTransitionArgs) -> Result<()> {
-    let mut service = service(home)?;
-    let item = service.cancel(&args.item_id, args.reason.as_deref())?;
-    print_json(&item)?;
-    Ok(())
-}
-
 pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
     let mut service = service(home)?;
-    let item = service.update_item(
+    let expected_updated_at = args
+        .expected_updated_at
+        .as_deref()
+        .map(|value| {
+            time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+                .map_err(|_| {
+                    crate::application::error::TodoError::Validation(
+                        "expected_updated_at must be RFC 3339".to_string(),
+                    )
+                })
+        })
+        .transpose()?;
+    let item = service.update_item_if_current(
         &args.item_id,
         UpdateItem {
             title: args.title,
-            description: args.description,
+            description: None,
             note: args.note,
             outcome: args.outcome,
             definition_of_done: args.definition_of_done,
@@ -84,25 +82,30 @@ pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
             review_cycle: args.review_cycle,
             recurrence_rule: args.recurrence_rule,
             materialization_policy: args.materialization_policy,
-            future_occurrences: args.future_occurrences,
+            future_occurrences: None,
             area: args.area,
             project_id: args.project_id,
             parent_id: args.parent_id,
-            routine_id: args.routine_id,
+            routine_id: None,
             due: args.due,
             scheduled: args.scheduled,
-            horizon: None,
+            horizon: args.horizon,
             priority: args.priority,
-            tags: if args.tags.is_empty() {
+            tags: if args.tags.is_empty() && !args.clear_tags {
                 None
             } else {
                 Some(args.tags)
             },
-            location: None,
-            participants: None,
-            commitment_type: None,
+            location: args.location,
+            participants: if args.participants.is_empty() && !args.clear_participants {
+                None
+            } else {
+                Some(args.participants)
+            },
+            commitment_type: args.commitment_type,
             reason: args.reason,
         },
+        expected_updated_at,
     )?;
     print_json(&item)?;
     Ok(())
@@ -115,4 +118,9 @@ fn next_day(today: &str) -> Result<String> {
         .next_day()
         .ok_or_else(|| anyhow::anyhow!("local date has no following day"))?;
     tomorrow.format(&format).map_err(Into::into)
+}
+
+pub(super) fn reopen(home: &Path, args: ItemTransitionArgs) -> Result<()> {
+    let item = service(home)?.reopen(&args.item_id, args.reason.as_deref())?;
+    print_json(&item)
 }

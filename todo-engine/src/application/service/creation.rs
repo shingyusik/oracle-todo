@@ -1,8 +1,6 @@
 use super::TodoService;
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{
-    Actor, Horizon, ItemStatus, ItemType, TodoItem, future_occurrences as recurrence_occurrences,
-};
+use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
 
 #[derive(Default)]
 pub struct CreateArea {
@@ -163,6 +161,7 @@ impl Default for ProposeEvent {
 
 impl TodoService {
     pub fn create_area(&mut self, request: CreateArea) -> TodoResult<TodoItem> {
+        super::policy::review_cycle(request.review_cycle.as_deref())?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("area"),
@@ -184,24 +183,28 @@ impl TodoService {
         title: impl Into<String>,
         request: ProposeTask,
     ) -> TodoResult<TodoItem> {
+        super::policy::priority(request.priority)?;
+        super::policy::deprecated(request.description.as_deref(), None)?;
         let area_id = self.find_area(request.area)?;
         let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
-        let routine_id = self.ensure_relation(request.routine_id, ItemType::Routine, "Routine")?;
+        super::policy::deprecated(None, request.routine_id.as_deref())?;
+        super::policy::date(request.due.as_deref(), "due", false)?;
+        super::policy::date(request.scheduled.as_deref(), "scheduled", false)?;
         let now = self.next_now();
         let mut item = TodoItem::new_task(self.next_id("task"), title, request.actor, now);
         item.area_id = area_id;
         item.project_id = project_id;
-        item.routine_id = routine_id;
+
         item.due = request.due;
         item.scheduled = request.scheduled;
         item.priority = request.priority;
-        item.description = request.description;
         item.note = request.note;
         item.tags = super::normalize_tags(request.tags);
         self.store_item_and_event(item.proposed_by, "propose_task", None, item, None)
     }
 
     pub fn propose_project(&mut self, request: ProposeProject) -> TodoResult<TodoItem> {
+        super::policy::date(request.due.as_deref(), "due", false)?;
         let definition_of_done = request
             .definition_of_done
             .map(|value| value.trim().to_owned())
@@ -256,15 +259,7 @@ impl TodoService {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| TodoError::Policy("Routine requires recurrence_rule".to_owned()))?;
         let now = self.next_now();
-        recurrence_occurrences(
-            &recurrence_rule,
-            now.date(),
-            now.date().previous_day().unwrap_or(time::Date::MIN),
-            1,
-        )
-        .map_err(|error| {
-            TodoError::Policy(format!("Unsupported recurrence_rule: {}", error.rule()))
-        })?;
+        let recurrence_rule = super::policy::recurrence(&recurrence_rule, now.date())?;
         if !matches!(
             request.materialization_policy.as_str(),
             "single_open" | "per_occurrence"
@@ -275,6 +270,8 @@ impl TodoService {
             )));
         }
         let future_occurrences = super::validate_future_occurrences(request.future_occurrences)?;
+        super::policy::priority(request.priority)?;
+        super::policy::deprecated(request.description.as_deref(), None)?;
         let area_id = self.find_area(request.area)?;
         let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
         let mut item = TodoItem::new(
@@ -286,7 +283,6 @@ impl TodoService {
         );
         item.area_id = area_id;
         item.project_id = project_id;
-        item.description = request.description;
         item.priority = request.priority;
         item.recurrence_rule = Some(recurrence_rule);
         item.materialization_policy = request.materialization_policy;
@@ -302,8 +298,12 @@ impl TodoService {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .ok_or_else(|| TodoError::Policy("Event requires scheduled time".to_string()))?;
+        super::policy::priority(request.priority)?;
+        super::policy::deprecated(request.description.as_deref(), None)?;
         let area_id = self.find_area(request.area)?;
         let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
+        super::policy::date(Some(&scheduled), "scheduled", true)?;
+        super::policy::date(request.due.as_deref(), "due", false)?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("evt"),
@@ -317,7 +317,6 @@ impl TodoService {
         item.due = request.due;
         item.scheduled = Some(scheduled);
         item.priority = request.priority;
-        item.description = request.description;
         item.note = request.note;
         item.metadata.insert(
             "commitment_type".to_string(),

@@ -11,6 +11,60 @@ async fn body_json(response: http::Response<Body>) -> Value {
     serde_json::from_slice(&body).unwrap()
 }
 
+#[tokio::test]
+async fn http_update_rejects_stale_version_and_removed_inputs() {
+    let app = router(":memory:").unwrap();
+    let item = body_json(
+        json_request(
+            app.clone(),
+            "POST",
+            "/tasks/propose",
+            json!({"title":"original"}),
+        )
+        .await,
+    )
+    .await;
+    let uri = format!("/items/{}", item["id"].as_str().unwrap());
+    let winner = json_request(
+        app.clone(),
+        "PATCH",
+        &uri,
+        json!({"title":"winner", "expected_updated_at": item["updated_at"]}),
+    )
+    .await;
+    assert_eq!(winner.status(), 200);
+    let winner = body_json(winner).await;
+    let stale = json_request(
+        app.clone(),
+        "PATCH",
+        &uri,
+        json!({"title":"stale", "expected_updated_at": item["updated_at"]}),
+    )
+    .await;
+    assert_eq!(stale.status(), 409);
+    for patch in [
+        json!({"description":"legacy"}),
+        json!({"routine_id":"manual"}),
+        json!({"future_occurrences":2}),
+    ] {
+        assert_eq!(
+            json_request(app.clone(), "PATCH", &uri, patch)
+                .await
+                .status(),
+            400
+        );
+    }
+    let items = body_json(empty_request(app.clone(), "GET", "/items").await).await;
+    assert_eq!(items[0], winner);
+    for route in [
+        "/views/agenda?date=2026-01-01",
+        "/views/date-range?from=2026-01-01&to=2026-01-02",
+        "/views/period?horizon=month&period=2026-01-01",
+    ] {
+        assert_eq!(empty_request(app.clone(), "GET", route).await.status(), 404);
+    }
+}
+
 async fn json_request(
     app: axum::Router,
     method: &str,
@@ -62,104 +116,6 @@ async fn health_returns_ok() {
     assert_eq!(response.status(), 200);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], br#"{"ok":true}"#);
-}
-
-#[tokio::test]
-async fn planner_settings_round_trip_through_sqlite() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("todo.sqlite");
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "PUT",
-        "/settings/planner",
-        json!({"value": {"filterMode": "or"}}),
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-
-    let response = empty_request(router(&db_path).unwrap(), "GET", "/settings/planner").await;
-    assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await, json!({"filterMode": "or"}));
-}
-
-#[tokio::test]
-async fn planner_settings_require_an_object_value() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("todo.sqlite");
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "PUT",
-        "/settings/planner",
-        json!({"value": "not an object"}),
-    )
-    .await;
-
-    assert_eq!(response.status(), 400);
-}
-
-#[tokio::test]
-async fn workspace_view_settings_round_trip_through_sqlite() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("todo.sqlite");
-    let workspace_views = json!({
-        "workspace.task": {
-            "tabs": [{
-                "id": "task-focus",
-                "name": "Focus",
-                "settings": {"filterMode": "or"}
-            }]
-        }
-    });
-
-    let planner_response = json_request(
-        router(&db_path).unwrap(),
-        "PUT",
-        "/settings/planner",
-        json!({"value": {"tableTabs": {"daily.today": {"tabs": []}}}}),
-    )
-    .await;
-    assert_eq!(planner_response.status(), 200);
-
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "PUT",
-        "/settings/workspace-views",
-        json!({"value": workspace_views}),
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-
-    let response = empty_request(
-        router(&db_path).unwrap(),
-        "GET",
-        "/settings/workspace-views",
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await, workspace_views);
-
-    let planner_response =
-        empty_request(router(&db_path).unwrap(), "GET", "/settings/planner").await;
-    assert_eq!(planner_response.status(), 200);
-    assert_eq!(
-        body_json(planner_response).await,
-        json!({"tableTabs": {"daily.today": {"tabs": []}}})
-    );
-}
-
-#[tokio::test]
-async fn workspace_view_settings_require_an_object_value() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("todo.sqlite");
-    let response = json_request(
-        router(&db_path).unwrap(),
-        "PUT",
-        "/settings/workspace-views",
-        json!({"value": ["not", "an", "object"]}),
-    )
-    .await;
-
-    assert_eq!(response.status(), 400);
 }
 
 #[tokio::test]
@@ -466,7 +422,7 @@ async fn completed_event_can_be_reopened_through_api() {
         "/events/propose",
         json!({
             "title": "팀 일정",
-            "scheduled": "2026-07-14T10:00:00",
+            "scheduled": "2026-07-14T10:00:00Z",
             "actor": "user"
         }),
     )
@@ -600,7 +556,6 @@ async fn operational_propose_routes_return_persisted_items() {
             "materialization_policy":"single_open",
             "future_occurrences":3,
             "project_id":project_id,
-            "description":"500ml를 마신다",
             "note":"찬물 제외",
             "priority":2,
             "tags":["health"],
@@ -614,7 +569,7 @@ async fn operational_propose_routes_return_persisted_items() {
     assert_eq!(routine["recurrence_rule"], "daily");
     assert_eq!(routine["future_occurrences"], 3);
     assert_eq!(routine["project_id"], project_id);
-    assert_eq!(routine["description"], "500ml를 마신다");
+    assert!(routine["description"].is_null());
     assert_eq!(routine["note"], "찬물 제외");
     assert_eq!(routine["priority"], 2);
     assert_eq!(routine["tags"], json!(["health"]));
@@ -631,7 +586,7 @@ async fn operational_propose_routes_return_persisted_items() {
     let materialized = body_json(response).await;
     let task = &materialized["created"][0];
     assert_eq!(task["project_id"], project_id);
-    assert_eq!(task["description"], "500ml를 마신다");
+    assert!(task["description"].is_null());
     assert_eq!(task["note"], "찬물 제외");
     assert_eq!(task["priority"], 2);
     assert_eq!(task["tags"], json!(["health"]));
@@ -642,7 +597,7 @@ async fn operational_propose_routes_return_persisted_items() {
         "/events/propose",
         json!({
             "title":"운영 회의",
-            "scheduled":"2026-06-01 10:00",
+            "scheduled":"2026-06-01T10:00:00Z",
             "area":"운영",
             "location":"회의실",
             "participants":["팀"],
@@ -768,8 +723,8 @@ async fn operational_transition_routes_return_mutated_items() {
     let response = json_request(
         router(&db_path).unwrap(),
         "POST",
-        "/tasks/propose",
-        json!({"title":"활성화", "actor":"user"}),
+        "/projects/propose",
+        json!({"title":"활성화", "actor":"user", "definition_of_done":"done"}),
     )
     .await;
     assert_eq!(response.status(), 200);
@@ -796,11 +751,7 @@ async fn operational_transition_routes_return_mutated_items() {
     assert_eq!(response.status(), 200);
     assert_eq!(body_json(response).await["status"], "active");
 
-    for (title, route, status) in [
-        ("보관", "archive", "archived"),
-        ("폐기", "drop", "dropped"),
-        ("취소", "cancel", "cancelled"),
-    ] {
+    for (title, route, status) in [("보관", "archive", "archived")] {
         let response = json_request(
             router(&db_path).unwrap(),
             "POST",
@@ -947,7 +898,7 @@ async fn postpone_event_accepts_an_explicit_future_date() {
         "/events/propose",
         json!({
             "title":"고객 미팅",
-            "scheduled":"2098-12-31T10:00:00",
+            "scheduled":"2098-12-31T10:00:00Z",
             "location":"회의실 A",
             "actor":"user"
         }),
@@ -972,7 +923,7 @@ async fn postpone_event_accepts_an_explicit_future_date() {
     let body = body_json(response).await;
     assert_eq!(body["source"]["type"], "event");
     assert_eq!(body["source"]["status"], "missed");
-    assert_eq!(body["source"]["scheduled"], "2098-12-31T10:00:00");
+    assert_eq!(body["source"]["scheduled"], "2098-12-31T10:00:00Z");
     assert_eq!(body["follow_up"]["type"], "event");
     assert_eq!(body["follow_up"]["status"], "active");
     assert_eq!(body["follow_up"]["scheduled"], "2099-01-02");
@@ -1077,7 +1028,7 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
         format!("/items/{id}"),
         json!({
             "title":"수정 후",
-            "description":"API update",
+            "note":"API update",
             "priority":3,
             "reason":"patch"
         }),
@@ -1086,7 +1037,7 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
     assert_eq!(response.status(), 200);
     let item = body_json(response).await;
     assert_eq!(item["title"], "수정 후");
-    assert_eq!(item["description"], "API update");
+    assert_eq!(item["note"], "API update");
     assert_eq!(item["priority"], 3);
 
     let response = empty_request(router(&db_path).unwrap(), "GET", "/items?query=API").await;
@@ -1106,7 +1057,9 @@ async fn patch_item_and_archive_endpoint_use_persisted_state() {
 
     let response = empty_request(router(&db_path).unwrap(), "GET", "/items/archive").await;
     assert_eq!(response.status(), 200);
-    let items = body_json(response).await;
+    let page = body_json(response).await;
+    let items = &page["items"];
+    assert!(page["next"].is_null());
     assert_eq!(items.as_array().unwrap().len(), 1);
     assert_eq!(items[0]["title"], "수정 후");
 }
@@ -1583,50 +1536,6 @@ async fn goal_propose_returns_active_item() {
 }
 
 #[tokio::test]
-async fn view_routes_return_json() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("todo.sqlite");
-
-    let response = empty_request(
-        router(&db_path).unwrap(),
-        "GET",
-        "/views/agenda?date=2026-06-26",
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-    let agenda = body_json(response).await;
-    assert!(agenda.is_array(), "agenda body must be a JSON array");
-
-    let response = empty_request(
-        router(&db_path).unwrap(),
-        "GET",
-        "/views/date-range?from=2026-06-01&to=2026-06-30",
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-    let range = body_json(response).await;
-    assert!(range.is_array(), "date-range body must be a JSON array");
-
-    // Same PeriodView shape (period_key + roots) the CLI emits => view parity.
-    let response = empty_request(
-        router(&db_path).unwrap(),
-        "GET",
-        "/views/period?horizon=month&period=2026-06-01",
-    )
-    .await;
-    assert_eq!(response.status(), 200);
-    let period = body_json(response).await;
-    assert!(
-        period["period_key"].is_string(),
-        "period body must carry period_key"
-    );
-    assert!(
-        period["roots"].is_array(),
-        "period body must carry a roots array"
-    );
-}
-
-#[tokio::test]
 async fn patch_item_parent_id_links_and_is_not_null() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("todo.sqlite");
@@ -1667,24 +1576,6 @@ async fn patch_item_parent_id_links_and_is_not_null() {
     assert!(!linked["parent_id"].is_null());
     assert_eq!(linked["parent_id"], goal_id);
     assert_eq!(linked["scheduled"], "2026-06-29");
-}
-
-#[tokio::test]
-async fn view_period_bad_horizon_returns_400() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db_path = tmp.path().join("todo.sqlite");
-
-    // Present-but-invalid horizon => TodoError::Validation => HTTP 400 with a
-    // detail body. Pairs with the CLI exit-2 test => SC3 rejection parity.
-    let response = empty_request(
-        router(&db_path).unwrap(),
-        "GET",
-        "/views/period?horizon=bogus&period=2026-06-01",
-    )
-    .await;
-    assert_eq!(response.status(), 400);
-    let body = body_json(response).await;
-    assert!(body["detail"].is_string(), "400 body must carry a detail");
 }
 
 async fn active_routine(db_path: &std::path::Path, title: &str, policy: &str) -> String {
@@ -1865,7 +1756,8 @@ async fn exports_today_md_route_is_not_available() {
                 .uri("/tasks/propose")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    json!({"title":"오늘 보기","actor":"user","scheduled":"today"}).to_string(),
+                    json!({"title":"오늘 보기","actor":"user","scheduled":"2026-05-31"})
+                        .to_string(),
                 ))
                 .unwrap(),
         )
@@ -1902,4 +1794,150 @@ async fn exports_today_md_route_is_not_available() {
         .unwrap();
 
     assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
+async fn history_reads_persisted_reasons_in_bounded_pages() {
+    let home = TestHome::new();
+    let db = home.db_path();
+    let item = body_json(
+        json_request(
+            router(&db).unwrap(),
+            "POST",
+            "/tasks/propose",
+            json!({"title":"history"}),
+        )
+        .await,
+    )
+    .await;
+    let id = item["id"].as_str().unwrap();
+    for reason in ["first reason", "second reason"] {
+        let response = json_request(
+            router(&db).unwrap(),
+            "PATCH",
+            format!("/items/{id}"),
+            json!({"note": reason, "reason": reason}),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+    }
+    let first = body_json(
+        empty_request(
+            router(&db).unwrap(),
+            "GET",
+            format!("/items/{id}/history?limit=1"),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(first["items"][0]["reason"], "second reason");
+    assert_eq!(first["next"], 1);
+    let second = body_json(
+        empty_request(
+            router(&db).unwrap(),
+            "GET",
+            format!("/items/{id}/history?offset=1&limit=1"),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(second["items"][0]["reason"], "first reason");
+    assert_ne!(first["items"][0]["id"], second["items"][0]["id"]);
+    assert_eq!(
+        empty_request(
+            router(&db).unwrap(),
+            "GET",
+            format!("/items/{id}/history?limit=101")
+        )
+        .await
+        .status(),
+        400
+    );
+}
+
+#[tokio::test]
+async fn archive_endpoint_bounds_items_and_excludes_active_records() {
+    let app = router(":memory:").unwrap();
+    for title in ["first", "second", "active"] {
+        let item = body_json(
+            json_request(
+                app.clone(),
+                "POST",
+                "/tasks/propose",
+                json!({"title":title}),
+            )
+            .await,
+        )
+        .await;
+        if title != "active" {
+            assert_eq!(
+                empty_request(
+                    app.clone(),
+                    "POST",
+                    format!("/items/{}/archive", item["id"].as_str().unwrap())
+                )
+                .await
+                .status(),
+                200
+            );
+        }
+    }
+    let first = body_json(empty_request(app.clone(), "GET", "/items/archive?limit=1").await).await;
+    let second =
+        body_json(empty_request(app.clone(), "GET", "/items/archive?limit=1&offset=1").await).await;
+    assert_eq!(first["items"].as_array().unwrap().len(), 1);
+    assert_eq!(first["next"], 1);
+    assert!(second["next"].is_null());
+    assert_ne!(first["items"][0]["id"], second["items"][0]["id"]);
+    assert_ne!(first["items"][0]["title"], "active");
+    assert_ne!(second["items"][0]["title"], "active");
+    assert_eq!(
+        empty_request(app, "GET", "/items/archive?limit=0")
+            .await
+            .status(),
+        400
+    );
+}
+
+#[tokio::test]
+async fn optional_lifecycle_reasons_reject_invalid_bodies_without_writes() {
+    let app = router(":memory:").unwrap();
+    let task = body_json(
+        json_request(
+            app.clone(),
+            "POST",
+            "/tasks/propose",
+            json!({"title": "reason test"}),
+        )
+        .await,
+    )
+    .await;
+    let id = task["id"].as_str().unwrap();
+    let uri = format!("/items/{id}/complete");
+    for body in [
+        "{",
+        r#"{"reason": 42}"#,
+        r#"{"unknown": "ignored"}"#,
+        "null",
+    ] {
+        let response = http_request(app.clone(), "POST", &uri, Body::from(body)).await;
+        assert_eq!(response.status(), 400);
+        let items = body_json(empty_request(app.clone(), "GET", "/items").await).await;
+        assert_eq!(items[0], task);
+        let history =
+            body_json(empty_request(app.clone(), "GET", format!("/items/{id}/history")).await)
+                .await;
+        assert_eq!(history["items"].as_array().unwrap().len(), 1);
+    }
+    assert_eq!(empty_request(app.clone(), "POST", &uri).await.status(), 200);
+    let reopened = json_request(
+        app.clone(),
+        "POST",
+        format!("/items/{id}/reopen"),
+        json!({"reason": "corrected"}),
+    )
+    .await;
+    assert_eq!(reopened.status(), 200);
+    let history = body_json(empty_request(app, "GET", format!("/items/{id}/history")).await).await;
+    assert_eq!(history["items"][0]["reason"], "corrected");
 }

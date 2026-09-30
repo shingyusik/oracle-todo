@@ -12,7 +12,6 @@ use health_engine::infrastructure::media::LocalMediaStore;
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
 use rusqlite::Connection;
 use time::OffsetDateTime;
-use time::UtcOffset;
 use time::format_description::well_known::Rfc3339;
 use time::macros::datetime;
 
@@ -704,39 +703,6 @@ fn rejects_positive_offset_overflow_before_finalizing_create_media() {
         })
     ));
     assert_database_and_media_empty(&fixture);
-}
-
-#[test]
-fn rejects_negative_offset_underflow_before_finalizing_update_media() {
-    let fixture = Fixture::new();
-    let mut service = fixture
-        .service()
-        .with_local_offset(UtcOffset::from_hms(-9, 0, 0).unwrap());
-    let before = service
-        .create_diet(create_without_media(vec!["wheat"]))
-        .unwrap();
-    let occurred_at = OffsetDateTime::parse("0000-01-01T04:00:00Z", &Rfc3339).unwrap();
-
-    let result = service.update_diet(
-        before.id().as_str(),
-        UpdateDietEntry {
-            occurred_at: Some(occurred_at),
-            media: DietMediaUpdate::Replace(MediaUpload::new("image/png", PNG.to_vec())),
-            expected_updated_at: Some(before.updated_at()),
-            actor: "integration-test".to_string(),
-            ..UpdateDietEntry::default()
-        },
-    );
-
-    assert!(matches!(
-        result,
-        Err(HealthError::Validation {
-            field: "occurred_at",
-            ..
-        })
-    ));
-    assert_eq!(service.get_diet(before.id().as_str()).unwrap(), before);
-    assert_directory_empty(&fixture.media);
 }
 
 #[test]

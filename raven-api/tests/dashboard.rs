@@ -2,7 +2,7 @@ use std::fs;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use health_engine::application::commands::{CreateDietEntry, CreateHealthEvent};
+use health_engine::application::commands::{CreateDietEntry, CreateHealthEvent, DailyMetricInput};
 use health_engine::application::service::HealthService;
 use health_engine::domain::{
     BowelAttributes, HealthEventDetails, MealType, MedicationAttributes, MedicationUnit,
@@ -246,7 +246,7 @@ async fn todo_progress_reuses_task_event_status_and_calendar_date_semantics() {
             "completed task",
             ProposeTask {
                 actor: Actor::User,
-                scheduled: Some(format!("{today}T09:00:00+09:00")),
+                scheduled: Some(today.to_string()),
                 ..Default::default()
             },
         )
@@ -280,14 +280,27 @@ async fn todo_progress_reuses_task_event_status_and_calendar_date_semantics() {
             },
         )
         .unwrap();
-    service
+    let legacy = service
         .propose_task(
             "legacy unscheduled task",
             ProposeTask {
                 actor: Actor::User,
-                scheduled: Some("legacy-junk".into()),
                 ..Default::default()
             },
+        )
+        .unwrap();
+    drop(service);
+    let connection = connect(fixture.config.todo_db.to_str().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE items SET scheduled=?1 WHERE id=?2",
+            [format!("{today}T09:00:00+09:00"), completed.id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE items SET scheduled='legacy-junk' WHERE id=?1",
+            [legacy.id],
         )
         .unwrap();
 
@@ -324,20 +337,37 @@ async fn health_categories_and_diet_tags_cannot_be_displaced_by_other_rows() {
             actor: "test".into(),
         })
         .unwrap();
-    let mut create = |seconds, details| {
-        service
-            .create_event(CreateHealthEvent {
-                occurred_at: base + time::Duration::seconds(seconds),
-                details,
-                note: None,
-                actor: "test".into(),
-            })
-            .unwrap();
+    let mut create = |seconds, details: HealthEventDetails| {
+        let at = base + time::Duration::seconds(seconds);
+        if matches!(
+            details.category(),
+            health_engine::domain::HealthCategory::Bowel
+                | health_engine::domain::HealthCategory::Medication
+        ) {
+            service
+                .create_event(CreateHealthEvent {
+                    occurred_at: at,
+                    details,
+                    note: None,
+                    actor: "test".into(),
+                })
+                .unwrap();
+        } else {
+            service
+                .upsert_daily_metrics(vec![DailyMetricInput {
+                    occurred_at: at,
+                    details,
+                    note: None,
+                    actor: "test".into(),
+                    expected_updated_at: None,
+                }])
+                .unwrap();
+        }
     };
     create(
         1,
         HealthEventDetails::Symptom(
-            SymptomAttributes::overall_condition("Condition", 8, None).unwrap(),
+            SymptomAttributes::overall_condition("Overall condition", 8, None).unwrap(),
         ),
     );
     create(
@@ -358,9 +388,9 @@ async fn health_categories_and_diet_tags_cannot_be_displaced_by_other_rows() {
     );
     for index in 0..101 {
         create(
-            10 + index,
+            10 + index * 86400,
             HealthEventDetails::Weight(
-                WeightAttributes::body_weight("Weight", 70.0, "kg").unwrap(),
+                WeightAttributes::body_weight("Body weight", 70.0, "kg").unwrap(),
             ),
         );
     }

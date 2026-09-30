@@ -357,7 +357,7 @@ fn field_value(item: &TodoItem, labels: &HashMap<String, String>, field: Field) 
         Field::Title => one(Some(&item.title)),
         Field::Status => one(Some(item.status.as_str())),
         Field::Tags => Value::Many(item.tags.clone()),
-        Field::Note => one(item.note.as_deref()),
+        Field::Note => one(item.note.as_deref().or(item.description.as_deref())),
         Field::Area => Value::Many(relation(item.area_id.as_ref(), labels)),
         Field::Due => Value::One(
             item.due

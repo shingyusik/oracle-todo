@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Json;
@@ -17,7 +16,9 @@ use tower::ServiceExt;
 use crate::application::error::TodoError;
 use crate::application::service::TodoService;
 use crate::domain::Actor;
-use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema};
+use crate::infrastructure::sqlite::{
+    SqliteTodoRepository, connect, connect_read_only, init_schema,
+};
 
 mod dto;
 mod handlers;
@@ -34,8 +35,11 @@ pub(super) struct ApiState {
 pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
     let (db_path, keeper) = api_db_path(db_path.as_ref())?;
     let state = ApiState { db_path, keeper };
-    let preferences_router = backend::api::router(state.db_path.clone());
-    Ok(Router::new()
+    Ok(routes(state))
+}
+
+fn routes(state: ApiState) -> Router {
+    Router::new()
         .route("/health", get(health))
         .route("/areas", post(create_area))
         .route("/goals/propose", post(propose_goal))
@@ -48,9 +52,7 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/table/query", post(query_table))
         .route("/table/lookups", get(table_lookups))
         .route("/items/archive", get(archive_items))
-        .route("/views/agenda", get(view_agenda))
-        .route("/views/date-range", get(view_date_range))
-        .route("/views/period", get(view_period))
+        .route("/items/:id/history", get(item_history))
         .route("/items/:id", patch(update_item))
         .route("/items/:id/pause", post(pause_item))
         .route("/items/:id/miss", post(miss_item))
@@ -59,55 +61,33 @@ pub fn router(db_path: impl AsRef<Path>) -> Result<Router> {
         .route("/items/:id/complete", post(complete_item))
         .route("/items/:id/reopen", post(reopen_item))
         .route("/items/:id/archive", post(archive_item))
-        .route("/items/:id/drop", post(drop_item))
-        .route("/items/:id/cancel", post(cancel_item))
         .with_state(state)
-        .merge(preferences_router))
 }
 
-/// Builds the composable Raven adapter without opening or creating the ToDo DB.
-///
-/// The existing router is constructed and driven entirely on a blocking worker
-/// so its synchronous SQLite service never runs on an async executor thread.
+/// Runs synchronous SQLite handlers on a blocking worker without initializing stores.
 pub fn raven_router(db_path: impl AsRef<Path>) -> Router {
-    let db_path = db_path.as_ref().to_path_buf();
-    let legacy_router = Arc::new(tokio::sync::OnceCell::<Router>::new());
+    let router = if db_path.as_ref() == Path::new(":memory:") {
+        router(db_path).unwrap_or_else(|_| {
+            Router::new().fallback(|| async {
+                ApiError::from(anyhow::anyhow!("ToDo memory store initialization failed"))
+            })
+        })
+    } else {
+        routes(ApiState {
+            db_path: db_path.as_ref().to_path_buf(),
+            keeper: None,
+        })
+    };
     Router::new().fallback(move |request: Request<Body>| {
-        let db_path = db_path.clone();
-        let legacy_router = Arc::clone(&legacy_router);
+        let router = router.clone();
         async move {
-            let router = if let Some(router) = legacy_router.get() {
-                router.clone()
-            } else {
-                tokio::spawn(async move {
-                    legacy_router
-                        .get_or_try_init(|| async move {
-                            tokio::task::spawn_blocking(move || -> ApiResult<Router> {
-                                if let Some(parent) = db_path.parent() {
-                                    std::fs::create_dir_all(parent)
-                                        .context("could not prepare ToDo database directory")?;
-                                }
-                                router(db_path).map_err(ApiError::from)
-                            })
-                            .await
-                            .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))?
-                        })
-                        .await
-                        .cloned()
-                })
-                .await
-                .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))??
-            };
-            let result: std::result::Result<Response, ApiError> =
-                tokio::task::spawn_blocking(move || -> ApiResult<Response> {
-                    let handle = tokio::runtime::Handle::current();
-                    handle
-                        .block_on(router.oneshot(request))
-                        .map_err(|never| match never {})
-                })
-                .await
-                .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))?;
-            result
+            tokio::task::spawn_blocking(move || -> ApiResult<Response> {
+                tokio::runtime::Handle::current()
+                    .block_on(router.oneshot(request))
+                    .map_err(|never| match never {})
+            })
+            .await
+            .map_err(|_| ApiError::from(anyhow::anyhow!("ToDo worker failed")))?
         }
     })
 }
@@ -157,6 +137,19 @@ pub(super) fn with_service<T>(
     action: impl FnOnce(&mut TodoService) -> crate::application::error::TodoResult<T>,
 ) -> ApiResult<T> {
     let mut service = service(state)?;
+    action(&mut service).map_err(Into::into)
+}
+
+pub(super) fn with_read_service<T>(
+    state: &ApiState,
+    action: impl FnOnce(&mut TodoService) -> crate::application::error::TodoResult<T>,
+) -> ApiResult<T> {
+    let path = state
+        .db_path
+        .to_str()
+        .context("invalid ToDo database path")?;
+    let conn = connect_read_only(path)?;
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(conn));
     action(&mut service).map_err(Into::into)
 }
 

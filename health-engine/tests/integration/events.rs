@@ -3,8 +3,8 @@ use health_engine::application::error::HealthError;
 use health_engine::application::ports::{EventQuery, Page};
 use health_engine::application::service::HealthService;
 use health_engine::domain::{
-    BowelAttributes, HealthCategory, HealthEventDetails, LabAttributes, MedicationAttributes,
-    MedicationUnit, SleepAttributes, SleepValue, SymptomAttributes, WeightAttributes,
+    BowelAttributes, HealthCategory, HealthEventDetails, MedicationAttributes, MedicationUnit,
+    SymptomAttributes, WeightAttributes,
 };
 use health_engine::infrastructure::media::LocalMediaStore;
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
@@ -18,14 +18,6 @@ fn creates_reads_and_filters_every_supported_category() {
         HealthEventDetails::Bowel(BowelAttributes::new(4, false).unwrap()),
         HealthEventDetails::Medication(
             MedicationAttributes::new("Vitamin D", 1.0, MedicationUnit::Tablet).unwrap(),
-        ),
-        HealthEventDetails::Weight(WeightAttributes::body_weight("Weight", 68.2, "kg").unwrap()),
-        HealthEventDetails::Sleep(
-            SleepAttributes::sleep_duration("Sleep", SleepValue::hours(7.5).unwrap()).unwrap(),
-        ),
-        HealthEventDetails::Lab(LabAttributes::new("crp", "CRP", 0.3, Some("mg/L")).unwrap()),
-        HealthEventDetails::Symptom(
-            SymptomAttributes::new("headache", "Headache", 3, None).unwrap(),
         ),
     ];
 
@@ -52,15 +44,6 @@ fn creates_reads_and_filters_every_supported_category() {
         .list_events(EventQuery::new(Page::default()).with_category(HealthCategory::Medication))
         .unwrap();
     assert_eq!(medication, vec![created[1].clone()]);
-    let crp = service
-        .list_events(
-            EventQuery::new(Page::default())
-                .with_metric_key("CRP")
-                .unwrap(),
-        )
-        .unwrap();
-    assert_eq!(crp, vec![created[4].clone()]);
-
     for event in created {
         let audit = service
             .audit_for("health_event", event.id().as_str(), Page::default())
@@ -138,9 +121,7 @@ fn regular_update_keeps_category_and_metric_identity_stable() {
     let before = service
         .create_event(CreateHealthEvent {
             occurred_at: datetime!(2026-07-30 09:00:00 +09:00),
-            details: HealthEventDetails::Weight(
-                WeightAttributes::body_weight("Weight", 68.2, "kg").unwrap(),
-            ),
+            details: HealthEventDetails::Bowel(BowelAttributes::new(4, false).unwrap()),
             note: None,
             actor: "integration-test".to_string(),
         })

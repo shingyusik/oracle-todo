@@ -137,7 +137,7 @@ async fn post_json(app: &axum::Router, path: &str, value: Value) -> axum::respon
 async fn transaction_analysis_uses_validated_filters_and_ignores_paging() {
     let (_temp, app) = app();
     let created = post_json(&app, "/api/v1/ledger/entries", json!({
-        "date":"2026-08-21", "written_at":"2026-08-21T00:00:00Z", "content":"Subscription",
+        "date":"2026-08-21", "content":"Subscription",
         "category":"Food", "account":"Wallet", "entry_type":"expense", "amount":"12000", "currency":"KRW"
     })).await;
     assert_eq!(created.status(), StatusCode::CREATED);
@@ -185,7 +185,7 @@ async fn table_query_serves_all_ledger_scopes_without_changing_legacy_lists() {
             &app,
             "/api/v1/ledger/entries",
             json!({
-                "date":"2026-08-21", "written_at":"2026-08-21T00:00:00Z",
+                "date":"2026-08-21",
                 "content":"Lunch", "category":"Food", "account":"Wallet",
                 "entry_type":"expense", "amount":"12000", "currency":"KRW"
             }),
@@ -322,7 +322,7 @@ async fn table_query_validates_scope_filter_values_and_local_relative_dates() {
     );
 
     let create = json!({
-        "date": "2026-01-02", "written_at": "2025-12-31T23:30:00Z",
+        "date": "2026-01-02",
         "content": "local-calendar", "category": "Food", "account": "Wallet",
         "entry_type": "expense", "amount": "1", "currency": "KRW"
     });
@@ -426,7 +426,6 @@ async fn create_entry_uses_service_and_writes_audit() {
         .body(Body::from(
             json!({
                 "date": "2026-07-31",
-                "written_at": "2026-07-31T01:00:00Z",
                 "content": "Lunch",
                 "category": "Food",
                 "account": "Wallet",
@@ -472,68 +471,6 @@ async fn unknown_fields_and_oversized_json_are_rejected() {
         app.oneshot(oversized).await.unwrap().status(),
         StatusCode::PAYLOAD_TOO_LARGE
     );
-}
-
-#[tokio::test]
-async fn reports_and_purge_preview_have_stable_surfaces() {
-    let (_temp, app) = app();
-    for path in [
-        "/api/v1/ledger/reports/compare?current_from=2026-07-01&current_to=2026-07-31&previous_from=2026-06-01&previous_to=2026-06-30",
-        "/api/v1/ledger/reports/briefing?from=2026-07-01&to=2026-07-31",
-    ] {
-        let response = app
-            .clone()
-            .oneshot(Request::get(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    let create = Request::post("/api/v1/ledger/entries")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            json!({
-                "date": "2026-07-31",
-                "written_at": "2026-07-31T01:00:00Z",
-                "content": "Lunch",
-                "category": "Food",
-                "account": "Wallet",
-                "entry_type": "expense",
-                "amount": "12000",
-                "currency": "KRW"
-            })
-            .to_string(),
-        ))
-        .unwrap();
-    let id = body(app.clone().oneshot(create).await.unwrap()).await["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let comparison = app
-        .clone()
-        .oneshot(
-            Request::get(
-                "/api/v1/ledger/reports/compare?current_from=2026-07-01&current_to=2026-07-31&previous_from=2026-06-01&previous_to=2026-06-30",
-            )
-            .body(Body::empty())
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(comparison.status(), StatusCode::OK);
-    let comparison = body(comparison).await;
-    assert_eq!(comparison["current"]["currencies"][0]["decimal_places"], 0);
-    assert_eq!(comparison["currencies"][0]["current"]["decimal_places"], 0);
-    let response = app
-        .oneshot(
-            Request::get(format!("/api/v1/ledger/entries/{id}/purge"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(body(response).await["confirmation_id"], id);
 }
 
 #[tokio::test]
@@ -645,23 +582,6 @@ async fn account_balances_preserve_precision_for_an_inactive_currency() {
 #[tokio::test]
 async fn report_comparison_accepts_presets_and_equal_length_custom_ranges() {
     let (_temp, app) = app();
-    let legacy = app
-        .clone()
-        .oneshot(
-            Request::get(
-                "/api/v1/ledger/reports/compare?current_from=2026-07-01&current_to=2026-07-31&previous_from=2026-06-01&previous_to=2026-06-30",
-            )
-            .body(Body::empty())
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(legacy.status(), StatusCode::OK);
-    assert_eq!(
-        body(legacy).await["current"]["range"]["start"],
-        json!([2026, 182])
-    );
-
     let preset = app
         .clone()
         .oneshot(
@@ -698,11 +618,9 @@ async fn report_trend_returns_stable_empty_series_and_rejects_unsafe_queries() {
     let response = app
         .clone()
         .oneshot(
-            Request::get(
-                "/api/v1/ledger/reports/trend?from=2026-07-01&to=2026-07-31&granularity=daily",
-            )
-            .body(Body::empty())
-            .unwrap(),
+            Request::get("/api/v1/ledger/reports/trend?from=2026-07-01&to=2026-07-31")
+                .body(Body::empty())
+                .unwrap(),
         )
         .await
         .unwrap();
@@ -714,7 +632,6 @@ async fn report_trend_returns_stable_empty_series_and_rejects_unsafe_queries() {
     for path in [
         "/api/v1/ledger/reports/trend?from=2026-07-31&to=2026-07-01",
         "/api/v1/ledger/reports/trend?from=2026-07-01&to=2026-07-31&granularity=hourly",
-        "/api/v1/ledger/reports/trend?from=2024-01-01&to=2025-01-01&granularity=daily",
         "/api/v1/ledger/reports/compare?period=custom&from=2026-07-01",
         "/api/v1/ledger/reports/compare?period=current_month&unexpected=value",
     ] {
@@ -755,7 +672,6 @@ async fn reserved_transfer_row_types_are_rejected_at_create_and_update_boundarie
             .body(Body::from(
                 json!({
                     "date": "2026-07-31",
-                    "written_at": "2026-07-31T01:00:00Z",
                     "content": "hostile",
                     "account": "Wallet",
                     "entry_type": entry_type,
@@ -827,7 +743,6 @@ async fn entry_update_preserves_explicit_null_clear_semantics() {
         .body(Body::from(
             json!({
                 "date": "2026-07-31",
-                "written_at": "2026-07-31T01:00:00Z",
                 "content": "Salary",
                 "category": "Salary",
                 "account": "Wallet",
@@ -861,7 +776,6 @@ async fn update_transfer_changes_the_pair_through_one_strict_safe_route() {
             json!({
                 "operation_key": "10000000-0000-4000-8000-000000000001",
                 "date": "2026-07-31",
-                "written_at": "2026-07-31T01:00:00Z",
                 "content": "Move savings",
                 "from_account": "Wallet",
                 "to_account": "Savings",
@@ -937,48 +851,146 @@ async fn update_transfer_changes_the_pair_through_one_strict_safe_route() {
 }
 
 #[tokio::test]
-async fn reference_update_preview_and_purge_roundtrip() {
+async fn entry_public_metadata_and_adjustments_are_rejected_without_mutation() {
     let (_temp, app) = app();
-    let create = Request::post("/api/v1/ledger/currencies")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            json!({
-                "code": "USD",
-                "name": "US Dollar",
-                "symbol": "$",
-                "decimal_places": 2
-            })
-            .to_string(),
-        ))
-        .unwrap();
-    let id = body(app.clone().oneshot(create).await.unwrap()).await["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let update = Request::patch(format!("/api/v1/ledger/currencies/{id}"))
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"active":false}"#))
-        .unwrap();
-    assert_eq!(
-        app.clone().oneshot(update).await.unwrap().status(),
-        StatusCode::OK
-    );
-    let preview = app
+    let base = json!({"date":"2026-09-30","content":"policy","category":"Food","account":"Wallet","entry_type":"expense","amount":"1","currency":"KRW"});
+    for (field, value) in [
+        ("written_at", json!("2020-01-01T00:00:00Z")),
+        ("source", json!("caller")),
+        ("actor", json!("caller")),
+        ("reason", json!("caller")),
+        ("entry_type", json!("adjustment_out")),
+        ("entry_type", json!("adjustment_in")),
+    ] {
+        let mut payload = base.clone();
+        payload[field] = value;
+        assert_eq!(
+            post_json(&app, "/api/v1/ledger/entries", payload)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let response = app
         .clone()
         .oneshot(
-            Request::get(format!("/api/v1/ledger/currencies/{id}/purge"))
+            Request::get("/api/v1/ledger/entries")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(body(preview).await["confirmation_id"], id);
-    let purge = Request::delete(format!("/api/v1/ledger/currencies/{id}"))
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(json!({"confirmation": id}).to_string()))
-        .unwrap();
-    assert_eq!(
-        app.oneshot(purge).await.unwrap().status(),
-        StatusCode::NO_CONTENT
-    );
+    assert_eq!(body(response).await["items"], json!([]));
+    for path in [
+        "/api/v1/ledger/reports/briefing",
+        "/api/v1/ledger/reports/accounts",
+        "/api/v1/ledger/entries/missing/purge",
+        "/api/v1/ledger/currencies/missing/purge",
+    ] {
+        assert_eq!(
+            app.clone()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+}
+
+#[tokio::test]
+async fn inactive_master_pages_are_opt_in_bounded_and_reactivation_is_audited() {
+    let (_temp, app) = app();
+    for (path, payload) in [
+        (
+            "currencies",
+            json!({"code":"OLD","name":"Inactive","symbol":"O","decimal_places":0}),
+        ),
+        ("account-categories", json!({"name":"Inactive"})),
+        (
+            "accounts",
+            json!({"name":"Inactive","category":"Cash","currency":"KRW","opening_balance":"0"}),
+        ),
+        (
+            "transaction-categories",
+            json!({"name":"Inactive","kind":"expense"}),
+        ),
+    ] {
+        let root = format!("/api/v1/ledger/{path}");
+        let created = post_json(&app, &root, payload).await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let id = body(created).await["id"].as_str().unwrap().to_string();
+        let patch = |active| {
+            Request::patch(format!("{root}/{id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"active":active}).to_string()))
+                .unwrap()
+        };
+        assert_eq!(
+            app.clone().oneshot(patch(false)).await.unwrap().status(),
+            StatusCode::OK
+        );
+        let default = app
+            .clone()
+            .oneshot(Request::get(&root).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert!(
+            body(default).await["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["id"] != id)
+        );
+        let mut offset = 0;
+        let mut found = false;
+        loop {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!(
+                        "{root}?include_inactive=true&limit=1&offset={offset}"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let page = body(response).await;
+            assert!(page["items"].as_array().unwrap().len() <= 1);
+            found |= page["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == id && item["active"] == false);
+            match page["next_offset"].as_u64() {
+                Some(next) => offset = next,
+                None => break,
+            }
+        }
+        assert!(found, "inactive {path} missing");
+        assert_eq!(
+            app.clone().oneshot(patch(true)).await.unwrap().status(),
+            StatusCode::OK
+        );
+        let record_type = match path {
+            "currencies" => "currency",
+            "account-categories" => "account_category",
+            "accounts" => "account",
+            _ => "transaction_category",
+        };
+        let audit = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/api/v1/ledger/audit/{record_type}/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let events = body(audit).await;
+        assert_eq!(events["items"].as_array().unwrap().len(), 3);
+        assert_eq!(events["items"][2]["after"]["active"], true);
+    }
 }

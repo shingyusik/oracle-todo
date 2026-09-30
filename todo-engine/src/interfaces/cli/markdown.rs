@@ -1,10 +1,4 @@
-use time::Date;
-use time::format_description::parse as parse_format_description;
-
-use crate::application::error::{TodoError, TodoResult};
-use crate::application::ports::ListFilter;
-use crate::application::service::TodoService;
-use crate::domain::{ItemStatus, ItemType, TodoItem};
+use crate::domain::{ItemStatus, TodoItem};
 
 pub(super) fn render_items(title: &str, items: &[TodoItem]) -> String {
     let mut lines = vec![format!("# {title}"), String::new()];
@@ -15,6 +9,7 @@ pub(super) fn render_items(title: &str, items: &[TodoItem]) -> String {
 
     for item in items {
         let mut meta = vec![
+            format!("id:{}", item.id),
             item.item_type.as_str().to_string(),
             item.status.as_str().to_string(),
         ];
@@ -52,42 +47,6 @@ pub(super) fn render_items(title: &str, items: &[TodoItem]) -> String {
     finish_markdown(lines)
 }
 
-pub(super) fn pending_items(service: &mut TodoService) -> TodoResult<Vec<TodoItem>> {
-    service.list_items(ListFilter {
-        status: Some(ItemStatus::Active),
-        ..Default::default()
-    })
-}
-
-pub(super) fn current_today_items(
-    service: &mut TodoService,
-    today: &str,
-) -> TodoResult<Vec<TodoItem>> {
-    service.materialize_routines(today)?;
-    let items = service.list_items(ListFilter {
-        item_type: Some(ItemType::Task),
-        ..Default::default()
-    })?;
-    today_tasks(&items, today)
-}
-
-fn today_tasks(items: &[TodoItem], today: &str) -> TodoResult<Vec<TodoItem>> {
-    let today = parse_day(today)
-        .ok_or_else(|| TodoError::Validation(format!("Invalid today date: {today}")))?;
-    let visible_statuses = [ItemStatus::Active];
-
-    Ok(items
-        .iter()
-        .filter(|item| item.item_type == ItemType::Task)
-        .filter(|item| visible_statuses.contains(&item.status))
-        .filter(|item| match item.scheduled.as_deref() {
-            None | Some("today") => true,
-            Some(value) => parse_scheduled_day(value).is_some_and(|scheduled| scheduled <= today),
-        })
-        .cloned()
-        .collect())
-}
-
 fn checkbox(item: &TodoItem) -> &'static str {
     if item.status == ItemStatus::Completed {
         "x"
@@ -113,15 +72,6 @@ fn participants_label(item: &TodoItem) -> Option<String> {
             .collect::<Vec<_>>()
             .join(","),
     )
-}
-
-fn parse_scheduled_day(value: &str) -> Option<Date> {
-    parse_day(value.get(..10)?)
-}
-
-fn parse_day(value: &str) -> Option<Date> {
-    let format = parse_format_description("[year]-[month]-[day]").ok()?;
-    Date::parse(value, &format).ok()
 }
 
 fn finish_markdown(lines: Vec<String>) -> String {

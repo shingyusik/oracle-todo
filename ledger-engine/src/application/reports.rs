@@ -202,12 +202,6 @@ pub struct LedgerTrend {
     pub currencies: Vec<CurrencyTrend>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LedgerBriefing {
-    pub summary: LedgerSummary,
-    pub markdown: String,
-}
-
 #[allow(private_bounds)]
 impl<R: LedgerReadRepository> LedgerService<R> {
     pub fn monthly_summary(&self, month: YearMonth) -> LedgerResult<LedgerSummary> {
@@ -222,10 +216,6 @@ impl<R: LedgerReadRepository> LedgerService<R> {
             .map(currency_summary)
             .collect();
         Ok(LedgerSummary { range, currencies })
-    }
-
-    pub fn account_breakdown(&self, range: ReportRange) -> LedgerResult<Vec<BreakdownRow>> {
-        breakdown_rows(self.repository.account_breakdown(range.start, range.end)?)
     }
 
     pub fn category_breakdown(&self, range: ReportRange) -> LedgerResult<Vec<BreakdownRow>> {
@@ -297,30 +287,6 @@ impl<R: LedgerReadRepository> LedgerService<R> {
             range,
             granularity,
             currencies,
-        })
-    }
-
-    pub fn briefing(&self, range: ReportRange) -> LedgerResult<LedgerBriefing> {
-        let summary = self.summary(range)?;
-        let mut lines = vec![
-            "# Ledger briefing".to_string(),
-            format!("{} — {}", range.start, range.end),
-        ];
-        for currency in &summary.currencies {
-            lines.push(format!(
-                "{}: income {}, expense {}, net {}",
-                currency.currency_code,
-                currency.income_minor,
-                currency.expense_minor,
-                currency.net_change_minor
-            ));
-        }
-        if summary.currencies.is_empty() {
-            lines.push("No ledger activity.".to_string());
-        }
-        Ok(LedgerBriefing {
-            summary,
-            markdown: lines.join("\n"),
         })
     }
 }

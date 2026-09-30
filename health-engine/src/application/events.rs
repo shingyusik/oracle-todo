@@ -36,6 +36,15 @@ impl<R: HealthReadRepository, M: MediaStore> HealthService<R, M> {
 #[allow(private_bounds)]
 impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
     pub fn create_event(&mut self, command: CreateHealthEvent) -> HealthResult<HealthEvent> {
+        if !matches!(
+            command.details,
+            HealthEventDetails::Bowel(_) | HealthEventDetails::Medication(_)
+        ) {
+            return Err(validation(
+                "details",
+                "metrics must use the canonical daily save operation",
+            ));
+        }
         validate_actor(&command.actor)?;
         let input = NewHealthEvent::new(
             command.occurred_at,
@@ -76,6 +85,15 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
             .repository
             .get_event(id, false)?
             .ok_or_else(|| HealthError::NotFound(format!("health event {id}")))?;
+        if !matches!(
+            observed.category(),
+            crate::domain::HealthCategory::Bowel | crate::domain::HealthCategory::Medication
+        ) {
+            return Err(validation(
+                "details",
+                "metrics must use the canonical daily save operation",
+            ));
+        }
         ensure_expected_version(&observed, command.expected_updated_at)?;
         let input = NewHealthEvent::new(
             command
@@ -174,6 +192,13 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
                         input.input.metric_key(),
                     )?;
                     if let Some(before) = &before {
+                        if input.expected_updated_at.is_none() {
+                            return Err(HealthError::Validation {
+                                field: "expected_updated_at",
+                                message: "required when replacing an existing daily metric"
+                                    .to_string(),
+                            });
+                        }
                         ensure_expected_version(before, input.expected_updated_at)?;
                     } else if input.expected_updated_at.is_some() {
                         return Err(HealthError::Conflict(
@@ -218,6 +243,13 @@ impl ValidatedDailyMetric {
                 "supports only weight, sleep, lab, and overall_condition",
             ));
         }
+        validate_daily_details(&input.details)?;
+        if input.note.is_some() {
+            return Err(validation(
+                "note",
+                "daily metrics use only overall condition notes",
+            ));
+        }
         let event = NewHealthEvent::new(input.occurred_at, input.details, input.note.as_deref())?;
         let local_date = checked_local_date(event.occurred_at(), local_offset)?;
         Ok(Self {
@@ -238,6 +270,47 @@ fn is_daily_metric(details: &HealthEventDetails) -> bool {
             attributes.metric_key().as_str() == "overall_condition"
         }
         HealthEventDetails::Bowel(_) | HealthEventDetails::Medication(_) => false,
+    }
+}
+
+/// Canonical identities shared by daily mutations, projections, and legacy inspection.
+pub(crate) fn canonical_daily_metric(event: &HealthEvent) -> bool {
+    event
+        .details()
+        .is_ok_and(|details| validate_daily_details(&details).is_ok())
+        && event.note().is_none()
+}
+fn validate_daily_details(details: &HealthEventDetails) -> HealthResult<()> {
+    let valid = match details {
+        HealthEventDetails::Weight(a) => {
+            a.metric_key().as_str() == "body_weight"
+                && a.name() == "Body weight"
+                && a.unit() == "kg"
+        }
+        HealthEventDetails::Sleep(a) => {
+            a.metric_key().as_str() == "sleep_duration"
+                && matches!(a.name(), "Sleep" | "Sleep duration")
+        }
+        HealthEventDetails::Lab(a) => {
+            a.value() >= 0.0
+                && matches!(
+                    (a.metric_key().as_str(), a.name(), a.unit()),
+                    ("crp", "CRP", Some("mg/L"))
+                        | ("fecal_calprotectin", "Fecal calprotectin", Some("µg/g"))
+                )
+        }
+        HealthEventDetails::Symptom(a) => {
+            a.metric_key().as_str() == "overall_condition" && a.name() == "Overall condition"
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(validation(
+            "details",
+            "use the five canonical daily metric identities, names, units, and nonnegative lab values",
+        ))
     }
 }
 

@@ -7,6 +7,114 @@ use todo_engine::infrastructure::sqlite::SqliteTodoRepository;
 use todo_engine::infrastructure::sqlite::{connect, init_schema, user_version};
 
 #[test]
+fn bounded_list_pages_filter_before_limit_and_preserve_literal_search() {
+    use todo_engine::application::ports::{ItemPageQuery, ItemPageScope};
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut repo = SqliteTodoRepository::new(conn);
+    for (id, title) in [
+        ("01", "noise"),
+        ("02", "A_%"),
+        ("03", "a_%"),
+        ("04", "A_% tail"),
+        ("05", "A other"),
+    ] {
+        repo.save_item(&TodoItem::new_task(
+            id,
+            title,
+            Actor::User,
+            datetime!(2026-06-01 00:00 UTC),
+        ))
+        .unwrap();
+    }
+    let mut service = TodoService::persistent(repo);
+    let query = ItemPageQuery {
+        filter: ListFilter {
+            query: Some("A_%".into()),
+            ..Default::default()
+        },
+        scope: ItemPageScope::List,
+        offset: 0,
+        limit: 1,
+    };
+    let (first, next) = service.list_items_page(query.clone()).unwrap();
+    assert_eq!(first[0].id, "02");
+    assert_eq!(next, Some(1));
+    let (second, next) = service
+        .list_items_page(ItemPageQuery { offset: 1, ..query })
+        .unwrap();
+    assert_eq!(second[0].id, "04");
+    assert_eq!(next, None);
+}
+
+#[test]
+fn bounded_today_and_archive_pages_filter_before_offset() {
+    use todo_engine::application::ports::{ItemPageQuery, ItemPageScope};
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    let mut repo = SqliteTodoRepository::new(conn);
+    for (id, scheduled, status) in [
+        ("01", Some("2026-02-30"), ItemStatus::Active),
+        ("02", Some("2026-06-02"), ItemStatus::Active),
+        ("03", Some("2026-05-31T12:00:00Z"), ItemStatus::Active),
+        ("04", Some("today"), ItemStatus::Active),
+        ("05", None, ItemStatus::Completed),
+        ("06", None, ItemStatus::Archived),
+    ] {
+        let mut item = TodoItem::new_task(id, id, Actor::User, datetime!(2026-06-01 00:00 UTC));
+        item.scheduled = scheduled.map(str::to_string);
+        item.status = status;
+        repo.save_item(&item).unwrap();
+    }
+    let mut service = TodoService::persistent(repo);
+    let (items, next) = service
+        .list_items_page(ItemPageQuery {
+            filter: ListFilter::default(),
+            scope: ItemPageScope::Today(datetime!(2026-06-01 00:00 UTC).date()),
+            offset: 1,
+            limit: 1,
+        })
+        .unwrap();
+    assert_eq!(items[0].id, "04");
+    assert_eq!(next, None);
+    let (items, next) = service
+        .list_items_page(ItemPageQuery {
+            filter: ListFilter {
+                include_archived: true,
+                ..Default::default()
+            },
+            scope: ItemPageScope::Archive,
+            offset: 0,
+            limit: 1,
+        })
+        .unwrap();
+    assert_eq!(items[0].id, "05");
+    assert_eq!(next, Some(1));
+}
+
+#[test]
+fn bounded_page_does_not_deserialize_rows_beyond_lookahead() {
+    use todo_engine::application::ports::{ItemPageQuery, ItemPageScope};
+    let conn = connect(":memory:").unwrap();
+    init_schema(&conn).unwrap();
+    conn.execute_batch("INSERT INTO items (id, type, title, status, proposed_by, created_at, updated_at, metadata) VALUES
+        ('01', 'task', 'First', 'active', 'user', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z', '{}'),
+        ('02', 'task', 'Lookahead', 'active', 'user', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z', '{}'),
+        ('03', 'task', 'Outside page', 'active', 'user', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z', '{');").unwrap();
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(conn));
+    let (items, next) = service
+        .list_items_page(ItemPageQuery {
+            filter: ListFilter::default(),
+            scope: ItemPageScope::List,
+            offset: 0,
+            limit: 1,
+        })
+        .unwrap();
+    assert_eq!(items[0].id, "01");
+    assert_eq!(next, Some(1));
+}
+
+#[test]
 fn init_schema_creates_items_and_events_tables() {
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();

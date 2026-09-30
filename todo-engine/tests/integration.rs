@@ -1,5 +1,3 @@
-#[path = "integration/date_view.rs"]
-mod date_view;
 #[path = "integration/events.rs"]
 mod events;
 #[path = "integration/goal_policy.rs"]
@@ -10,8 +8,6 @@ mod goal_roundtrip;
 mod goal_view;
 #[path = "integration/materialization.rs"]
 mod materialization;
-#[path = "integration/period_view.rs"]
-mod period_view;
 #[path = "integration/repository.rs"]
 mod repository;
 #[path = "integration/schema_indexes.rs"]

@@ -14,10 +14,9 @@ use crate::application::ports::{
     AuditActivity, AuditEvent, EventClass, EventQuery, HealthMutationRepository,
     HealthReadRepository, HealthRepository, HealthTransaction, MediaFileRecord, Page,
 };
-use crate::application::queries::{HealthQuery, TimelineItem};
+use crate::application::queries::HealthRecord;
 use crate::application::reports::ReportRecords;
 use crate::application::table::{HealthTableQuery, HealthTableRow, TablePage};
-use crate::application::trends::TrendRecords;
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, MetricKey};
 
 impl HealthRepository for SqliteHealthRepository {}
@@ -118,17 +117,8 @@ impl HealthReadRepository for SqliteHealthRepository {
         )
     }
 
-    fn timeline(&self, query: &HealthQuery) -> HealthResult<Vec<TimelineItem>> {
-        timeline_on(&self.connection, query)
-    }
-
-    fn trend_records(
-        &self,
-        start_exclusive: time::OffsetDateTime,
-        end_inclusive: time::OffsetDateTime,
-        limit: u32,
-    ) -> HealthResult<TrendRecords> {
-        trend_records_on(&self.connection, start_exclusive, end_inclusive, limit)
+    fn records(&self, page: Page) -> HealthResult<Vec<HealthRecord>> {
+        records_on(&self.connection, page)
     }
 
     fn report_records(
@@ -349,14 +339,6 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
         Ok(())
     }
 
-    fn delete_diet(&mut self, id: &str) -> HealthResult<()> {
-        let changed = self
-            .transaction
-            .execute("DELETE FROM diet_entries WHERE id = ?1", [id])
-            .map_err(storage_error)?;
-        ensure_changed(changed, "diet entry", id)
-    }
-
     fn insert_event(
         &mut self,
         event: &HealthEvent,
@@ -427,14 +409,6 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
             )
             .map_err(storage_error)?;
         ensure_changed(changed, "health event", event.id().as_str())
-    }
-
-    fn delete_event(&mut self, id: &str) -> HealthResult<()> {
-        let changed = self
-            .transaction
-            .execute("DELETE FROM health_events WHERE id = ?1", [id])
-            .map_err(storage_error)?;
-        ensure_changed(changed, "health event", id)
     }
 
     fn insert_audit_event(&mut self, event: &AuditEvent) -> HealthResult<()> {
@@ -626,117 +600,38 @@ fn list_events_on(
     )
 }
 
-fn timeline_on(connection: &Connection, query: &HealthQuery) -> HealthResult<Vec<TimelineItem>> {
-    let from = query.from().map(format_time).transpose()?;
-    let to = query.to().map(format_time).transpose()?;
-    let category = query.category().map(category_value);
-    let sql = "
-        SELECT kind, id
-        FROM (
-            SELECT 'diet' AS kind, id, occurred_at
-            FROM diet_entries
-            WHERE (?1 = 1 OR deleted_at IS NULL)
-              AND ?4 IS NULL
-              AND (?2 IS NULL OR occurred_at >= ?2)
-              AND (?3 IS NULL OR occurred_at <= ?3)
-            UNION ALL
-            SELECT 'health_event' AS kind, id, occurred_at
-            FROM health_events
-            WHERE (?1 = 1 OR deleted_at IS NULL)
-              AND (?4 IS NULL OR category = ?4)
-              AND (?2 IS NULL OR occurred_at >= ?2)
-              AND (?3 IS NULL OR occurred_at <= ?3)
-        )
-        ORDER BY occurred_at DESC, kind ASC, id ASC
-        LIMIT ?5 OFFSET ?6";
+fn records_on(connection: &Connection, page: Page) -> HealthResult<Vec<HealthRecord>> {
+    let sql = "SELECT kind,id FROM (
+        SELECT 'diet' AS kind,id,occurred_at FROM diet_entries
+        UNION ALL SELECT 'health_event' AS kind,id,occurred_at FROM health_events
+    ) ORDER BY occurred_at DESC,kind ASC,id ASC LIMIT ?1 OFFSET ?2";
     let mut statement = connection.prepare(sql).map_err(storage_error)?;
     let mut rows = statement
-        .query(params![
-            query.includes_archived(),
-            from,
-            to,
-            category,
-            i64::from(query.page().limit()),
-            i64::from(query.page().offset()),
-        ])
+        .query(params![i64::from(page.limit()), i64::from(page.offset())])
         .map_err(storage_error)?;
     let mut items = Vec::new();
     while let Some(row) = rows.next().map_err(storage_error)? {
         let kind = row.get::<_, String>(0).map_err(storage_error)?;
         let id = row.get::<_, String>(1).map_err(storage_error)?;
         items.push(match kind.as_str() {
-            "diet" => TimelineItem::Diet {
+            "diet" => HealthRecord::Diet {
                 record: get_diet_on(connection, &id, true)?.ok_or_else(|| {
-                    HealthError::Storage(format!("timeline diet {id} disappeared"))
+                    HealthError::Storage(format!("inspected diet {id} disappeared"))
                 })?,
             },
-            "health_event" => TimelineItem::HealthEvent {
+            "health_event" => HealthRecord::HealthEvent {
                 record: get_event_on(connection, &id, true)?.ok_or_else(|| {
-                    HealthError::Storage(format!("timeline event {id} disappeared"))
+                    HealthError::Storage(format!("inspected event {id} disappeared"))
                 })?,
             },
             _ => {
                 return Err(HealthError::Storage(
-                    "timeline returned an unknown record kind".to_string(),
+                    "record inspection returned an unknown record kind".to_string(),
                 ));
             }
         });
     }
     Ok(items)
-}
-
-fn trend_records_on(
-    connection: &Connection,
-    start_exclusive: time::OffsetDateTime,
-    end_inclusive: time::OffsetDateTime,
-    limit: u32,
-) -> HealthResult<TrendRecords> {
-    let start = format_time(start_exclusive)?;
-    let end = format_time(end_inclusive)?;
-    let requested = i64::from(limit) + 1;
-    let diet_sql = format!(
-        "SELECT {DIET_COLUMNS}
-         FROM diet_entries
-         WHERE deleted_at IS NULL AND occurred_at > ?1 AND occurred_at <= ?2
-         ORDER BY occurred_at, id
-         LIMIT ?3"
-    );
-    let mut statement = connection.prepare(&diet_sql).map_err(storage_error)?;
-    let mut rows = statement
-        .query(params![start, end, requested])
-        .map_err(storage_error)?;
-    let mut diets = Vec::new();
-    while let Some(row) = rows.next().map_err(storage_error)? {
-        let id = row.get::<_, String>(0).map_err(storage_error)?;
-        diets.push(row_to_diet(row, diet_tags_on(connection, &id)?)?);
-    }
-    if diets.len() > limit as usize {
-        return Err(HealthError::Validation {
-            field: "trends.records",
-            message: format!("result exceeds the {limit} record limit"),
-        });
-    }
-    let remaining = limit - diets.len() as u32;
-    let event_sql = format!(
-        "SELECT {EVENT_COLUMNS}
-         FROM health_events
-         WHERE deleted_at IS NULL AND occurred_at > ?1 AND occurred_at <= ?2
-         ORDER BY occurred_at, id
-         LIMIT ?3"
-    );
-    let events = collect_rows(
-        connection,
-        &event_sql,
-        params![start, end, i64::from(remaining) + 1],
-        row_to_event,
-    )?;
-    if events.len() > remaining as usize {
-        return Err(HealthError::Validation {
-            field: "trends.records",
-            message: format!("result exceeds the {limit} record limit"),
-        });
-    }
-    Ok(TrendRecords { diets, events })
 }
 
 fn report_records_on(
@@ -768,12 +663,7 @@ fn report_records_on(
         return Err(report_limit_error(limit));
     }
     let remaining = limit - diets.len() as u32;
-    let fixed = "(
-        (category = 'weight' AND metric_key = 'body_weight') OR
-        (category = 'sleep' AND metric_key = 'sleep_duration') OR
-        (category = 'lab' AND metric_key IN ('crp', 'fecal_calprotectin')) OR
-        (category = 'symptom' AND metric_key = 'overall_condition')
-    )";
+    let fixed = super::table_query::metric_identity_sql();
     let event_sql = format!(
         "SELECT {EVENT_COLUMNS}
          FROM health_events

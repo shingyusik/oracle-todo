@@ -23,6 +23,11 @@ const WEBP: &[u8] = &[
 
 fn app() -> (tempfile::TempDir, axum::Router) {
     let temp = tempfile::tempdir().unwrap();
+    health_engine::infrastructure::sqlite::SqliteHealthRepository::open(
+        temp.path().join("health.sqlite"),
+    )
+    .unwrap();
+    health_engine::infrastructure::media::LocalMediaStore::new(temp.path().join("media")).unwrap();
     let config = RavenApiConfig {
         todo_db: temp.path().join("todo.sqlite"),
         ledger_db: temp.path().join("ledger.sqlite"),
@@ -414,7 +419,10 @@ async fn health_table_lookups_are_scope_bounded_compact_and_do_not_conflate_unta
                     "/api/v1/health/diet/{}/archive",
                     archived["id"].as_str().unwrap()
                 ))
-                .body(Body::empty())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"expected_updated_at":archived["updated_at"]}).to_string()
+                ))
                 .unwrap(),
             )
             .await
@@ -807,7 +815,7 @@ fn weight_metric(value: f64, expected_updated_at: Option<&str>) -> Value {
 fn lab_metric(key: &str, value: f64) -> Value {
     json!({
         "occurred_at": "2026-07-31T01:00:00Z",
-        "details": {"kind": "lab", "key": key, "name": key.to_uppercase(), "value": value}
+        "details": {"kind": "lab", "key": key, "name": if key == "crp" { "CRP" } else { "Fecal calprotectin" }, "value": value, "unit": if key == "crp" { "mg/L" } else { "µg/g" }}
     })
 }
 
@@ -926,8 +934,7 @@ async fn diet_image_update_replaces_supported_images_and_removes_image() {
     ] {
         let metadata = json!({
             "food_name": food_name,
-            "expected_updated_at": updated_at,
-            "reason": "replace meal photo"
+            "expected_updated_at": updated_at
         })
         .to_string();
         let response = app
@@ -953,7 +960,7 @@ async fn diet_image_update_replaces_supported_images_and_removes_image() {
     let audit = get_diet_audit(&app, id).await;
     let latest = audit["items"].as_array().unwrap().last().unwrap();
     assert_eq!(latest["action"], "update");
-    assert_eq!(latest["reason"], "replace meal photo");
+    assert_eq!(latest["reason"], Value::Null);
 
     let before_stale = get_diet(&app, id).await;
     let media_before_stale = media_entries(&temp.path().join("media"));
@@ -966,8 +973,7 @@ async fn diet_image_update_replaces_supported_images_and_removes_image() {
                     "x-raven-diet-metadata",
                     json!({
                         "food_name": "Stale Salad",
-                        "expected_updated_at": stale_updated_at,
-                        "reason": "stale replacement"
+                        "expected_updated_at": stale_updated_at
                     })
                     .to_string(),
                 )
@@ -992,8 +998,7 @@ async fn diet_image_update_replaces_supported_images_and_removes_image() {
                 .body(Body::from(
                     json!({
                         "remove_image": true,
-                        "expected_updated_at": updated_at,
-                        "reason": "remove meal photo"
+                        "expected_updated_at": updated_at
                     })
                     .to_string(),
                 ))
@@ -1079,42 +1084,33 @@ async fn diet_image_update_rejects_invalid_uploads_without_changing_entry() {
 #[tokio::test]
 async fn health_event_lifecycle_roundtrip_uses_service_policy() {
     let (_temp, app) = app();
-    let create = Request::post("/api/v1/health/events")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            json!({
-                "occurred_at": "2026-07-31T01:00:00Z",
-                "details": {
-                    "kind": "bowel",
-                    "bristol_scale": 4
-                }
-            })
-            .to_string(),
-        ))
-        .unwrap();
-    let id = body(app.clone().oneshot(create).await.unwrap()).await["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let mut event = post_health_event(
+        &app,
+        "2026-07-31T01:00:00Z",
+        json!({"kind":"bowel","bristol_scale":4}),
+    )
+    .await;
+    let id = event["id"].as_str().unwrap().to_string();
     for action in ["archive", "restore", "archive"] {
-        let response = app
-            .clone()
-            .oneshot(
-                Request::post(format!("/api/v1/health/events/{id}/{action}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = post_json(
+            &app,
+            &format!("/api/v1/health/events/{id}/{action}"),
+            json!({"expected_updated_at":event["updated_at"]}),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
+        event = body(response).await;
     }
-    let purge = Request::delete(format!("/api/v1/health/events/{id}/purge"))
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(json!({"confirmation": id}).to_string()))
-        .unwrap();
     assert_eq!(
-        app.oneshot(purge).await.unwrap().status(),
-        StatusCode::NO_CONTENT
+        app.oneshot(
+            Request::delete(format!("/api/v1/health/events/{id}/purge"))
+                .body(Body::empty())
+                .unwrap()
+        )
+        .await
+        .unwrap()
+        .status(),
+        StatusCode::NOT_FOUND
     );
 }
 
@@ -1165,7 +1161,7 @@ async fn health_reports_return_complete_engine_projection() {
             },
             {
                 "occurred_at": "2026-07-22T00:00:00Z",
-                "details": {"kind": "lab", "key": "fecal_calprotectin", "name": "Fecal calprotectin", "value": 40.0, "unit": "ug/g"}
+                "details": {"kind": "lab", "key": "fecal_calprotectin", "name": "Fecal calprotectin", "value": 40.0, "unit": "µg/g"}
             },
             {
                 "occurred_at": "2026-07-22T00:00:00Z",
@@ -1322,4 +1318,235 @@ async fn health_reports_reject_invalid_queries_without_leaking_details() {
         assert!(!rendered.contains("SELECT"), "{query}");
         assert!(!rendered.contains("raven_session"), "{query}");
     }
+}
+
+#[tokio::test]
+async fn canonical_writes_and_removed_adapters_are_enforced() {
+    let (_temp, app) = app();
+    for details in [
+        json!({"kind":"weight","value":68,"unit":"kg"}),
+        json!({"kind":"symptom","key":"headache","name":"Headache","score":3}),
+    ] {
+        let response = post_json(
+            &app,
+            "/api/v1/health/events",
+            json!({"occurred_at":"2026-09-30T03:00:00Z","details":details}),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    let response=post_json(&app,"/api/v1/health/metrics/daily",json!({"metrics":[{"occurred_at":"2026-09-30T03:00:00Z","details":{"kind":"lab","key":"crp","name":"CRP","value":-1,"unit":"mg/L"}}]})).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    for path in ["/api/v1/health/timeline", "/api/v1/health/trends"] {
+        assert_eq!(
+            app.clone()
+                .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let event = post_health_event(
+        &app,
+        "2026-09-30T03:00:00Z",
+        json!({"kind":"bowel","bristol_scale":4}),
+    )
+    .await;
+    let id = event["id"].as_str().unwrap();
+    let stale = post_json(
+        &app,
+        &format!("/api/v1/health/events/{id}/archive"),
+        json!({"expected_updated_at":"2000-01-01T00:00:00Z"}),
+    )
+    .await;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    let response = post_json(
+        &app,
+        &format!("/api/v1/health/events/{id}/archive"),
+        json!({"expected_updated_at":event["updated_at"]}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/health/records")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let records = body(response).await;
+    assert!(
+        records["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["record"]["id"] == id && !item["record"]["deleted_at"].is_null())
+    );
+}
+
+#[tokio::test]
+async fn saved_photos_are_integrity_checked_and_authenticated() {
+    let (temp, app) = app();
+    let metadata =
+        json!({"occurred_at":"2026-09-30T03:00:00Z","meal_type":"lunch","food_name":"Meal"});
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/health/diet/with-image")
+                .header(header::CONTENT_TYPE, "image/png")
+                .header("x-raven-diet-metadata", metadata.to_string())
+                .body(Body::from(PNG))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let entry = body(response).await;
+    let path = format!(
+        "/api/v1/health/diet/{}/image",
+        entry["id"].as_str().unwrap()
+    );
+    let response = app
+        .clone()
+        .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "image/png");
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    assert_eq!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        PNG
+    );
+    let unauthenticated = router(RavenApiConfig {
+        todo_db: temp.path().join("todo.sqlite"),
+        ledger_db: temp.path().join("ledger.sqlite"),
+        health_db: temp.path().join("health.sqlite"),
+        health_media_dir: temp.path().join("media"),
+        local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+        auth: AuthMode::UiSession {
+            token: "test".into(),
+        },
+    })
+    .unwrap();
+    assert_eq!(
+        unauthenticated
+            .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let archived = post_json(
+        &app,
+        &format!(
+            "/api/v1/health/diet/{}/archive",
+            entry["id"].as_str().unwrap()
+        ),
+        json!({"expected_updated_at":entry["updated_at"]}),
+    )
+    .await;
+    assert_eq!(archived.status(), StatusCode::OK);
+    assert_eq!(
+        app.clone()
+            .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let file = media_entries(&temp.path().join("media"))
+        .into_iter()
+        .find(|p| p.extension().is_some_and(|e| e == "png"))
+        .unwrap();
+    std::fs::write(file, b"corrupted").unwrap();
+    assert_eq!(
+        app.oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+#[tokio::test]
+async fn committed_photo_replacement_reports_saved_record_when_cleanup_fails() {
+    let (temp, app) = app();
+    let metadata =
+        json!({"occurred_at":"2026-09-30T03:00:00Z","meal_type":"lunch","food_name":"Meal"});
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/health/diet/with-image")
+                .header(header::CONTENT_TYPE, "image/png")
+                .header("x-raven-diet-metadata", metadata.to_string())
+                .body(Body::from(PNG))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let entry = body(response).await;
+    let original = temp
+        .path()
+        .join("media")
+        .join(format!("{}.png", entry["media_id"].as_str().unwrap()));
+    std::fs::remove_file(&original).unwrap();
+    std::fs::create_dir(&original).unwrap();
+    let metadata =
+        json!({"food_name":"Saved replacement","expected_updated_at":entry["updated_at"]});
+    let response = app
+        .clone()
+        .oneshot(
+            Request::patch(format!(
+                "/api/v1/health/diet/{}/with-image",
+                entry["id"].as_str().unwrap()
+            ))
+            .header(header::CONTENT_TYPE, "image/jpeg")
+            .header("x-raven-diet-metadata", metadata.to_string())
+            .body(Body::from(JPEG))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let error = body(response).await;
+    assert_eq!(error["code"], "cleanup_pending");
+    assert_eq!(error["committed"], true);
+    assert_eq!(error["record_id"], entry["id"]);
+    assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    let blocked = post_json(
+        &app,
+        "/api/v1/health/events",
+        json!({"occurred_at":"2026-09-30T03:00:00Z","details":{"kind":"bowel","bristol_scale":4}}),
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let blocked = body(blocked).await;
+    assert_ne!(blocked["committed"], true);
+    assert_ne!(blocked["code"], "cleanup_pending");
+    let listed = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/health/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body(listed).await["items"].as_array().unwrap().is_empty());
+    let saved = get_diet(&app, entry["id"].as_str().unwrap()).await;
+    assert_eq!(saved["food_name"], "Saved replacement");
+    assert_ne!(saved["media_id"], entry["media_id"]);
 }

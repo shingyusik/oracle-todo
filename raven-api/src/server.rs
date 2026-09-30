@@ -410,7 +410,7 @@ fn load_artifact_windows(path: &Path) -> anyhow::Result<BTreeMap<String, StaticA
     let root = capability_chain
         .last()
         .expect("drive root anchor is always retained");
-    let root_path = final_windows_path(&root)?;
+    let root_path = final_windows_path(root)?;
     let mut builder = SnapshotBuilder::new();
     load_directory_windows(&current_path, root, &root_path, "", 0, &mut builder)?;
     Ok(builder.files)

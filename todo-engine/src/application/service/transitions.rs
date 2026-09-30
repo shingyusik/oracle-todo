@@ -14,9 +14,9 @@ impl TodoService {
         let before = Some(serde_json::to_value(&item).map_err(|error| {
             TodoError::Internal(format!("failed to snapshot item before pause: {error}"))
         })?);
-        if item.item_type == ItemType::Area {
+        if matches!(item.item_type, ItemType::Area | ItemType::Task) {
             return Err(TodoError::Policy(
-                "Areas cannot be paused here; archive them if no longer maintained".to_string(),
+                "pause is unsupported for area and task items".to_string(),
             ));
         }
         if terminal_status(item.status) {
@@ -282,53 +282,6 @@ impl TodoService {
             return self.get(&archived.id);
         }
         Ok(archived)
-    }
-
-    pub fn drop(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
-        let item = self.get(item_id)?;
-        if item.item_type == ItemType::Area {
-            return Err(TodoError::Policy(
-                "Areas cannot be dropped; archive or pause them".to_string(),
-            ));
-        }
-        if terminal_status(item.status) {
-            return Err(TodoError::Policy(format!(
-                "Already terminal: {}",
-                item.status.as_str()
-            )));
-        }
-        let dropped = self.set_terminal_status_from(item, ItemStatus::Dropped, "drop", reason)?;
-        self.record_generated_task_occurrence(&dropped, Actor::User, reason)?;
-        Ok(dropped)
-    }
-
-    pub fn cancel(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
-        let item = self.get(item_id)?;
-        if item.item_type == ItemType::Area {
-            return Err(TodoError::Policy(
-                "Areas cannot be cancelled; archive or pause them".to_string(),
-            ));
-        }
-        if terminal_status(item.status) {
-            return Err(TodoError::Policy(format!(
-                "Already terminal: {}",
-                item.status.as_str()
-            )));
-        }
-        let cancelled =
-            self.set_terminal_status_from(item, ItemStatus::Cancelled, "cancel", reason)?;
-        self.record_generated_task_occurrence(&cancelled, Actor::User, reason)?;
-        if cancelled.item_type == ItemType::Routine {
-            self.cascade_routine_generated_tasks(
-                &cancelled.id,
-                ItemStatus::Cancelled,
-                "routine_cancel_generated_task",
-                reason,
-                None,
-            )?;
-            return self.get(&cancelled.id);
-        }
-        Ok(cancelled)
     }
 
     pub(super) fn cascade_routine_generated_tasks(

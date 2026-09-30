@@ -365,7 +365,13 @@ async fn request_target_authority_must_match_the_host_header() {
 
 #[tokio::test]
 async fn ui_session_round_trips_todo_and_preferences_on_the_production_paths() {
-    let (_temp, app) = fixture();
+    let (temp, app) = fixture();
+    let connection = todo_engine::infrastructure::sqlite::connect(
+        temp.path().join("todo.sqlite").to_str().unwrap(),
+    )
+    .unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&connection).unwrap();
+    drop(connection);
     let bootstrap = app.clone().oneshot(get("/__raven/session")).await.unwrap();
     let cookie = bootstrap.headers()[header::SET_COOKIE]
         .to_str()

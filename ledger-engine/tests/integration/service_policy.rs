@@ -56,7 +56,12 @@ fn expense_requires_an_active_compatible_category() {
 
 #[test]
 fn normal_entry_creation_forbids_transfer_types_and_transfer_group_input() {
-    for entry_type in [EntryType::TransferOut, EntryType::TransferIn] {
+    for entry_type in [
+        EntryType::TransferOut,
+        EntryType::TransferIn,
+        EntryType::AdjustmentOut,
+        EntryType::AdjustmentIn,
+    ] {
         let error = seeded_service()
             .create_entry(create_entry(entry_type, None, "Wallet", "KRW"))
             .unwrap_err();
@@ -82,40 +87,39 @@ fn normal_entry_creation_forbids_transfer_types_and_transfer_group_input() {
 }
 
 #[test]
-fn adjustments_allow_no_category_but_reject_an_incompatible_one() {
+fn entry_metadata_is_immutable_and_adjustment_conversion_is_rejected() {
     let mut service = seeded_service();
-    assert!(
-        service
-            .create_entry(create_entry(
-                EntryType::AdjustmentOut,
-                None,
-                "Wallet",
-                "KRW",
-            ))
-            .is_ok()
-    );
-    assert!(
-        service
-            .create_entry(create_entry(
-                EntryType::AdjustmentIn,
-                Some("Salary"),
-                "Wallet",
-                "KRW",
-            ))
-            .is_ok()
-    );
-    assert!(matches!(
-        service.create_entry(create_entry(
-            EntryType::AdjustmentIn,
+    let before = service
+        .create_entry(create_entry(
+            EntryType::Expense,
             Some("Food"),
             "Wallet",
             "KRW",
-        )),
-        Err(LedgerError::Validation {
-            field: "category",
-            ..
-        })
-    ));
+        ))
+        .unwrap();
+    for update in [
+        UpdateEntry {
+            written_at: Some(datetime!(2020-01-01 00:00 UTC)),
+            actor: "test".into(),
+            ..Default::default()
+        },
+        UpdateEntry {
+            source: Some("spoofed".into()),
+            actor: "test".into(),
+            ..Default::default()
+        },
+        UpdateEntry {
+            entry_type: Some(EntryType::AdjustmentOut),
+            actor: "test".into(),
+            ..Default::default()
+        },
+    ] {
+        assert!(matches!(
+            service.update_entry(before.id(), update),
+            Err(LedgerError::Validation { .. })
+        ));
+        assert_eq!(service.get_entry(before.id()).unwrap().entry, before);
+    }
 }
 
 #[test]

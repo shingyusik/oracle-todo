@@ -9,4 +9,3 @@ pub mod queries;
 pub mod reports;
 pub mod service;
 pub mod table;
-pub mod trends;

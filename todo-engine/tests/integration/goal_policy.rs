@@ -299,8 +299,10 @@ fn link_task_to_terminal_goal_parent_is_rejected() {
         .propose_goal(goal(Actor::User, "month", "2026-06-01", None))
         .unwrap();
     // Drive the goal to a terminal status before attempting the link.
-    let dropped = service.drop(&goal.id, Some("no longer pursued")).unwrap();
-    assert_eq!(dropped.status, ItemStatus::Dropped);
+    let dropped = service
+        .archive(&goal.id, Some("no longer pursued"))
+        .unwrap();
+    assert_eq!(dropped.status, ItemStatus::Archived);
 
     let task = service
         .propose_task(

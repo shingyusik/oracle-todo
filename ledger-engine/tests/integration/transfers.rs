@@ -610,3 +610,23 @@ fn valid_transfer() -> TransferCommand {
         actor: "tester".to_string(),
     }
 }
+
+#[test]
+fn transfer_retries_ignore_server_assigned_written_timestamp() {
+    let mut seeded = seeded_service_in_memory();
+    let command = valid_transfer();
+    let first = seeded.service.transfer(command.clone()).unwrap();
+    let mut retry = command;
+    retry.written_at = datetime!(2026-09-30 12:00 UTC);
+    assert_eq!(seeded.service.transfer(retry).unwrap(), first);
+    assert_eq!(
+        seeded
+            .service
+            .show_transfer(&first.transfer_group_id)
+            .unwrap()
+            .out_entry
+            .entry
+            .written_at(),
+        datetime!(2026-07-30 09:10:11 UTC)
+    );
+}

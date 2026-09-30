@@ -16,8 +16,6 @@ pub struct CreateDietBody {
     pub note: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,9 +28,6 @@ pub struct UpdateDietBody {
     pub note: Patch<String>,
     pub tags: Option<Vec<String>>,
     pub expected_updated_at: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
     #[serde(default)]
     pub remove_image: bool,
 }
@@ -43,8 +38,6 @@ pub struct EventBody {
     pub occurred_at: String,
     pub details: EventDetailsBody,
     pub note: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,9 +48,6 @@ pub struct UpdateEventBody {
     #[serde(default)]
     pub note: Patch<String>,
     pub expected_updated_at: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,12 +78,6 @@ pub enum EventDetailsBody {
         name: String,
         value: f64,
         unit: Option<String>,
-    },
-    Symptom {
-        key: String,
-        name: String,
-        score: u8,
-        condition_note: Option<String>,
     },
     OverallCondition {
         #[serde(default = "condition_name")]
@@ -132,17 +116,6 @@ impl EventDetailsBody {
                 value,
                 unit,
             } => HealthEventDetails::Lab(LabAttributes::new(key, name, value, unit.as_deref())?),
-            Self::Symptom {
-                key,
-                name,
-                score,
-                condition_note,
-            } => HealthEventDetails::Symptom(SymptomAttributes::new(
-                key,
-                name,
-                score,
-                condition_note.as_deref(),
-            )?),
             Self::OverallCondition {
                 name,
                 score,
@@ -178,9 +151,6 @@ pub struct DailyMetricsBody {
 pub struct DailyMetricBody {
     pub occurred_at: String,
     pub details: EventDetailsBody,
-    pub note: Option<String>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
     pub expected_updated_at: Option<String>,
 }
 
@@ -189,16 +159,6 @@ pub struct DailyMetricBody {
 pub struct DailyMetricArchiveBody {
     pub id: String,
     pub expected_updated_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PurgeBody {
-    pub confirmation: String,
-}
-
-fn default_actor() -> String {
-    "raven-api".to_string()
 }
 
 fn body_weight_key() -> String {

@@ -18,6 +18,12 @@ fn authenticated(app: axum::Router) -> axum::Router {
 
 fn test_app() -> (tempfile::TempDir, axum::Router) {
     let temp = tempfile::tempdir().unwrap();
+    let connection = todo_engine::infrastructure::sqlite::connect(
+        temp.path().join("todo.sqlite").to_str().unwrap(),
+    )
+    .unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&connection).unwrap();
+    drop(connection);
     let app = router(RavenApiConfig {
         todo_db: temp.path().join("todo.sqlite"),
         ledger_db: temp.path().join("ledger.sqlite"),
@@ -383,22 +389,6 @@ async fn todo_table_lookups_are_compact_scoped_and_legacy_items_stay_an_array() 
     }
 }
 
-fn hold_exclusive_todo_lock(
-    db_path: std::path::PathBuf,
-) -> (std::sync::mpsc::SyncSender<()>, std::thread::JoinHandle<()>) {
-    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
-    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
-    let worker = std::thread::spawn(move || {
-        let connection =
-            todo_engine::infrastructure::sqlite::connect(db_path.to_str().unwrap()).unwrap();
-        connection.execute_batch("BEGIN EXCLUSIVE").unwrap();
-        ready_tx.send(()).unwrap();
-        release_rx.recv().unwrap();
-    });
-    ready_rx.recv().unwrap();
-    (release_tx, worker)
-}
-
 #[tokio::test]
 async fn todo_items_are_nested_under_v1_without_router_side_effects() {
     let temp = tempfile::tempdir().unwrap();
@@ -415,6 +405,12 @@ async fn todo_items_are_nested_under_v1_without_router_side_effects() {
     };
     let app = authenticated(router(config).unwrap());
     assert!(!home.exists());
+    std::fs::create_dir_all(&home).unwrap();
+    let connection =
+        todo_engine::infrastructure::sqlite::connect(home.join("todo.sqlite").to_str().unwrap())
+            .unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&connection).unwrap();
+    drop(connection);
     let mut requests = tokio::task::JoinSet::new();
     for _ in 0..8 {
         let app = app.clone();
@@ -483,16 +479,15 @@ async fn todo_memory_state_is_reused_across_cloned_raven_routers() {
 }
 
 #[tokio::test]
-async fn cancelled_first_todo_request_does_not_restart_initialization() {
+async fn cancelled_read_and_missing_store_retry_do_not_create_files() {
     let temp = tempfile::tempdir().unwrap();
-    let todo_db = temp.path().join("todo.sqlite");
-    let (release, lock) = hold_exclusive_todo_lock(todo_db.clone());
+    let home = temp.path().join("missing-home");
     let app = authenticated(
         router(RavenApiConfig {
-            todo_db: todo_db.clone(),
-            ledger_db: temp.path().join("ledger.sqlite"),
-            health_db: temp.path().join("health.sqlite"),
-            health_media_dir: temp.path().join("media"),
+            todo_db: home.join("todo.sqlite"),
+            ledger_db: home.join("ledger.sqlite"),
+            health_db: home.join("health.sqlite"),
+            health_media_dir: home.join("media"),
             local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
             auth: AuthMode::UiSession {
                 token: "test".into(),
@@ -502,44 +497,22 @@ async fn cancelled_first_todo_request_does_not_restart_initialization() {
     );
     let first = tokio::spawn(
         app.clone().oneshot(
-            Request::get("/api/v1/todo/health")
+            Request::get("/api/v1/todo/items")
                 .body(Body::empty())
                 .unwrap(),
         ),
     );
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    assert!(!first.is_finished());
     first.abort();
-    assert!(first.await.unwrap_err().is_cancelled());
-    release.send(()).unwrap();
-    lock.join().unwrap();
-
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if todo_engine::infrastructure::sqlite::connect_read_only(todo_db.to_str().unwrap())
-                .is_ok()
-            {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
-
-    let (release, lock) = hold_exclusive_todo_lock(todo_db);
-    let response = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        app.oneshot(
-            Request::get("/api/v1/todo/health")
-                .body(Body::empty())
-                .unwrap(),
-        ),
-    )
-    .await;
-    release.send(()).unwrap();
-    lock.join().unwrap();
-    assert_eq!(response.unwrap().unwrap().status(), StatusCode::OK);
+    let _ = first.await;
+    for path in ["/api/v1/todo/items", "/api/v1/todo/health"] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!home.exists(), "read created a missing data home");
+    }
 }
 
 #[tokio::test]
@@ -578,6 +551,12 @@ async fn oversized_todo_json_uses_the_common_payload_envelope() {
 #[tokio::test]
 async fn todo_mutation_and_validation_error_remain_nested_and_normalized() {
     let temp = tempfile::tempdir().unwrap();
+    let connection = todo_engine::infrastructure::sqlite::connect(
+        temp.path().join("todo.sqlite").to_str().unwrap(),
+    )
+    .unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&connection).unwrap();
+    drop(connection);
     let app = authenticated(
         router(RavenApiConfig {
             todo_db: temp.path().join("todo.sqlite"),

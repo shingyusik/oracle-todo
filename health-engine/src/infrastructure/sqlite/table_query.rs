@@ -162,18 +162,18 @@ fn metrics_base() -> String {
     "SELECT local_date logical_id,local_date id,local_date,
  MAX(CASE WHEN category='weight' AND metric_key='body_weight' AND name='Body weight' AND unit='kg' THEN value_num END) weight,
  MAX(CASE WHEN category='sleep' AND metric_key='sleep_duration' AND name IN ('Sleep','Sleep duration') AND unit='hours' THEN value_num END) sleep,
- MAX(CASE WHEN category='lab' AND metric_key='crp' AND name='CRP' AND unit='mg/L' THEN value_num END) crp,
- MAX(CASE WHEN category='lab' AND metric_key='fecal_calprotectin' AND name='Fecal calprotectin' AND unit='µg/g' THEN value_num END) calprotectin,
+ MAX(CASE WHEN category='lab' AND metric_key='crp' AND name='CRP' AND unit='mg/L' AND value_num>=0 THEN value_num END) crp,
+ MAX(CASE WHEN category='lab' AND metric_key='fecal_calprotectin' AND name='Fecal calprotectin' AND unit='µg/g' AND value_num>=0 THEN value_num END) calprotectin,
  MAX(CASE WHEN category='symptom' AND metric_key='overall_condition' AND name='Overall condition' AND (unit IS NULL OR unit='score') THEN value_num END) condition,
  MIN(created_at) created_at,MAX(updated_at) updated_at
  FROM health_events WHERE deleted_at IS NULL AND daily_upsert=1 AND ".to_string() + metric_identity_sql() + " GROUP BY local_date"
 }
-fn metric_identity_sql() -> &'static str {
-    "((category='weight' AND metric_key='body_weight' AND name='Body weight' AND unit='kg') OR
+pub(super) fn metric_identity_sql() -> &'static str {
+    "(note IS NULL AND ((category='weight' AND metric_key='body_weight' AND name='Body weight' AND unit='kg') OR
       (category='sleep' AND metric_key='sleep_duration' AND name IN ('Sleep','Sleep duration') AND unit='hours') OR
-      (category='lab' AND metric_key='crp' AND name='CRP' AND unit='mg/L') OR
-      (category='lab' AND metric_key='fecal_calprotectin' AND name='Fecal calprotectin' AND unit='µg/g') OR
-      (category='symptom' AND metric_key='overall_condition' AND name='Overall condition' AND (unit IS NULL OR unit='score')))"
+      (category='lab' AND metric_key='crp' AND name='CRP' AND unit='mg/L' AND value_num>=0) OR
+      (category='lab' AND metric_key='fecal_calprotectin' AND name='Fecal calprotectin' AND unit='µg/g' AND value_num>=0) OR
+      (category='symptom' AND metric_key='overall_condition' AND name='Overall condition' AND (unit IS NULL OR unit='score'))))"
 }
 fn date_group(g: DietTableGroup, c: &str) -> (String, String) {
     match g {

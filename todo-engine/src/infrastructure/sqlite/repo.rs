@@ -5,10 +5,10 @@ use super::mapping::{
 };
 use crate::application::error::{TodoError, TodoResult};
 use crate::application::ports::{
-    EventRepository, ListFilter, TodoRepository, TodoStore, apply_list_filter,
+    EventRepository, ItemPageQuery, ItemPageScope, ListFilter, TodoRepository, TodoStore,
+    apply_list_filter,
 };
-use crate::domain::{OPEN_STATUSES, TodoEvent, TodoItem};
-use rusqlite::types::ToSql;
+use crate::domain::{TodoEvent, TodoItem};
 use rusqlite::{Connection, OptionalExtension, params};
 
 impl TodoRepository for SqliteTodoRepository {
@@ -40,84 +40,67 @@ impl TodoRepository for SqliteTodoRepository {
         Ok(apply_list_filter(items, filter))
     }
 
-    /// D-10 indexed working-set loader for `period_view`. One `WITH RECURSIVE`
-    /// CTE walks `parent_id` downward from the period's root goals — exercising
-    /// `idx_items_type_horizon_scheduled` (seed) and `idx_items_parent_id`
-    /// (recursive step) instead of the `list_items` full-table scan. A
-    /// deduplicating `UNION` (never the appending variant) collapses the
-    /// reachable id set, which is the SQL-level cycle guard for any legacy
-    /// `parent_id` back-edges (T-04-05).
-    ///
-    /// D-01 goal-parent descent: the recursive step joins back to the parent row
-    /// and keeps only children whose parent is a goal, so this loader produces
-    /// the SAME flat working set as the InMemory frontier walk (goal->goal only)
-    /// — the two stores cannot drift even on adversarial `goal -> task -> goal`
-    /// linkage (a goal under a task is unreachable in both). This makes D-11 true
-    /// by construction in SQL, not by an `assemble` implementation detail.
-    ///
-    /// D-07 visibility parity (CRITICAL): the task-status predicate is GENERATED
-    /// from the single [`OPEN_STATUSES`] source of truth shared with the
-    /// InMemory loader — never a hand-typed status literal list — so the two
-    /// stores cannot drift. The predicate is ASYMMETRIC: GOAL rows are kept at
-    /// ANY status (terminal goals stay in the structure AND are traversed so a
-    /// live grandchild can outlive a terminal parent, ADR-0006), while TASK rows
-    /// are restricted to the open statuses. Tasks are NOT filtered by
-    /// `scheduled` — unscheduled tasks must survive (VIEW-04).
-    ///
-    /// All inputs are bound as parameters (`?N`); nothing is `format!`-ed into
-    /// the SQL (V5.3 / T-04-04). The `IN (...)` placeholder list is built from
-    /// the COUNT of open statuses, and the status strings are appended to the
-    /// bound params — still no value interpolation.
-    fn load_period_subtree(
-        &mut self,
-        horizon: &str,
-        period_key: &str,
-    ) -> TodoResult<Vec<TodoItem>> {
-        // Placeholder list `?3, ?4, ...` for the open-status allowlist, generated
-        // from OPEN_STATUSES so the predicate stays byte-equivalent to the
-        // InMemory loader. ?1 = horizon, ?2 = period_key, then the statuses.
-        let status_placeholders = (0..OPEN_STATUSES.len())
-            .map(|offset| format!("?{}", offset + 3))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        // The seed selects root goals at (horizon, period_key); the recursive
-        // step pulls in any goal/task whose parent is already reachable. The
-        // outer WHERE then applies the asymmetric D-07 status predicate: goals
-        // at any status, tasks open-only.
-        let suffix = format!(
-            "WHERE id IN (
-                 WITH RECURSIVE subtree(id) AS (
-                     SELECT id FROM items
-                     WHERE type = 'goal' AND horizon = ?1 AND scheduled = ?2
-                     UNION
-                     SELECT i.id FROM items i
-                     JOIN subtree s ON i.parent_id = s.id
-                     -- D-11: only descend through goal parents so the CTE working set
-                     -- matches the InMemory frontier (goal->goal only). A goal whose
-                     -- parent is a task is unreachable in both stores.
-                     JOIN items p ON s.id = p.id AND p.type = 'goal'
-                     WHERE i.type IN ('goal', 'task')
-                 )
-                 SELECT id FROM subtree
-             )
-             AND (type = 'goal' OR (type = 'task' AND status IN ({status_placeholders})))"
-        );
-
-        // Bind order matches the placeholders: horizon, period_key, then the
-        // open-status strings. No value is ever interpolated into the SQL text.
-        let mut params: Vec<&dyn ToSql> = vec![&horizon, &period_key];
-        let status_values: Vec<&'static str> =
-            OPEN_STATUSES.iter().map(|status| status.as_str()).collect();
-        for status in &status_values {
-            params.push(status);
+    fn list_items_page(&mut self, query: &ItemPageQuery) -> TodoResult<Vec<TodoItem>> {
+        use rusqlite::types::Value;
+        let filter = &query.filter;
+        let mut clauses = Vec::new();
+        let mut values = Vec::<Value>::new();
+        if !filter.include_archived && filter.status.is_none() {
+            clauses.push("status NOT IN ('archived', 'dropped', 'cancelled')".to_string());
         }
-
-        let mut statement = self
-            .conn
-            .prepare(item_select_sql(&suffix).as_str())
+        for (column, value) in [
+            (
+                "status",
+                filter.status.map(|value| value.as_str().to_string()),
+            ),
+            (
+                "type",
+                filter.item_type.map(|value| value.as_str().to_string()),
+            ),
+            ("area_id", filter.area_id.clone()),
+            ("project_id", filter.project_id.clone()),
+            ("parent_id", filter.parent_id.clone()),
+            ("routine_id", filter.routine_id.clone()),
+            ("horizon", filter.horizon.clone()),
+            ("scheduled", filter.scheduled.clone()),
+        ] {
+            if let Some(value) = value {
+                values.push(Value::Text(value));
+                clauses.push(format!("{column} = ?{}", values.len()));
+            }
+        }
+        if let Some(text) = &filter.query {
+            values.push(Value::Text(text.clone()));
+            let index = values.len();
+            clauses.push(format!("(instr(title, ?{index}) > 0 OR instr(note, ?{index}) > 0 OR instr(description, ?{index}) > 0 OR instr(outcome, ?{index}) > 0)"));
+        }
+        match query.scope {
+            ItemPageScope::List => {}
+            ItemPageScope::Archive => clauses.push(
+                "status IN ('completed', 'cancelled', 'dropped', 'archived', 'missed', 'rejected')"
+                    .into(),
+            ),
+            ItemPageScope::Today(today) => {
+                values.push(Value::Integer(i64::from(today.to_julian_day())));
+                clauses.push(format!("type = 'task' AND status = 'active' AND (scheduled IS NULL OR scheduled = 'today' OR todo_date_ordinal(scheduled) <= ?{})", values.len()));
+            }
+        }
+        values.push(Value::Integer(i64::from(query.limit) + 1));
+        let limit_index = values.len();
+        values.push(Value::Integer(i64::from(query.offset)));
+        let predicate = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", clauses.join(" AND "))
+        };
+        let sql = item_select_sql(&format!(
+            "{predicate} ORDER BY created_at, id LIMIT ?{limit_index} OFFSET ?{}",
+            values.len()
+        ));
+        let mut statement = self.conn.prepare(&sql).map_err(storage_error)?;
+        let mut rows = statement
+            .query(rusqlite::params_from_iter(values))
             .map_err(storage_error)?;
-        let mut rows = statement.query(params.as_slice()).map_err(storage_error)?;
         let mut items = Vec::new();
         while let Some(row) = rows.next().map_err(storage_error)? {
             items.push(row_to_item(row)?);
@@ -133,6 +116,22 @@ impl EventRepository for SqliteTodoRepository {
 }
 
 impl TodoStore for SqliteTodoRepository {
+    fn item_history(
+        &mut self,
+        item_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> TodoResult<Vec<TodoEvent>> {
+        let mut statement = self.conn.prepare("SELECT id, at, actor, action, object_type, object_id, before, after, reason FROM events WHERE object_id = ?1 ORDER BY at DESC, id DESC LIMIT ?2 OFFSET ?3").map_err(storage_error)?;
+        let mut rows = statement
+            .query(rusqlite::params![item_id, limit, offset])
+            .map_err(storage_error)?;
+        let mut events = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            events.push(super::mapping::row_to_event(row)?);
+        }
+        Ok(events)
+    }
     fn query_table(
         &mut self,
         query: &crate::application::table::TodoTableQuery,
@@ -154,6 +153,36 @@ impl TodoStore for SqliteTodoRepository {
         save_event_on(&transaction, event)?;
         transaction.commit().map_err(storage_error)?;
         Ok(())
+    }
+
+    fn save_item_and_event_if_current(
+        &mut self,
+        item: &TodoItem,
+        event: &TodoEvent,
+        expected_updated_at: time::OffsetDateTime,
+    ) -> TodoResult<()> {
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let current = transaction
+            .query_row(
+                item_select_sql("WHERE id = ?1").as_str(),
+                [&item.id],
+                |row| Ok(row_to_item(row)),
+            )
+            .optional()
+            .map_err(storage_error)?
+            .transpose()?
+            .ok_or_else(|| TodoError::NotFound(item.id.clone()))?;
+        if current.updated_at != expected_updated_at {
+            return Err(TodoError::Conflict(
+                "Item changed since it was read".to_string(),
+            ));
+        }
+        save_item_on(&transaction, item)?;
+        save_event_on(&transaction, event)?;
+        transaction.commit().map_err(storage_error)
     }
 
     fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()> {

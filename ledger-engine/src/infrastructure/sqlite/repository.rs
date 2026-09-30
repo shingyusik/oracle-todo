@@ -27,6 +27,56 @@ use super::{SqliteLedgerRepository, storage_error};
 impl LedgerRepository for SqliteLedgerRepository {}
 
 impl LedgerReadRepository for SqliteLedgerRepository {
+    fn list_currencies_including_inactive(&self, page: Page) -> LedgerResult<Vec<Currency>> {
+        collect_rows(
+            &self.connection,
+            &format!(
+                "SELECT {CURRENCY_COLUMNS} FROM currencies WHERE deleted_at IS NULL ORDER BY name, id LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_currency,
+        )
+    }
+
+    fn list_account_categories_including_inactive(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<AccountCategory>> {
+        collect_rows(
+            &self.connection,
+            &format!(
+                "SELECT {ACCOUNT_CATEGORY_COLUMNS} FROM account_categories WHERE deleted_at IS NULL ORDER BY name, id LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_account_category,
+        )
+    }
+
+    fn list_accounts_including_inactive(&self, page: Page) -> LedgerResult<Vec<Account>> {
+        collect_rows(
+            &self.connection,
+            &format!(
+                "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE deleted_at IS NULL ORDER BY name, id LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_account,
+        )
+    }
+
+    fn list_transaction_categories_including_inactive(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>> {
+        collect_rows(
+            &self.connection,
+            &format!(
+                "SELECT {TRANSACTION_CATEGORY_COLUMNS} FROM transaction_categories WHERE deleted_at IS NULL ORDER BY name, id LIMIT ?1 OFFSET ?2"
+            ),
+            page_params(page),
+            row_to_transaction_category,
+        )
+    }
+
     fn analyze_table(
         &self,
         query: &crate::application::table::LedgerTableQuery,
@@ -287,14 +337,6 @@ impl LedgerReadRepository for SqliteLedgerRepository {
         end: time::Date,
     ) -> LedgerResult<Vec<ReportAggregateRecord>> {
         aggregate_entries(&self.connection, AggregateKind::Summary, start, end)
-    }
-
-    fn account_breakdown(
-        &self,
-        start: time::Date,
-        end: time::Date,
-    ) -> LedgerResult<Vec<ReportAggregateRecord>> {
-        aggregate_entries(&self.connection, AggregateKind::Account, start, end)
     }
 
     fn category_breakdown(
@@ -888,28 +930,11 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
         Ok(())
     }
 
-    fn delete_currency(&mut self, id: &str) -> LedgerResult<()> {
-        delete_master(&self.transaction, "currencies", "currency", id)
-    }
-
     fn delete_account_category(&mut self, id: &str) -> LedgerResult<()> {
         delete_master(
             &self.transaction,
             "account_categories",
             "account category",
-            id,
-        )
-    }
-
-    fn delete_account(&mut self, id: &str) -> LedgerResult<()> {
-        delete_master(&self.transaction, "accounts", "account", id)
-    }
-
-    fn delete_transaction_category(&mut self, id: &str) -> LedgerResult<()> {
-        delete_master(
-            &self.transaction,
-            "transaction_categories",
-            "transaction category",
             id,
         )
     }
@@ -985,17 +1010,6 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
             .map_err(storage_error)?;
         if changed == 0 {
             return Err(LedgerError::NotFound(entry.id().to_string()));
-        }
-        Ok(())
-    }
-
-    fn delete_entry(&mut self, id: &str) -> LedgerResult<()> {
-        let changed = self
-            .transaction
-            .execute("DELETE FROM ledger_entries WHERE id = ?1", [id])
-            .map_err(storage_error)?;
-        if changed == 0 {
-            return Err(LedgerError::NotFound(format!("ledger entry {id}")));
         }
         Ok(())
     }
@@ -1486,7 +1500,6 @@ fn diagnostic_columns(table: DiagnosticTable) -> &'static [&'static str] {
 #[derive(Debug, Clone, Copy)]
 enum AggregateKind {
     Summary,
-    Account,
     Category,
 }
 
@@ -1502,12 +1515,6 @@ fn aggregate_entries(
             "NULL",
             "",
             "e.currency_id, currency_code, currency_decimal_places",
-        ),
-        AggregateKind::Account => (
-            "e.account_id",
-            "COALESCE(a.name, e.account_id)",
-            "LEFT JOIN accounts AS a ON a.id = e.account_id",
-            "e.account_id, reference_name, e.currency_id, currency_code, currency_decimal_places",
         ),
         AggregateKind::Category => (
             "e.transaction_category_id",

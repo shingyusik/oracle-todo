@@ -64,6 +64,12 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
 
     pub fn update_entry(&mut self, id: &str, command: UpdateEntry) -> LedgerResult<LedgerEntry> {
         validate_actor(&command.actor)?;
+        if command.written_at.is_some() || command.source.is_some() {
+            return Err(validation(
+                "metadata",
+                "written timestamp and source are immutable",
+            ));
+        }
         if matches!(
             command.entry_type,
             Some(EntryType::TransferOut | EntryType::TransferIn)
@@ -100,6 +106,19 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
                 "grouped entries must be changed through the transfer service",
             ));
         }
+        if command.entry_type.is_some_and(|kind| {
+            kind != before.entry_type()
+                && (matches!(kind, EntryType::AdjustmentOut | EntryType::AdjustmentIn)
+                    || matches!(
+                        before.entry_type(),
+                        EntryType::AdjustmentOut | EntryType::AdjustmentIn
+                    ))
+        }) {
+            return Err(validation(
+                "entry_type",
+                "adjustments are historical records only",
+            ));
+        }
         let entry_type_was_supplied = command.entry_type.is_some();
         let category_was_supplied = command.category.is_some();
         let account_was_supplied = command.account.is_some();
@@ -134,17 +153,16 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
             category_id.as_deref(),
             before.transfer_group_id(),
         )?;
-        if entry_type_was_supplied && !category_was_supplied {
-            if let Some(category_id) = category_id.as_deref() {
-                let category = transaction
-                    .get_transaction_category(category_id, true)?
-                    .ok_or_else(|| {
-                        LedgerError::NotFound(format!(
-                            "historical transaction category {category_id}"
-                        ))
-                    })?;
-                validate_category(entry_type, Some(&category))?;
-            }
+        if entry_type_was_supplied
+            && !category_was_supplied
+            && let Some(category_id) = category_id.as_deref()
+        {
+            let category = transaction
+                .get_transaction_category(category_id, true)?
+                .ok_or_else(|| {
+                    LedgerError::NotFound(format!("historical transaction category {category_id}"))
+                })?;
+            validate_category(entry_type, Some(&category))?;
         }
 
         let after = LedgerEntry::rehydrate(LedgerEntryRehydration {
@@ -351,6 +369,15 @@ fn validate_account_currency(
 }
 
 fn validate_manual_fields(entry_type: EntryType, transfer_group: Option<&str>) -> LedgerResult<()> {
+    if matches!(
+        entry_type,
+        EntryType::AdjustmentOut | EntryType::AdjustmentIn
+    ) {
+        return Err(validation(
+            "entry_type",
+            "adjustments are historical records only",
+        ));
+    }
     if matches!(entry_type, EntryType::TransferOut | EntryType::TransferIn) {
         return Err(validation(
             "entry_type",

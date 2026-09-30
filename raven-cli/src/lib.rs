@@ -1,7 +1,9 @@
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod errors;
 pub mod logging;
+pub mod retry;
 
 use std::ffi::OsString;
 use std::time::Instant;
@@ -22,9 +24,24 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let args = args.into_iter().map(Into::into).collect::<Vec<OsString>>();
+    let cli = Cli::try_parse_from(&args)?;
     let paths = RavenPaths::resolve(cli.home)?;
-    logging::init(&paths);
+    if matches!(cli.error_format, crate::cli::ErrorFormat::Text) {
+        logging::init(&paths);
+    } else {
+        let _ =
+            tracing::subscriber::set_global_default(tracing::subscriber::NoSubscriber::default());
+    }
+    if let Some(key) = cli.request_key {
+        return retry::execute(
+            &paths,
+            &cli.command,
+            &key,
+            &args,
+            std::time::Duration::from_secs(cli.request_timeout_seconds),
+        );
+    }
 
     let command = cli.command.label();
     let engine = cli.command.engine();
@@ -69,6 +86,9 @@ where
 }
 
 pub fn exit_code(error: &anyhow::Error) -> i32 {
+    if let Some(error) = error.downcast_ref::<errors::CliError>() {
+        return error.exit;
+    }
     if let Some(error) = error.downcast_ref::<clap::Error>() {
         return error.exit_code();
     }
@@ -98,8 +118,7 @@ pub fn exit_code(error: &anyhow::Error) -> i32 {
             HealthError::Validation { .. }
             | HealthError::Conflict(_)
             | HealthError::UnsupportedMedia
-            | HealthError::MediaTooLarge
-            | HealthError::ConfirmationMismatch => 2,
+            | HealthError::MediaTooLarge => 2,
             HealthError::NotFound(_) => 4,
             HealthError::Busy(_)
             | HealthError::Storage(_)

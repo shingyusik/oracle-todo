@@ -14,6 +14,10 @@ use todo_engine::interfaces::cli::TodoHealth;
 use crate::cli::{Command, ImportCommand};
 use crate::config::RavenPaths;
 
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct HealthCheckError(pub &'static str);
+
 pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
     match command {
         Command::Init => init::run(paths),
@@ -49,19 +53,27 @@ fn health_check(paths: &RavenPaths) -> Result<()> {
             HealthStorageHealth::Healthy { .. },
             true,
         ) => Ok(()),
-        (TodoHealth::NotInitialized, _, _, _) => anyhow::bail!("ToDo database is not initialized"),
-        (TodoHealth::Unavailable, _, _, _) => anyhow::bail!("ToDo database is unavailable"),
-        (_, LedgerHealth::NotInitialized, _, _) => {
-            anyhow::bail!("Ledger database is not initialized")
+        (TodoHealth::NotInitialized, _, _, _) => {
+            Err(HealthCheckError("ToDo database is not initialized").into())
         }
-        (_, LedgerHealth::Unavailable, _, _) => anyhow::bail!("Ledger database is unavailable"),
+        (TodoHealth::Unavailable, _, _, _) => {
+            Err(HealthCheckError("ToDo database is unavailable").into())
+        }
+        (_, LedgerHealth::NotInitialized, _, _) => {
+            Err(HealthCheckError("Ledger database is not initialized").into())
+        }
+        (_, LedgerHealth::Unavailable, _, _) => {
+            Err(HealthCheckError("Ledger database is unavailable").into())
+        }
         (_, _, HealthStorageHealth::NotInitialized, _) => {
-            anyhow::bail!("Health database is not initialized")
+            Err(HealthCheckError("Health database is not initialized").into())
         }
         (_, _, HealthStorageHealth::Unavailable, _) => {
-            anyhow::bail!("Health database is unavailable")
+            Err(HealthCheckError("Health database is unavailable").into())
         }
-        (_, _, _, false) => anyhow::bail!("Health media directory is not initialized"),
+        (_, _, _, false) => {
+            Err(HealthCheckError("Health media directory is not initialized").into())
+        }
     }
 }
 

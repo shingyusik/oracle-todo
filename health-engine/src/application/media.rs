@@ -163,3 +163,8 @@ pub(crate) fn invalid_media_relative_path() -> HealthError {
             .to_string(),
     }
 }
+
+/// Bounded, integrity-checked access to an already stored photo.
+pub trait MediaReader {
+    fn read(&self, media: &StoredMedia) -> HealthResult<Vec<u8>>;
+}

@@ -49,30 +49,32 @@ fn page_titles(service: &mut TodoService, query: &TodoTableQuery) -> Vec<String>
 
 #[test]
 fn malformed_scheduled_is_unscheduled_and_never_in_range_or_overdue() {
-    let mut memory = TodoService::in_memory();
+    // Legacy rows may contain dates that current mutation policy rejects.
+    use todo_engine::application::ports::TodoRepository;
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();
-    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
-    for service in [&mut memory, &mut sqlite] {
-        for (title, scheduled) in [
-            ("Valid", Some("2026-08-22")),
-            ("Before", Some("2026-08-01")),
-            ("Empty", Some("")),
-            ("Null", None),
-            ("Malformed", Some("2026-99-99")),
-            ("Max", Some("9999-12-31")),
-        ] {
-            service
-                .propose_task(
-                    title,
-                    ProposeTask {
-                        scheduled: scheduled.map(str::to_string),
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
-        }
+    let mut repository = SqliteTodoRepository::new(conn);
+    for (index, (title, scheduled)) in [
+        ("Valid", Some("2026-08-22")),
+        ("Before", Some("2026-08-01")),
+        ("Empty", Some("")),
+        ("Null", None),
+        ("Malformed", Some("2026-99-99")),
+        ("Max", Some("9999-12-31")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut item = TodoItem::new_task(
+            format!("legacy-{index}"),
+            title,
+            Actor::User,
+            time::macros::datetime!(2026-08-22 0:00 UTC) + time::Duration::seconds(index as i64),
+        );
+        item.scheduled = scheduled.map(str::to_string);
+        repository.save_item(&item).unwrap();
     }
+    let mut sqlite = TodoService::persistent(repository);
     let query = |scope, from, to| {
         TodoTableQuery::new(
             TodoTableScope::Planner(scope),
@@ -117,9 +119,8 @@ fn malformed_scheduled_is_unscheduled_and_never_in_range_or_overdue() {
         ),
     ] {
         let query = query(scope, from, to);
-        let memory_titles = page_titles(&mut memory, &query);
-        assert_eq!(memory_titles, expected);
-        assert_eq!(page_titles(&mut sqlite, &query), memory_titles);
+        let stored_titles = page_titles(&mut sqlite, &query);
+        assert_eq!(stored_titles, expected);
     }
     for (operator, expected) in [
         (
@@ -150,41 +151,42 @@ fn malformed_scheduled_is_unscheduled_and_never_in_range_or_overdue() {
             None,
         )
         .unwrap();
-        assert_eq!(page_titles(&mut memory, &query), expected);
         assert_eq!(page_titles(&mut sqlite, &query), expected);
     }
 }
 
 #[test]
 fn scheduled_sort_ties_skip_raw_text_and_continue_to_fallbacks() {
-    let mut memory = TodoService::in_memory();
+    // Legacy rows may contain dates that current mutation policy rejects.
+    use todo_engine::application::ports::TodoRepository;
     let conn = connect(":memory:").unwrap();
     init_schema(&conn).unwrap();
-    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
-    for service in [&mut memory, &mut sqlite] {
-        for (title, scheduled) in [
-            ("Null", None),
-            ("Empty", Some("")),
-            ("Malformed", Some("2026-99-99")),
-            ("Plain", Some("2026-08-22")),
-            ("Time", Some("2026-08-22T23:59:59Z")),
-        ] {
-            service
-                .propose_task(
-                    title,
-                    ProposeTask {
-                        scheduled: scheduled.map(str::to_string),
-                        priority: match title {
-                            "Time" => Some(1),
-                            "Plain" => Some(2),
-                            _ => None,
-                        },
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
-        }
+    let mut repository = SqliteTodoRepository::new(conn);
+    for (index, (title, scheduled)) in [
+        ("Null", None),
+        ("Empty", Some("")),
+        ("Malformed", Some("2026-99-99")),
+        ("Plain", Some("2026-08-22")),
+        ("Time", Some("2026-08-22T23:59:59Z")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut item = TodoItem::new_task(
+            format!("legacy-{index}"),
+            title,
+            Actor::User,
+            time::macros::datetime!(2026-08-22 0:00 UTC) + time::Duration::seconds(index as i64),
+        );
+        item.scheduled = scheduled.map(str::to_string);
+        item.priority = match title {
+            "Time" => Some(1),
+            "Plain" => Some(2),
+            _ => None,
+        };
+        repository.save_item(&item).unwrap();
     }
+    let mut sqlite = TodoService::persistent(repository);
     let next_rule_query = TodoTableQuery::new(
         TodoTableScope::Workspace(WorkspaceTableScope::Task),
         TableContext::Workspace,
@@ -207,7 +209,6 @@ fn scheduled_sort_ties_skip_raw_text_and_continue_to_fallbacks() {
     )
     .unwrap();
     let next_expected = vec!["Malformed", "Empty", "Null", "Time", "Plain"];
-    assert_eq!(page_titles(&mut memory, &next_rule_query), next_expected);
     assert_eq!(page_titles(&mut sqlite, &next_rule_query), next_expected);
     for (direction, expected) in [
         (
@@ -234,7 +235,6 @@ fn scheduled_sort_ties_skip_raw_text_and_continue_to_fallbacks() {
             None,
         )
         .unwrap();
-        assert_eq!(page_titles(&mut memory, &query), expected);
         assert_eq!(page_titles(&mut sqlite, &query), expected);
     }
     let default_query = TodoTableQuery::new(
@@ -252,17 +252,15 @@ fn scheduled_sort_ties_skip_raw_text_and_continue_to_fallbacks() {
         None,
     )
     .unwrap();
-    let memory_page = memory.query_table(&default_query).unwrap();
     let sqlite_page = sqlite.query_table(&default_query).unwrap();
     assert_eq!(
-        memory_page
+        sqlite_page
             .items
             .iter()
             .map(|row| row.record().title.as_str())
             .collect::<Vec<_>>(),
         vec!["Time", "Plain"]
     );
-    assert_eq!(canonical_page(&sqlite_page), canonical_page(&memory_page));
 }
 
 #[test]
@@ -376,7 +374,7 @@ fn table_pages_match_between_memory_and_sqlite() {
     let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(conn));
     for index in 0..51 {
         let request = || ProposeTask {
-            priority: Some(index % 3),
+            priority: Some(index % 3 + 1),
             tags: vec![format!("tag-{}", index % 2)],
             ..Default::default()
         };
@@ -533,15 +531,7 @@ fn seed_link_matrix(service: &mut TodoService) -> Vec<(ItemType, ItemType, Strin
         })
         .unwrap();
     service
-        .propose_task(
-            "Linked Task",
-            ProposeTask {
-                area: Some("Area".into()),
-                project_id: Some(project.id.clone()),
-                routine_id: Some(routine.id.clone()),
-                ..Default::default()
-            },
-        )
+        .materialize_routine(&routine.id, "2026-08-22", Some(1))
         .unwrap();
     service
         .propose_event(ProposeEvent {
@@ -598,12 +588,7 @@ fn seed_link_matrix(service: &mut TodoService) -> Vec<(ItemType, ItemType, Strin
             area.id.clone(),
             "Routine",
         ),
-        (
-            ItemType::Area,
-            ItemType::Task,
-            area.id.clone(),
-            "Linked Task",
-        ),
+        (ItemType::Area, ItemType::Task, area.id.clone(), "Routine"),
         (ItemType::Area, ItemType::Event, area.id, "Linked Event"),
         (
             ItemType::Project,
@@ -615,7 +600,7 @@ fn seed_link_matrix(service: &mut TodoService) -> Vec<(ItemType, ItemType, Strin
             ItemType::Project,
             ItemType::Task,
             project.id.clone(),
-            "Linked Task",
+            "Routine",
         ),
         (
             ItemType::Project,
@@ -623,7 +608,7 @@ fn seed_link_matrix(service: &mut TodoService) -> Vec<(ItemType, ItemType, Strin
             project.id,
             "Linked Event",
         ),
-        (ItemType::Routine, ItemType::Task, routine.id, "Linked Task"),
+        (ItemType::Routine, ItemType::Task, routine.id, "Routine"),
         (
             ItemType::Goal,
             ItemType::Goal,
@@ -696,18 +681,16 @@ fn planner_work_lifecycle_matches_visible_frontend_statuses() {
             ..Default::default()
         };
         service.propose_task("Active", request()).unwrap();
-        let paused = service.propose_task("Paused", request()).unwrap();
-        service.pause(&paused.id, None).unwrap();
         let completed = service.propose_task("Completed", request()).unwrap();
         service.complete(&completed.id, None).unwrap();
         let missed = service.propose_task("Missed", request()).unwrap();
         service.miss(&missed.id, "2026-08-23", None).unwrap();
         let dropped = service.propose_task("Dropped", request()).unwrap();
-        service.drop(&dropped.id, None).unwrap();
+        service.archive(&dropped.id, None).unwrap();
         let archived = service.propose_task("Archived", request()).unwrap();
         service.archive(&archived.id, None).unwrap();
         let cancelled = service.propose_task("Cancelled", request()).unwrap();
-        service.cancel(&cancelled.id, None).unwrap();
+        service.archive(&cancelled.id, None).unwrap();
         let routine = service
             .propose_routine(ProposeRoutine {
                 title: "Waiting".into(),
@@ -746,7 +729,7 @@ fn planner_work_lifecycle_matches_visible_frontend_statuses() {
     let sqlite_page = sqlite.query_table(&query).unwrap();
     assert_eq!(
         titles(&memory_page),
-        vec!["Active", "Paused", "Completed", "Missed", "Waiting"]
+        vec!["Active", "Completed", "Missed", "Waiting"]
     );
     assert_eq!(titles(&memory_page), titles(&sqlite_page));
     assert_eq!(
@@ -755,7 +738,7 @@ fn planner_work_lifecycle_matches_visible_frontend_statuses() {
             .iter()
             .map(|row| row.group_label().unwrap())
             .collect::<Vec<_>>(),
-        vec!["Active", "Paused", "Completed", "missed", "Waiting"]
+        vec!["Active", "Completed", "missed", "Waiting"]
     );
 }
 

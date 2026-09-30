@@ -31,6 +31,15 @@ pub struct UpdateItem {
 
 impl TodoService {
     pub fn update_item(&mut self, item_id: &str, request: UpdateItem) -> TodoResult<TodoItem> {
+        self.update_item_if_current(item_id, request, None)
+    }
+
+    pub fn update_item_if_current(
+        &mut self,
+        item_id: &str,
+        request: UpdateItem,
+        expected_updated_at: Option<time::OffsetDateTime>,
+    ) -> TodoResult<TodoItem> {
         let UpdateItem {
             title,
             description,
@@ -57,11 +66,106 @@ impl TodoService {
             reason,
         } = request;
         let mut item = self.get(item_id)?;
+        if expected_updated_at.is_some_and(|expected| expected != item.updated_at) {
+            return Err(TodoError::Conflict(
+                "Item changed since it was read".to_string(),
+            ));
+        }
         if terminal_status(item.status) {
             return Err(TodoError::Policy(format!(
                 "Cannot update terminal item: {}",
                 item.status.as_str()
             )));
+        }
+        super::policy::deprecated(description.as_deref(), routine_id.as_deref())?;
+        super::policy::priority(priority)?;
+        super::policy::review_cycle(review_cycle.as_deref())?;
+        super::policy::date(due.as_deref(), "due", false)?;
+        if item.item_type != ItemType::Goal {
+            super::policy::date(
+                scheduled.as_deref(),
+                "scheduled",
+                item.item_type == ItemType::Event,
+            )?;
+        }
+        let recurrence_rule = recurrence_rule
+            .map(|rule| super::policy::recurrence(&rule, item.created_at.date()))
+            .transpose()?;
+        let kind = item.item_type;
+        for (provided, allowed, field) in [
+            (
+                outcome.is_some() || definition_of_done.is_some(),
+                kind == ItemType::Project,
+                "project fields",
+            ),
+            (
+                standard.is_some() || review_cycle.is_some(),
+                kind == ItemType::Area,
+                "area fields",
+            ),
+            (
+                recurrence_rule.is_some() || materialization_policy.is_some(),
+                kind == ItemType::Routine,
+                "routine fields",
+            ),
+            (
+                area.is_some(),
+                matches!(
+                    kind,
+                    ItemType::Project | ItemType::Routine | ItemType::Task | ItemType::Event
+                ),
+                "area",
+            ),
+            (
+                project_id.is_some(),
+                matches!(kind, ItemType::Routine | ItemType::Task | ItemType::Event),
+                "project_id",
+            ),
+            (
+                parent_id.is_some(),
+                matches!(kind, ItemType::Goal | ItemType::Task),
+                "parent_id",
+            ),
+            (
+                due.is_some(),
+                matches!(kind, ItemType::Project | ItemType::Task | ItemType::Event),
+                "due",
+            ),
+            (
+                scheduled.is_some(),
+                matches!(kind, ItemType::Goal | ItemType::Task | ItemType::Event),
+                "scheduled",
+            ),
+            (
+                priority.is_some(),
+                matches!(kind, ItemType::Routine | ItemType::Task | ItemType::Event),
+                "priority",
+            ),
+        ] {
+            if provided && !allowed {
+                return Err(TodoError::Validation(format!(
+                    "{field} is unsupported on {}",
+                    kind.as_str()
+                )));
+            }
+        }
+        if future_occurrences.is_some() {
+            return Err(TodoError::Validation(
+                "future_occurrences can only change through materialize".into(),
+            ));
+        }
+        if definition_of_done
+            .as_ref()
+            .is_some_and(|v| v.trim().is_empty())
+        {
+            return Err(TodoError::Validation(
+                "definition_of_done must not be blank".into(),
+            ));
+        }
+        if kind == ItemType::Event && scheduled.as_ref().is_some_and(|v| v.trim().is_empty()) {
+            return Err(TodoError::Validation(
+                "Event requires scheduled time".into(),
+            ));
         }
         let before = Some(serde_json::to_value(&item).map_err(|error| {
             TodoError::Internal(format!(
@@ -79,11 +183,6 @@ impl TodoService {
         {
             return Err(TodoError::Policy(
                 "Event metadata fields can only be updated on event items".to_string(),
-            ));
-        }
-        if future_occurrences.is_some() && item.item_type != ItemType::Routine {
-            return Err(TodoError::Policy(
-                "future_occurrences can only be updated on routine items".to_string(),
             ));
         }
 
@@ -121,9 +220,6 @@ impl TodoService {
         if let Some(title) = title {
             item.title = title;
         }
-        if let Some(description) = description {
-            item.description = Some(description);
-        }
         if let Some(note) = note {
             item.note = Some(note);
         }
@@ -153,11 +249,12 @@ impl TodoService {
             }
             item.materialization_policy = materialization_policy;
         }
-        if let Some(future_occurrences) = future_occurrences {
-            item.future_occurrences = super::validate_future_occurrences(future_occurrences)?;
-        }
         if let Some(area) = area {
-            item.area_id = self.find_area(Some(area))?;
+            item.area_id = if area.trim().is_empty() {
+                None
+            } else {
+                self.find_area(Some(area))?
+            };
         }
         if let Some(project_id) = project_id {
             item.project_id = if project_id.trim().is_empty() {
@@ -177,19 +274,16 @@ impl TodoService {
                 self.ensure_relation(Some(parent_id), ItemType::Goal, "Goal parent")?
             };
         }
-        if let Some(routine_id) = routine_id {
-            item.routine_id = if routine_id.trim().is_empty() {
-                None
-            } else {
-                self.ensure_relation(Some(routine_id), ItemType::Routine, "Routine")?
-            };
-        }
         if let Some(due) = due {
-            item.due = Some(due);
+            item.due = if due.is_empty() { None } else { Some(due) };
         }
         match scheduled {
             Some(scheduled) if item.item_type != ItemType::Goal => {
-                item.scheduled = Some(scheduled);
+                item.scheduled = if scheduled.is_empty() {
+                    None
+                } else {
+                    Some(scheduled)
+                };
             }
             _ => {}
         }
@@ -223,6 +317,11 @@ impl TodoService {
 
         let now = self.next_now();
         item.updated_at = now;
-        self.store_item_and_event(Actor::User, "update_item", before, item, reason.as_deref())
+        self.store_items_and_events_checked(
+            vec![(Actor::User, "update_item", before, item, reason.as_deref())],
+            expected_updated_at,
+        )?
+        .pop()
+        .ok_or_else(|| TodoError::Internal("Update returned no item".to_string()))
     }
 }

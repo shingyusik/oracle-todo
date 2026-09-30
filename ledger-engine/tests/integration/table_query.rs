@@ -1175,7 +1175,10 @@ fn sqlite_table_query_keeps_multi_expression_filters_inside_their_and_rule() {
 
 #[test]
 fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before_page() {
-    let mut service = table_service();
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("historical.sqlite");
+    let mut service =
+        table_service_with_repository(SqliteLedgerRepository::open(&database).unwrap());
     for (date, content, account) in [
         ("2026-08-17", "monday", "Wallet"),
         ("2026-08-23", "sunday", "Wallet"),
@@ -1203,9 +1206,9 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
             date: "2026-08-25".into(),
             written_at: datetime!(2026-08-21 00:00 UTC),
             content: "uncategorized".into(),
-            category: None,
+            category: Some("Food".into()),
             account: "Bank".into(),
-            entry_type: EntryType::AdjustmentOut,
+            entry_type: EntryType::Expense,
             amount: Money::from_minor_units(100),
             currency: "KRW".into(),
             transfer_group: None,
@@ -1214,6 +1217,10 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
             actor: "test".into(),
         })
         .unwrap();
+    rusqlite::Connection::open(&database).unwrap().execute(
+        "UPDATE ledger_entries SET entry_type = 'adjustment_out', transaction_category_id = NULL WHERE content = 'uncategorized'",
+        [],
+    ).unwrap();
     let week_page = service
         .query_table(
             &query(
@@ -1409,7 +1416,13 @@ fn sqlite_table_query_uses_monday_week_buckets_and_applies_group_controls_before
 }
 
 fn table_service() -> LedgerService<SqliteLedgerRepository> {
-    let mut service = LedgerService::new(SqliteLedgerRepository::open_in_memory().unwrap());
+    table_service_with_repository(SqliteLedgerRepository::open_in_memory().unwrap())
+}
+
+fn table_service_with_repository(
+    repository: SqliteLedgerRepository,
+) -> LedgerService<SqliteLedgerRepository> {
+    let mut service = LedgerService::new(repository);
     service
         .create_currency(CreateCurrency {
             code: "KRW".into(),

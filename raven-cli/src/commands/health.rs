@@ -7,9 +7,7 @@ use health_engine::application::commands::{
 };
 use health_engine::application::error::{HealthError, HealthResult};
 use health_engine::application::ports::{EventClass, EventQuery, Page};
-use health_engine::application::queries::{HealthQuery, TimelineItem};
 use health_engine::application::service::HealthService;
-use health_engine::application::trends::HealthTrends;
 use health_engine::domain::{
     BowelAttributes, HealthCategory, HealthEvent, HealthEventDetails, LabAttributes, MealType,
     MedicationAttributes, MedicationUnit, SleepAttributes, SleepValue, SymptomAttributes,
@@ -23,10 +21,10 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{
     BowelAddArgs, BowelCommand, BowelUpdateArgs, DietAddArgs, DietCommand, DietUpdateArgs,
-    HealthCommand, HealthEventCategoryArg, HealthIdentityArgs, HealthIdentityReadArgs,
-    HealthMetricCategoryArg, HealthPageArgs, HealthPurgeArgs, HealthTimelineArgs, HealthTrendsArgs,
-    MedicationAddArgs, MedicationCommand, MedicationUpdateArgs, MetricAddArgs, MetricCommand,
-    MetricDailyUpsertArgs, MetricListArgs, MetricUpdateArgs, OutputFormat,
+    HealthAuditArgs, HealthCommand, HealthEventCategoryArg, HealthIdentityArgs,
+    HealthIdentityReadArgs, HealthPageArgs, MedicationAddArgs, MedicationCommand,
+    MedicationUpdateArgs, MetricCommand, MetricDailyUpsertArgs, MetricListArgs, OutputFormat,
+    ReportRangeArgs,
 };
 use crate::config::RavenPaths;
 
@@ -61,7 +59,7 @@ fn is_mutation(command: &HealthCommand) -> bool {
         HealthCommand::Metric { command } => {
             !matches!(command, MetricCommand::List(_) | MetricCommand::Show(_))
         }
-        HealthCommand::Timeline(_) | HealthCommand::Trends(_) => false,
+        HealthCommand::Reports(_) | HealthCommand::Audit(_) => false,
     }
 }
 
@@ -88,8 +86,8 @@ fn open_service(paths: &RavenPaths, mutation: bool) -> HealthResult<Service> {
         ));
     }
     Ok(HealthService::new(
-        SqliteHealthRepository::open(paths.health_db())?,
-        LocalMediaStore::new(paths.health_media_dir())?,
+        SqliteHealthRepository::open_read_only(paths.health_db())?,
+        LocalMediaStore::open_existing(paths.health_media_dir())?,
     ))
 }
 
@@ -99,8 +97,8 @@ fn execute(service: &mut Service, command: HealthCommand) -> HealthResult<()> {
         HealthCommand::Bowel { command } => bowel(service, command),
         HealthCommand::Medication { command } => medication(service, command),
         HealthCommand::Metric { command } => metric(service, command),
-        HealthCommand::Timeline(args) => timeline(service, args),
-        HealthCommand::Trends(args) => trends(service, args),
+        HealthCommand::Reports(args) => reports(service, args),
+        HealthCommand::Audit(args) => audit(service, args),
     }
 }
 
@@ -120,8 +118,9 @@ fn diet(service: &mut Service, command: DietCommand) -> HealthResult<()> {
         }
         DietCommand::Update(args) => update_diet(service, args),
         DietCommand::List(args) => {
-            let entries = service.list_diet(page(args.offset, args.limit)?)?;
-            print_diet_list(&entries, args.format)
+            let (entries, next) =
+                read_page(args.offset, args.limit, |page| service.list_diet(page))?;
+            print_diet_list(&entries, next, args.format)
         }
         DietCommand::Show(args) => {
             let record = service.get_diet_including_archived(&args.id)?;
@@ -135,7 +134,6 @@ fn diet(service: &mut Service, command: DietCommand) -> HealthResult<()> {
             &args.id,
             parse_optional_timestamp(args.expected_updated_at.as_deref(), "expected_updated_at")?,
         )?),
-        DietCommand::Purge(args) => purge_diet(service, args),
     }
 }
 
@@ -157,7 +155,6 @@ fn update_diet(service: &mut Service, args: DietUpdateArgs) -> HealthResult<()> 
             }),
             remove_image: args.remove_image,
             expected_updated_at: args.expected_updated_at,
-            reason: args.reason,
         }
     };
     if input.image.is_some() && input.remove_image {
@@ -183,7 +180,7 @@ fn update_diet(service: &mut Service, args: DietUpdateArgs) -> HealthResult<()> 
                 "expected_updated_at",
             )?,
             actor: ACTOR.to_string(),
-            reason: input.reason,
+            reason: None,
         },
     )?)
 }
@@ -208,7 +205,6 @@ fn bowel(service: &mut Service, command: BowelCommand) -> HealthResult<()> {
         BowelCommand::Show(args) => show_event_category(service, args, HealthCategory::Bowel),
         BowelCommand::Archive(args) => transition_event(service, args, true, EventKind::Bowel),
         BowelCommand::Restore(args) => transition_event(service, args, false, EventKind::Bowel),
-        BowelCommand::Purge(args) => purge_event(service, args, EventKind::Bowel),
     }
 }
 
@@ -224,7 +220,6 @@ fn update_bowel(service: &mut Service, args: BowelUpdateArgs) -> HealthResult<()
             note: args.note,
             clear_note: args.clear_note,
             expected_updated_at: args.expected_updated_at,
-            reason: args.reason,
         }
     };
     let current = service.get_event(&id)?;
@@ -271,7 +266,6 @@ fn medication(service: &mut Service, command: MedicationCommand) -> HealthResult
         MedicationCommand::Restore(args) => {
             transition_event(service, args, false, EventKind::Medication)
         }
-        MedicationCommand::Purge(args) => purge_event(service, args, EventKind::Medication),
     }
 }
 
@@ -288,7 +282,6 @@ fn update_medication(service: &mut Service, args: MedicationUpdateArgs) -> Healt
             note: args.note,
             clear_note: args.clear_note,
             expected_updated_at: args.expected_updated_at,
-            reason: args.reason,
         }
     };
     let current = service.get_event(&id)?;
@@ -317,15 +310,6 @@ fn update_medication(service: &mut Service, args: MedicationUpdateArgs) -> Healt
 
 fn metric(service: &mut Service, command: MetricCommand) -> HealthResult<()> {
     match command {
-        MetricCommand::Add(args) => {
-            let input = metric_add_input(args)?;
-            print_json(&service.create_event(CreateHealthEvent {
-                occurred_at: parse_timestamp(&input.at, "at")?,
-                details: metric_details(&input)?,
-                note: input.note,
-                actor: ACTOR.to_string(),
-            })?)
-        }
         MetricCommand::DailyUpsert(MetricDailyUpsertArgs { json }) => {
             let inputs = strict_json::<Vec<MetricInput>>(&json)?;
             let mut commands = Vec::with_capacity(inputs.len());
@@ -333,14 +317,16 @@ fn metric(service: &mut Service, command: MetricCommand) -> HealthResult<()> {
                 commands.push(DailyMetricInput {
                     occurred_at: parse_timestamp(&input.at, "at")?,
                     details: metric_details(&input)?,
-                    note: input.note,
+                    note: None,
                     actor: ACTOR.to_string(),
-                    expected_updated_at: None,
+                    expected_updated_at: parse_optional_timestamp(
+                        input.expected_updated_at.as_deref(),
+                        "expected_updated_at",
+                    )?,
                 });
             }
             print_json(&service.upsert_daily_metrics(commands)?)
         }
-        MetricCommand::Update(args) => update_metric(service, args),
         MetricCommand::List(args) => metric_list(service, args),
         MetricCommand::Show(args) => {
             let record = service.get_event_including_archived(&args.id)?;
@@ -354,32 +340,7 @@ fn metric(service: &mut Service, command: MetricCommand) -> HealthResult<()> {
         }
         MetricCommand::Archive(args) => transition_event(service, args, true, EventKind::Metric),
         MetricCommand::Restore(args) => transition_event(service, args, false, EventKind::Metric),
-        MetricCommand::Purge(args) => purge_event(service, args, EventKind::Metric),
     }
-}
-
-fn update_metric(service: &mut Service, args: MetricUpdateArgs) -> HealthResult<()> {
-    let id = args.id.clone();
-    let input = if let Some(json) = args.json {
-        strict_json::<MetricUpdateInput>(&json)?
-    } else {
-        MetricUpdateInput {
-            at: args.at,
-            name: args.name,
-            value: args.value,
-            unit: args.unit,
-            clear_unit: args.clear_unit,
-            condition_note: args.condition_note,
-            clear_condition_note: args.clear_condition_note,
-            note: args.note,
-            clear_note: args.clear_note,
-            expected_updated_at: args.expected_updated_at,
-            reason: args.reason,
-        }
-    };
-    let current = service.get_event(&id)?;
-    let details = update_metric_details(current.details()?, &input)?;
-    print_json(&service.update_event(&id, event_update(input.common(), Some(details))?)?)
 }
 
 fn metric_list(service: &Service, args: MetricListArgs) -> HealthResult<()> {
@@ -391,15 +352,17 @@ fn metric_list(service: &Service, args: MetricListArgs) -> HealthResult<()> {
     }) {
         return validation("category", "must be weight, sleep, lab, or symptom");
     }
-    let mut query =
-        EventQuery::new(page(args.page.offset, args.page.limit)?).with_class(EventClass::Metric);
-    if let Some(category) = args.category {
-        query = query.with_category(category.into());
-    }
-    if let Some(key) = args.key {
-        query = query.with_metric_key(key)?;
-    }
-    print_event_list(&service.list_events(query)?, args.page.format)
+    let (records, next) = read_page(args.page.offset, args.page.limit, |page| {
+        let mut query = EventQuery::new(page).with_class(EventClass::Metric);
+        if let Some(category) = args.category {
+            query = query.with_category(category.into());
+        }
+        if let Some(key) = &args.key {
+            query = query.with_metric_key(key)?;
+        }
+        service.list_events(query)
+    })?;
+    print_event_list(&records, next, args.page.format)
 }
 
 fn list_events(
@@ -408,11 +371,14 @@ fn list_events(
     key: Option<&str>,
     args: HealthPageArgs,
 ) -> HealthResult<()> {
-    let mut query = EventQuery::new(page(args.offset, args.limit)?).with_category(category);
-    if let Some(key) = key {
-        query = query.with_metric_key(key)?;
-    }
-    print_event_list(&service.list_events(query)?, args.format)
+    let (records, next) = read_page(args.offset, args.limit, |page| {
+        let mut query = EventQuery::new(page).with_category(category);
+        if let Some(key) = key {
+            query = query.with_metric_key(key)?;
+        }
+        service.list_events(query)
+    })?;
+    print_event_list(&records, next, args.format)
 }
 
 fn show_event_category(
@@ -444,40 +410,6 @@ fn transition_event(
     print_json(&event)
 }
 
-fn purge_diet(service: &mut Service, args: HealthPurgeArgs) -> HealthResult<()> {
-    if service
-        .get_diet_including_archived(&args.id)?
-        .deleted_at()
-        .is_none()
-    {
-        return Err(HealthError::Conflict(
-            "diet entry must be archived before purge".to_string(),
-        ));
-    }
-    purge_preview_or_confirm(&args)?;
-    service.purge_diet(&args.id, args.confirm.as_deref().unwrap_or_default())?;
-    print_json(&PurgeResult {
-        purged: true,
-        id: args.id,
-    })
-}
-
-fn purge_event(service: &mut Service, args: HealthPurgeArgs, kind: EventKind) -> HealthResult<()> {
-    let event = service.get_event_including_archived(&args.id)?;
-    ensure_event_kind(&event, kind)?;
-    if event.deleted_at().is_none() {
-        return Err(HealthError::Conflict(
-            "health event must be archived before purge".to_string(),
-        ));
-    }
-    purge_preview_or_confirm(&args)?;
-    service.purge_event(&args.id, args.confirm.as_deref().unwrap_or_default())?;
-    print_json(&PurgeResult {
-        purged: true,
-        id: args.id,
-    })
-}
-
 #[derive(Clone, Copy)]
 enum EventKind {
     Bowel,
@@ -501,165 +433,96 @@ fn ensure_event_kind(event: &HealthEvent, kind: EventKind) -> HealthResult<()> {
     }
 }
 
-fn purge_preview_or_confirm(args: &HealthPurgeArgs) -> HealthResult<()> {
-    if args.confirm.is_none() {
-        print_json(&PurgePreview {
-            confirmation_id: &args.id,
-        })?;
-        return Err(HealthError::ConfirmationMismatch);
+fn reports(service: &Service, args: ReportRangeArgs) -> HealthResult<()> {
+    let parse = |value: &str, field| {
+        time::Date::parse(
+            value,
+            time::macros::format_description!("[year]-[month]-[day]"),
+        )
+        .map_err(|_| HealthError::Validation {
+            field,
+            message: "must be YYYY-MM-DD".to_string(),
+        })
+    };
+    let report = service.reports(health_engine::application::reports::HealthReportRange {
+        from: parse(&args.from, "from")?,
+        to: parse(&args.to, "to")?,
+    })?;
+    match args.format {
+        OutputFormat::Json => print_json(&report),
+        OutputFormat::Table => {
+            table_row!("SECTION", "CURRENT", "PREVIOUS");
+            table_row!(
+                "diet",
+                optional_display(report.diet_count.current),
+                optional_display(report.diet_count.previous)
+            );
+            table_row!(
+                "bowel",
+                optional_display(report.bowel.current_count),
+                optional_display(report.bowel.previous_count)
+            );
+            table_row!(
+                "medication",
+                optional_display(report.medication_count.current),
+                optional_display(report.medication_count.previous)
+            );
+            println!("{}", report.reaction_disclaimer);
+            Ok(())
+        }
     }
-    Ok(())
 }
 
-fn timeline(service: &Service, args: HealthTimelineArgs) -> HealthResult<()> {
-    let mut query = HealthQuery::new(page(args.offset, args.limit)?)
-        .with_range(
-            parse_optional_timestamp(args.from.as_deref(), "from")?,
-            parse_optional_timestamp(args.to.as_deref(), "to")?,
-        )?
-        .include_archived(args.include_archived);
-    if let Some(category) = args.category {
-        query = query.with_category(category.into());
-    }
-    let records = service.timeline(query)?;
+fn optional_display<T: std::fmt::Display>(value: Option<T>) -> String {
+    value.map(|value| value.to_string()).unwrap_or_default()
+}
+
+fn audit(service: &Service, args: HealthAuditArgs) -> HealthResult<()> {
+    let (events, next) = read_page(args.offset, args.limit, |page| {
+        service.audit_for(&args.record_type, &args.record_id, page)
+    })?;
+    let rows: Vec<_> = events
+        .iter()
+        .map(|event| {
+            Ok(serde_json::json!({
+                "id": event.id(), "request_id": event.request_id(),
+                "occurred_at": format_timestamp(event.occurred_at())?,
+                "actor": event.actor(), "action": event.action(),
+                "record_type": event.record_type(), "record_id": event.record_id(),
+                "before": event.before(), "after": event.after(), "reason": event.reason(),
+            }))
+        })
+        .collect::<HealthResult<Vec<_>>>()?;
     match args.format {
-        OutputFormat::Json => print_json(&records),
+        OutputFormat::Json => print_json(&serde_json::json!({"items": rows, "next": next})),
         OutputFormat::Table => {
-            table_row!("KIND", "ID", "OCCURRED_AT", "CATEGORY", "NAME", "VALUE");
-            for item in records {
-                match item {
-                    TimelineItem::Diet { record } => table_row!(
-                        "diet",
-                        record.id().as_str(),
-                        format_timestamp(record.occurred_at())?,
-                        "diet",
-                        record.food_name(),
-                        "",
-                    ),
-                    TimelineItem::HealthEvent { record } => table_row!(
-                        "health_event",
-                        record.id().as_str(),
-                        format_timestamp(record.occurred_at())?,
-                        category_name(record.category()),
-                        record.name(),
-                        record
-                            .value_num()
-                            .map(|value| value.to_string())
-                            .unwrap_or_default(),
-                    ),
-                }
+            table_row!("AT", "ACTION", "ACTOR", "REASON");
+            for event in events {
+                table_row!(
+                    event.occurred_at(),
+                    event.action(),
+                    event.actor(),
+                    event.reason().unwrap_or_default()
+                );
             }
             Ok(())
         }
     }
 }
 
-fn trends(service: &Service, args: HealthTrendsArgs) -> HealthResult<()> {
-    let trends = service.trends(args.days)?;
-    match args.format {
-        OutputFormat::Json => print_json(&trends),
-        OutputFormat::Table => print_trends_table(&trends),
-    }
-}
-
-fn print_trends_table(trends: &HealthTrends) -> HealthResult<()> {
-    table_row!(
-        "SECTION",
-        "DATE_OR_TIME",
-        "CATEGORY_OR_NAME",
-        "METRIC_OR_TAG",
-        "VALUE",
-        "DETAIL"
-    );
-    let mut diet_tags = false;
-    for item in &trends.top_diet_tags {
-        diet_tags = true;
-        table_row!("diet_tag", "", "", item.name, item.count, "");
-    }
-    print_empty("diet_tag", diet_tags);
-
-    let mut bowel_averages = false;
-    for item in &trends.bowel_average_by_day {
-        bowel_averages = true;
-        table_row!(
-            "bowel_average",
-            item.local_date,
-            "bowel",
-            "",
-            item.average,
-            format!("count={}", item.count),
-        );
-    }
-    print_empty("bowel_average", bowel_averages);
-
-    let mut symptoms = false;
-    for item in &trends.symptom_frequencies {
-        symptoms = true;
-        table_row!("symptom_frequency", "", item.name, "", item.count, "");
-    }
-    print_empty("symptom_frequency", symptoms);
-
-    let mut medications = false;
-    for item in &trends.medication_frequencies {
-        medications = true;
-        table_row!("medication_frequency", "", item.name, "", item.count, "");
-    }
-    print_empty("medication_frequency", medications);
-
-    let mut numeric_series = false;
-    for series in &trends.numeric_series {
-        for point in &series.points {
-            numeric_series = true;
-            table_row!(
-                "numeric_series",
-                format_timestamp(point.occurred_at)?,
-                category_name(series.category),
-                series.metric_key,
-                point.value,
-                format!(
-                    "name={} unit={}",
-                    series.name,
-                    series.unit.as_deref().unwrap_or("")
-                ),
-            );
-        }
-    }
-    print_empty("numeric_series", numeric_series);
-
-    let mut reactions = false;
-    for item in &trends.possible_tag_reactions {
-        reactions = true;
-        table_row!(
-            "possible_tag_reaction",
-            "",
-            "",
-            item.tag,
-            item.events_within_24h,
-            format!("diet_entries={}", item.diet_entries),
-        );
-    }
-    print_empty("possible_tag_reaction", reactions);
-    table_row!(
-        "reaction_disclaimer",
-        "",
-        "",
-        "",
-        "",
-        trends.reaction_disclaimer
-    );
-    Ok(())
-}
-
-fn print_empty(section: &str, has_rows: bool) {
-    if !has_rows {
-        table_row!(section, "", "", "", "", "empty");
-    }
-}
-
 fn metric_details(input: &MetricInput) -> HealthResult<HealthEventDetails> {
     let category = parse_metric_category(&input.category)?;
     validate_metric_add_fields(category, input)?;
-    let name = required(input.name.clone(), "name")?;
+    let name = input.name.clone().unwrap_or_else(|| {
+        match category {
+            HealthMetricCategory::Weight => "Body weight",
+            HealthMetricCategory::Sleep => "Sleep duration",
+            HealthMetricCategory::Lab if input.key.as_deref() == Some("crp") => "CRP",
+            HealthMetricCategory::Lab => "Fecal calprotectin",
+            HealthMetricCategory::OverallCondition => "Overall condition",
+        }
+        .into()
+    });
     let value = required(input.value, "value")?;
     Ok(match category {
         HealthMetricCategory::Weight => HealthEventDetails::Weight(WeightAttributes::new(
@@ -669,7 +532,7 @@ fn metric_details(input: &MetricInput) -> HealthResult<HealthEventDetails> {
                 .unwrap_or_else(|| "body_weight".to_string()),
             name,
             value,
-            required(input.unit.clone(), "unit")?,
+            input.unit.clone().unwrap_or_else(|| "kg".into()),
         )?),
         HealthMetricCategory::Sleep => HealthEventDetails::Sleep(SleepAttributes::new(
             input
@@ -685,98 +548,12 @@ fn metric_details(input: &MetricInput) -> HealthResult<HealthEventDetails> {
             value,
             input.unit.as_deref(),
         )?),
-        HealthMetricCategory::Symptom => HealthEventDetails::Symptom(SymptomAttributes::new(
-            required(input.key.clone(), "key")?,
-            name,
-            strict_score(value)?,
-            input.condition_note.as_deref(),
-        )?),
         HealthMetricCategory::OverallCondition => {
             HealthEventDetails::Symptom(SymptomAttributes::overall_condition(
                 name,
                 strict_score(value)?,
                 input.condition_note.as_deref(),
             )?)
-        }
-    })
-}
-
-fn update_metric_details(
-    before: HealthEventDetails,
-    input: &MetricUpdateInput,
-) -> HealthResult<HealthEventDetails> {
-    if input.unit.is_some() && input.clear_unit {
-        return validation("unit", "cannot be set and cleared together");
-    }
-    if input.condition_note.is_some() && input.clear_condition_note {
-        return validation("condition_note", "cannot be set and cleared together");
-    }
-    let name = |old: &str| input.name.clone().unwrap_or_else(|| old.to_string());
-    Ok(match before {
-        HealthEventDetails::Weight(old) => {
-            reject_clear(input.clear_unit, "clear_unit", "weight")?;
-            reject_optional(
-                input.condition_note.as_ref(),
-                input.clear_condition_note,
-                "condition_note",
-                "weight",
-            )?;
-            HealthEventDetails::Weight(WeightAttributes::new(
-                old.metric_key().as_str(),
-                name(old.name()),
-                input.value.unwrap_or(old.value().get()),
-                input.unit.clone().unwrap_or_else(|| old.unit().to_string()),
-            )?)
-        }
-        HealthEventDetails::Sleep(old) => {
-            reject_optional(input.unit.as_ref(), input.clear_unit, "unit", "sleep")?;
-            reject_optional(
-                input.condition_note.as_ref(),
-                input.clear_condition_note,
-                "condition_note",
-                "sleep",
-            )?;
-            HealthEventDetails::Sleep(SleepAttributes::new(
-                old.metric_key().as_str(),
-                name(old.name()),
-                SleepValue::hours(input.value.unwrap_or(old.hours().get()))?,
-            )?)
-        }
-        HealthEventDetails::Lab(old) => {
-            reject_optional(
-                input.condition_note.as_ref(),
-                input.clear_condition_note,
-                "condition_note",
-                "lab",
-            )?;
-            let unit = patched_optional(input.unit.as_deref(), input.clear_unit, old.unit());
-            HealthEventDetails::Lab(LabAttributes::new(
-                old.metric_key().as_str(),
-                name(old.name()),
-                input.value.unwrap_or(old.value()),
-                unit,
-            )?)
-        }
-        HealthEventDetails::Symptom(old) => {
-            reject_optional(input.unit.as_ref(), input.clear_unit, "unit", "symptom")?;
-            let condition_note = patched_optional(
-                input.condition_note.as_deref(),
-                input.clear_condition_note,
-                old.condition_note(),
-            );
-            HealthEventDetails::Symptom(SymptomAttributes::new(
-                old.metric_key().as_str(),
-                name(old.name()),
-                input
-                    .value
-                    .map(strict_score)
-                    .transpose()?
-                    .unwrap_or(old.score()),
-                condition_note,
-            )?)
-        }
-        HealthEventDetails::Bowel(_) | HealthEventDetails::Medication(_) => {
-            return validation("id", "does not identify a metric event");
         }
     })
 }
@@ -796,7 +573,6 @@ fn validate_metric_add_fields(
         HealthMetricCategory::Lab => {
             reject_present(input.condition_note.as_ref(), "condition_note", "lab")
         }
-        HealthMetricCategory::Symptom => reject_present(input.unit.as_ref(), "unit", "symptom"),
         HealthMetricCategory::OverallCondition => {
             reject_present(input.key.as_ref(), "key", "overall_condition")?;
             reject_present(input.unit.as_ref(), "unit", "overall_condition")
@@ -809,31 +585,6 @@ fn reject_present<T>(value: Option<&T>, field: &'static str, category: &str) -> 
         return validation(field, format!("is not supported for {category}"));
     }
     Ok(())
-}
-
-fn reject_clear(clear: bool, field: &'static str, category: &str) -> HealthResult<()> {
-    if clear {
-        return validation(field, format!("is not supported for {category}"));
-    }
-    Ok(())
-}
-
-fn reject_optional<T>(
-    value: Option<&T>,
-    clear: bool,
-    field: &'static str,
-    category: &str,
-) -> HealthResult<()> {
-    reject_present(value, field, category)?;
-    reject_clear(clear, field, category)
-}
-
-fn patched_optional<'a>(
-    value: Option<&'a str>,
-    clear: bool,
-    previous: Option<&'a str>,
-) -> Option<&'a str> {
-    if clear { None } else { value.or(previous) }
 }
 
 fn event_update(
@@ -849,7 +600,7 @@ fn event_update(
             "expected_updated_at",
         )?,
         actor: ACTOR.to_string(),
-        reason: input.reason,
+        reason: None,
     })
 }
 
@@ -907,22 +658,6 @@ fn medication_add_input(args: MedicationAddArgs) -> HealthResult<MedicationInput
         name: required(args.name, "name")?,
         dose: required(args.dose, "dose")?,
         unit: required(args.unit, "unit")?,
-        note: args.note,
-    })
-}
-
-fn metric_add_input(args: MetricAddArgs) -> HealthResult<MetricInput> {
-    if let Some(json) = args.json {
-        return strict_json(&json);
-    }
-    Ok(MetricInput {
-        at: required(args.at, "at")?,
-        category: metric_category_arg(required(args.category, "category")?),
-        key: args.key,
-        name: args.name,
-        value: args.value,
-        unit: args.unit,
-        condition_note: args.condition_note,
         note: args.note,
     })
 }
@@ -1008,12 +743,33 @@ fn print_record<T: Serialize>(
     }
 }
 
+// A one-row probe preserves the service's maximum page limit without loading all records.
+fn read_page<T>(
+    offset: u32,
+    limit: u16,
+    mut read: impl FnMut(Page) -> HealthResult<Vec<T>>,
+) -> HealthResult<(Vec<T>, Option<u32>)> {
+    let records = read(page(offset, limit)?)?;
+    let next_offset = offset.checked_add(records.len() as u32);
+    let next = if records.len() == usize::from(limit) {
+        if let Some(next_offset) = next_offset {
+            (!read(page(next_offset, 1)?)?.is_empty()).then_some(next_offset)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    Ok((records, next))
+}
+
 fn print_diet_list(
     records: &[health_engine::domain::DietEntry],
+    next: Option<u32>,
     format: OutputFormat,
 ) -> HealthResult<()> {
     match format {
-        OutputFormat::Json => print_json(records),
+        OutputFormat::Json => print_json(&serde_json::json!({"items": records, "next": next})),
         OutputFormat::Table => {
             table_row!("ID", "OCCURRED_AT", "MEAL", "FOOD", "TAGS", "ARCHIVED");
             for record in records {
@@ -1031,9 +787,13 @@ fn print_diet_list(
     }
 }
 
-fn print_event_list(records: &[HealthEvent], format: OutputFormat) -> HealthResult<()> {
+fn print_event_list(
+    records: &[HealthEvent],
+    next: Option<u32>,
+    format: OutputFormat,
+) -> HealthResult<()> {
     match format {
-        OutputFormat::Json => print_json(records),
+        OutputFormat::Json => print_json(&serde_json::json!({"items": records, "next": next})),
         OutputFormat::Table => {
             table_row!(
                 "ID",
@@ -1150,19 +910,7 @@ enum HealthMetricCategory {
     Weight,
     Sleep,
     Lab,
-    Symptom,
     OverallCondition,
-}
-
-fn metric_category_arg(value: HealthMetricCategoryArg) -> String {
-    match value {
-        HealthMetricCategoryArg::Weight => "weight",
-        HealthMetricCategoryArg::Sleep => "sleep",
-        HealthMetricCategoryArg::Lab => "lab",
-        HealthMetricCategoryArg::Symptom => "symptom",
-        HealthMetricCategoryArg::OverallCondition => "overall_condition",
-    }
-    .to_string()
 }
 
 fn parse_metric_category(value: &str) -> HealthResult<HealthMetricCategory> {
@@ -1170,11 +918,10 @@ fn parse_metric_category(value: &str) -> HealthResult<HealthMetricCategory> {
         "weight" => Ok(HealthMetricCategory::Weight),
         "sleep" => Ok(HealthMetricCategory::Sleep),
         "lab" => Ok(HealthMetricCategory::Lab),
-        "symptom" => Ok(HealthMetricCategory::Symptom),
         "overall_condition" => Ok(HealthMetricCategory::OverallCondition),
         _ => validation(
             "category",
-            "must be weight, sleep, lab, symptom, or overall_condition",
+            "must be weight, sleep, lab, or overall_condition",
         ),
     }
 }
@@ -1222,8 +969,6 @@ struct DietUpdateInput {
     remove_image: bool,
     #[serde(default)]
     expected_updated_at: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1252,8 +997,6 @@ struct BowelUpdateInput {
     clear_note: bool,
     #[serde(default)]
     expected_updated_at: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
 }
 
 impl BowelUpdateInput {
@@ -1263,7 +1006,6 @@ impl BowelUpdateInput {
             self.note.clone(),
             self.clear_note,
             self.expected_updated_at.clone(),
-            self.reason.clone(),
         )
     }
 }
@@ -1296,8 +1038,6 @@ struct MedicationUpdateInput {
     clear_note: bool,
     #[serde(default)]
     expected_updated_at: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
 }
 
 impl MedicationUpdateInput {
@@ -1307,7 +1047,6 @@ impl MedicationUpdateInput {
             self.note.clone(),
             self.clear_note,
             self.expected_updated_at.clone(),
-            self.reason.clone(),
         )
     }
 }
@@ -1328,46 +1067,7 @@ struct MetricInput {
     #[serde(default)]
     condition_note: Option<String>,
     #[serde(default)]
-    note: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MetricUpdateInput {
-    #[serde(default)]
-    at: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    value: Option<f64>,
-    #[serde(default)]
-    unit: Option<String>,
-    #[serde(default)]
-    clear_unit: bool,
-    #[serde(default)]
-    condition_note: Option<String>,
-    #[serde(default)]
-    clear_condition_note: bool,
-    #[serde(default)]
-    note: Option<String>,
-    #[serde(default)]
-    clear_note: bool,
-    #[serde(default)]
     expected_updated_at: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
-}
-
-impl MetricUpdateInput {
-    fn common(&self) -> CommonUpdate {
-        CommonUpdate::new(
-            self.at.clone(),
-            self.note.clone(),
-            self.clear_note,
-            self.expected_updated_at.clone(),
-            self.reason.clone(),
-        )
-    }
 }
 
 struct CommonUpdate {
@@ -1375,7 +1075,6 @@ struct CommonUpdate {
     note: Option<String>,
     clear_note: bool,
     expected_updated_at: Option<String>,
-    reason: Option<String>,
 }
 
 impl CommonUpdate {
@@ -1384,25 +1083,12 @@ impl CommonUpdate {
         note: Option<String>,
         clear_note: bool,
         expected_updated_at: Option<String>,
-        reason: Option<String>,
     ) -> Self {
         Self {
             at,
             note,
             clear_note,
             expected_updated_at,
-            reason,
         }
     }
-}
-
-#[derive(Serialize)]
-struct PurgePreview<'a> {
-    confirmation_id: &'a str,
-}
-
-#[derive(Serialize)]
-struct PurgeResult {
-    purged: bool,
-    id: String,
 }

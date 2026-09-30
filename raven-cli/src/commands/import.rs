@@ -180,10 +180,10 @@ fn sidecar_metadata(
 
 fn remove_empty_owned_sidecars(main: &Path) -> Result<(), ImportTodoError> {
     let wal = sidecar_path(main, "-wal");
-    if let Some(metadata) = sidecar_metadata(&wal, "WAL")? {
-        if metadata.len() != 0 {
-            return Err(ImportTodoError::NonEmptyWal(metadata.len()));
-        }
+    if let Some(metadata) = sidecar_metadata(&wal, "WAL")?
+        && metadata.len() != 0
+    {
+        return Err(ImportTodoError::NonEmptyWal(metadata.len()));
     }
     remove_owned_sidecars(main).map_err(ImportTodoError::SidecarCleanup)?;
     for (label, path) in [

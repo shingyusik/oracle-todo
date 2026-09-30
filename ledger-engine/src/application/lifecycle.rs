@@ -6,19 +6,9 @@ use crate::application::entries::{AuditMutation, audit_event};
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{LedgerMutationRepository, LedgerTransaction};
 use crate::application::service::LedgerService;
-use crate::domain::{
-    Account, AccountCategory, Currency, EntryType, LedgerEntry, LedgerEntryRehydration,
-    TransactionCategory,
-};
+use crate::domain::{AccountCategory, EntryType, LedgerEntry, LedgerEntryRehydration};
 
 const LIFECYCLE_ACTOR: &str = "ledger-service";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PurgePreview {
-    pub confirmation_id: String,
-    pub transfer_group_id: Option<String>,
-    pub entry_ids: Vec<String>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MasterPurgePreview {
@@ -50,98 +40,6 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         self.set_entry_archived(id, false)
     }
 
-    /// Permanently removes an active or archived entry after exact ID confirmation.
-    ///
-    /// A transfer entry always purges together with its validated counterpart. Audit
-    /// snapshots are inserted before deletion and survive the committed purge.
-    pub fn purge_entry(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
-        let now = OffsetDateTime::now_utc();
-        let mut transaction = self.repository.begin_transaction()?;
-        let entries = lifecycle_entries(&*transaction, id)?;
-        let transfer_group_id = entries
-            .first()
-            .and_then(|entry| entry.transfer_group_id())
-            .map(str::to_string);
-        validate_confirmation(transfer_group_id.as_deref().unwrap_or(id), confirmation)?;
-        if let Some(group_id) = transfer_group_id.as_deref() {
-            let operation_id = Uuid::new_v4().to_string();
-            let before = transfer_lifecycle_audit(&operation_id, group_id, &entries)?;
-            transaction.insert_audit_event(&audit_event(AuditMutation {
-                occurred_at: now,
-                actor: LIFECYCLE_ACTOR.to_string(),
-                action: "purge",
-                record_type: "transfer",
-                record_id: group_id,
-                before: Some(&before),
-                after: None::<&TransferLifecycleAudit<'_>>,
-                reason: None,
-            })?)?;
-        } else {
-            let entry = &entries[0];
-            transaction.insert_audit_event(&audit_event(AuditMutation {
-                occurred_at: now,
-                actor: LIFECYCLE_ACTOR.to_string(),
-                action: "purge",
-                record_type: "ledger_entry",
-                record_id: entry.id(),
-                before: Some(entry),
-                after: None::<&LedgerEntry>,
-                reason: None,
-            })?)?;
-        }
-        for entry in &entries {
-            transaction.delete_entry(entry.id())?;
-        }
-        transaction.commit()
-    }
-
-    /// Returns the exact identifier required to confirm a permanent purge.
-    ///
-    /// Transfers require their group identifier and expose both affected rows.
-    pub fn purge_entry_preview(&mut self, id: &str) -> LedgerResult<PurgePreview> {
-        let transaction = self.repository.begin_transaction()?;
-        let entries = lifecycle_entries(&*transaction, id)?;
-        let transfer_group_id = entries
-            .first()
-            .and_then(|entry| entry.transfer_group_id())
-            .map(str::to_string);
-        let confirmation_id = transfer_group_id.clone().unwrap_or_else(|| id.to_string());
-        let entry_ids = ordered_entry_ids(&entries);
-        transaction.rollback()?;
-        Ok(PurgePreview {
-            confirmation_id,
-            transfer_group_id,
-            entry_ids,
-        })
-    }
-
-    pub fn purge_currency(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
-        validate_confirmation(id, confirmation)?;
-        let now = OffsetDateTime::now_utc();
-        let mut transaction = self.repository.begin_transaction()?;
-        let before = transaction
-            .get_currency(id, true)?
-            .ok_or_else(|| LedgerError::NotFound(format!("currency {id}")))?;
-        if transaction.currency_has_dependencies(id)? {
-            return Err(referenced("currency", id));
-        }
-        transaction.insert_audit_event(&purge_audit(now, "currency", &before)?)?;
-        transaction.delete_currency(id)?;
-        transaction.commit()
-    }
-
-    pub fn purge_currency_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
-        let transaction = self.repository.begin_transaction()?;
-        transaction
-            .get_currency(id, true)?
-            .ok_or_else(|| LedgerError::NotFound(format!("currency {id}")))?;
-        if transaction.currency_has_dependencies(id)? {
-            return Err(referenced("currency", id));
-        }
-        transaction.rollback()?;
-        Ok(master_purge_preview(id, "currency"))
-    }
-
     pub fn purge_account_category(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
         validate_confirmation(id, confirmation)?;
         let now = OffsetDateTime::now_utc();
@@ -167,64 +65,6 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         }
         transaction.rollback()?;
         Ok(master_purge_preview(id, "account_category"))
-    }
-
-    pub fn purge_account(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
-        validate_confirmation(id, confirmation)?;
-        let now = OffsetDateTime::now_utc();
-        let mut transaction = self.repository.begin_transaction()?;
-        let before = transaction
-            .get_account(id, true)?
-            .ok_or_else(|| LedgerError::NotFound(format!("account {id}")))?;
-        if transaction.account_has_entries(id)? {
-            return Err(referenced("account", id));
-        }
-        transaction.insert_audit_event(&purge_audit(now, "account", &before)?)?;
-        transaction.delete_account(id)?;
-        transaction.commit()
-    }
-
-    pub fn purge_account_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
-        let transaction = self.repository.begin_transaction()?;
-        transaction
-            .get_account(id, true)?
-            .ok_or_else(|| LedgerError::NotFound(format!("account {id}")))?;
-        if transaction.account_has_entries(id)? {
-            return Err(referenced("account", id));
-        }
-        transaction.rollback()?;
-        Ok(master_purge_preview(id, "account"))
-    }
-
-    pub fn purge_category(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {
-        validate_confirmation(id, confirmation)?;
-        let now = OffsetDateTime::now_utc();
-        let mut transaction = self.repository.begin_transaction()?;
-        let before = transaction
-            .get_transaction_category(id, true)?
-            .ok_or_else(|| LedgerError::NotFound(format!("transaction category {id}")))?;
-        if transaction.transaction_category_has_entries(id)?
-            || transaction.transaction_category_has_children(id)?
-        {
-            return Err(referenced("transaction category", id));
-        }
-        transaction.insert_audit_event(&purge_audit(now, "transaction_category", &before)?)?;
-        transaction.delete_transaction_category(id)?;
-        transaction.commit()
-    }
-
-    pub fn purge_category_preview(&mut self, id: &str) -> LedgerResult<MasterPurgePreview> {
-        let transaction = self.repository.begin_transaction()?;
-        transaction
-            .get_transaction_category(id, true)?
-            .ok_or_else(|| LedgerError::NotFound(format!("transaction category {id}")))?;
-        if transaction.transaction_category_has_entries(id)?
-            || transaction.transaction_category_has_children(id)?
-        {
-            return Err(referenced("transaction category", id));
-        }
-        transaction.rollback()?;
-        Ok(master_purge_preview(id, "transaction_category"))
     }
 
     fn set_entry_archived(
@@ -324,25 +164,7 @@ trait RecordIdentity {
     fn record_id(&self) -> &str;
 }
 
-impl RecordIdentity for Currency {
-    fn record_id(&self) -> &str {
-        self.id()
-    }
-}
-
 impl RecordIdentity for AccountCategory {
-    fn record_id(&self) -> &str {
-        self.id()
-    }
-}
-
-impl RecordIdentity for Account {
-    fn record_id(&self) -> &str {
-        self.id()
-    }
-}
-
-impl RecordIdentity for TransactionCategory {
     fn record_id(&self) -> &str {
         self.id()
     }
@@ -459,29 +281,6 @@ fn transfer_lifecycle_audit<'entry>(
         out_entry,
         in_entry,
     })
-}
-
-fn ordered_entry_ids(entries: &[LedgerEntry]) -> Vec<String> {
-    [EntryType::TransferOut, EntryType::TransferIn]
-        .into_iter()
-        .filter_map(|entry_type| {
-            entries
-                .iter()
-                .find(|entry| entry.entry_type() == entry_type)
-                .map(|entry| entry.id().to_string())
-        })
-        .chain(
-            entries
-                .iter()
-                .filter(|entry| {
-                    !matches!(
-                        entry.entry_type(),
-                        EntryType::TransferOut | EntryType::TransferIn
-                    )
-                })
-                .map(|entry| entry.id().to_string()),
-        )
-        .collect()
 }
 
 fn with_archive_state(

@@ -9,7 +9,7 @@ use health_engine::domain::{
 use health_engine::infrastructure::media::LocalMediaStore;
 use health_engine::infrastructure::sqlite::SqliteHealthRepository;
 use rusqlite::Connection;
-use time::{UtcOffset, macros::datetime};
+use time::macros::datetime;
 
 #[test]
 fn mixed_daily_save_updates_creates_and_archives_atomically() {
@@ -104,7 +104,10 @@ fn stale_daily_write_or_archive_rolls_back_the_whole_save() {
     let stale_weight = event(&opened, "body_weight").clone();
     let crp = event(&opened, "crp").clone();
     let current_weight = service
-        .upsert_daily_metrics(vec![weight(68.0, "actor")])
+        .upsert_daily_metrics(vec![DailyMetricInput {
+            expected_updated_at: Some(stale_weight.updated_at()),
+            ..weight(68.0, "actor")
+        }])
         .unwrap()
         .remove(0);
 
@@ -146,14 +149,12 @@ fn stale_daily_write_or_archive_rolls_back_the_whole_save() {
 fn ordinary_metric_cannot_be_archived_through_daily_save() {
     let fixture = Fixture::new();
     let mut service = fixture.service();
-    let ordinary = service
-        .create_event(health_engine::application::commands::CreateHealthEvent {
-            occurred_at: daily().occurred_at,
-            details: lab("crp", "CRP", 0.3, "mg/L").details,
-            note: None,
-            actor: "actor".into(),
-        })
-        .unwrap();
+    let ordinary = super::legacy_support::seed(
+        &fixture.database,
+        daily().occurred_at,
+        lab("crp", "CRP", 0.3, "mg/L").details,
+        false,
+    );
 
     assert!(matches!(
         service.save_daily_metrics(
@@ -254,14 +255,12 @@ fn daily_save_rejects_overlap_cross_date_empty_and_too_many_operations() {
 fn daily_only_query_excludes_ordinary_metric_events() {
     let fixture = Fixture::new();
     let mut service = fixture.service();
-    service
-        .create_event(health_engine::application::commands::CreateHealthEvent {
-            occurred_at: daily().occurred_at,
-            details: weight(70.0, "actor").details,
-            note: None,
-            actor: "actor".into(),
-        })
-        .unwrap();
+    super::legacy_support::seed(
+        &fixture.database,
+        daily().occurred_at,
+        weight(70.0, "actor").details,
+        false,
+    );
     service
         .upsert_daily_metrics(vec![weight(68.2, "actor")])
         .unwrap();
@@ -283,7 +282,10 @@ fn daily_weight_upsert_updates_instead_of_duplicating() {
         .unwrap()
         .remove(0);
     let second = service
-        .upsert_daily_metrics(vec![weight(67.9, "actor")])
+        .upsert_daily_metrics(vec![DailyMetricInput {
+            expected_updated_at: Some(first.updated_at()),
+            ..weight(67.9, "actor")
+        }])
         .unwrap()
         .remove(0);
 
@@ -358,14 +360,14 @@ fn one_batch_writes_one_audit_per_record_with_shared_request_id() {
             weight(68.2, "actor"),
             DailyMetricInput {
                 details: HealthEventDetails::Lab(
-                    LabAttributes::new("crp", "CRP", 0.3, None).unwrap(),
+                    LabAttributes::new("crp", "CRP", 0.3, Some("mg/L")).unwrap(),
                 ),
                 actor: "actor".to_string(),
                 ..daily()
             },
             DailyMetricInput {
                 details: HealthEventDetails::Symptom(
-                    SymptomAttributes::overall_condition("Condition", 7, None).unwrap(),
+                    SymptomAttributes::overall_condition("Overall condition", 7, None).unwrap(),
                 ),
                 actor: "actor".to_string(),
                 ..daily()
@@ -393,9 +395,7 @@ fn one_batch_writes_one_audit_per_record_with_shared_request_id() {
 #[test]
 fn fixed_offset_controls_canonical_local_date_at_midnight() {
     let fixture = Fixture::new();
-    let mut seoul = fixture
-        .service()
-        .with_local_offset(UtcOffset::from_hms(9, 0, 0).unwrap());
+    let mut seoul = fixture.service();
     let mut input = weight(68.2, "actor");
     input.occurred_at = datetime!(2026-07-29 15:00:00 UTC);
     seoul.upsert_daily_metrics(vec![input]).unwrap();
@@ -443,7 +443,10 @@ fn two_service_handles_cannot_create_duplicate_daily_rows() {
         .unwrap()
         .remove(0);
     let updated = second
-        .upsert_daily_metrics(vec![weight(67.9, "second")])
+        .upsert_daily_metrics(vec![DailyMetricInput {
+            expected_updated_at: Some(created.updated_at()),
+            ..weight(67.9, "second")
+        }])
         .unwrap()
         .remove(0);
 
@@ -473,7 +476,7 @@ fn failed_batch_audit_rolls_back_every_metric_and_audit() {
             weight(68.2, "actor"),
             DailyMetricInput {
                 details: HealthEventDetails::Lab(
-                    LabAttributes::new("crp", "CRP", 0.3, None).unwrap(),
+                    LabAttributes::new("crp", "CRP", 0.3, Some("mg/L")).unwrap(),
                 ),
                 actor: "actor".to_string(),
                 ..daily()
@@ -503,7 +506,10 @@ fn identical_daily_submission_is_a_noop_without_another_audit() {
         .unwrap()
         .remove(0);
     let second = service
-        .upsert_daily_metrics(vec![weight(68.2, "actor")])
+        .upsert_daily_metrics(vec![DailyMetricInput {
+            expected_updated_at: Some(first.updated_at()),
+            ..weight(68.2, "actor")
+        }])
         .unwrap()
         .remove(0);
 
@@ -521,7 +527,7 @@ fn daily() -> DailyMetricInput {
     DailyMetricInput {
         occurred_at: datetime!(2026-07-30 09:00:00 +09:00),
         details: HealthEventDetails::Weight(
-            WeightAttributes::body_weight("Weight", 1.0, "kg").unwrap(),
+            WeightAttributes::body_weight("Body weight", 1.0, "kg").unwrap(),
         ),
         note: None,
         actor: String::new(),
@@ -570,7 +576,7 @@ fn event<'a>(
 fn weight(value: f64, actor: &str) -> DailyMetricInput {
     DailyMetricInput {
         details: HealthEventDetails::Weight(
-            WeightAttributes::body_weight("Weight", value, "kg").unwrap(),
+            WeightAttributes::body_weight("Body weight", value, "kg").unwrap(),
         ),
         actor: actor.to_string(),
         ..daily()

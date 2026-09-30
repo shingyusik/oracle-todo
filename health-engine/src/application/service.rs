@@ -26,19 +26,26 @@ impl<R, M> HealthService<R, M> {
             local_offset: offset!(+9),
         }
     }
-
-    /// Sets the fixed UTC offset used to derive persisted local dates.
-    ///
-    /// The offset is applied directly to each UTC occurrence instant. It does
-    /// not resolve IANA timezone names or daylight-saving transitions.
-    pub fn with_local_offset(mut self, local_offset: UtcOffset) -> Self {
-        self.local_offset = local_offset;
-        self
-    }
 }
 
 #[allow(private_bounds)]
 impl<R: HealthReadRepository, M: MediaStore> HealthService<R, M> {
+    pub fn diet_photo(&self, id: &str) -> HealthResult<(String, Vec<u8>)>
+    where
+        M: crate::application::media::MediaReader,
+    {
+        let diet = self.get_diet_including_archived(id)?;
+        let media_id = diet
+            .media_id()
+            .ok_or_else(|| HealthError::NotFound("diet photo".to_string()))?;
+        let media = self.get_media(media_id.as_str())?;
+        if !matches!(media.mime_type(), "image/jpeg" | "image/png" | "image/webp") {
+            return Err(HealthError::UnsupportedMedia);
+        }
+        let bytes = self.media_store.read(&media)?;
+        Ok((media.mime_type().to_string(), bytes))
+    }
+
     pub fn get_media(&self, id: &str) -> HealthResult<StoredMedia> {
         HealthRecordId::parse(id)?;
         self.repository
@@ -201,7 +208,6 @@ pub(super) fn safe_error_summary(error: &HealthError) -> String {
         HealthError::MediaTooLarge => "media is too large".to_string(),
         HealthError::Cleanup { .. } => "nested media cleanup failed".to_string(),
         HealthError::CleanupPending { .. } => "media cleanup is pending".to_string(),
-        HealthError::ConfirmationMismatch => "confirmation mismatch".to_string(),
     }
 }
 

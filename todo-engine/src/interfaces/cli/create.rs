@@ -20,9 +20,11 @@ pub(super) fn task_propose(home: &Path, args: TaskProposeArgs) -> Result<()> {
             due: args.due,
             scheduled: args.scheduled,
             priority: args.priority,
-            description: args.description,
+            description: None,
             note: args.note,
-            ..Default::default()
+            project_id: args.project_id,
+            routine_id: None,
+            tags: args.tags,
         },
     )?;
     print_json(&item)?;
@@ -39,7 +41,7 @@ pub(super) fn project_propose(home: &Path, args: ProjectProposeArgs) -> Result<(
         due: args.due,
         actor: args.actor,
         note: args.note,
-        tags: Vec::new(),
+        tags: args.tags,
     })?;
     print_json(&item)?;
     Ok(())
@@ -54,7 +56,7 @@ pub(super) fn goal_propose(home: &Path, args: GoalProposeArgs) -> Result<()> {
         parent_id: args.parent_id,
         actor: args.actor,
         note: args.note,
-        tags: Vec::new(),
+        tags: args.tags,
     })?;
     print_json(&item)?;
     Ok(())
@@ -67,7 +69,7 @@ pub(super) fn area_create(home: &Path, args: AreaCreateArgs) -> Result<()> {
         review_cycle: args.review_cycle,
         standard: args.standard,
         note: args.note,
-        tags: Vec::new(),
+        tags: args.tags,
     })?;
     print_json(&item)?;
     Ok(())
@@ -79,7 +81,7 @@ pub(super) fn routine_propose(home: &Path, args: RoutineProposeArgs) -> Result<(
         title: args.title,
         area: args.area,
         project_id: args.project_id,
-        description: args.description,
+        description: None,
         priority: args.priority,
         actor: args.actor,
         recurrence_rule: args.recurrence_rule,
@@ -102,12 +104,12 @@ pub(super) fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
         project_id: args.project_id,
         due: args.due,
         priority: args.priority,
-        description: args.description,
+        description: None,
         note: args.note,
         location: args.location,
         participants: args.participants,
         commitment_type: args.commitment_type,
-        tags: Vec::new(),
+        tags: args.tags,
     })?;
     print_json(&item)?;
     Ok(())

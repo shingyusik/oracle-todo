@@ -384,6 +384,9 @@ impl FixedMetric {
 }
 
 fn fixed_metric(event: &HealthEvent) -> Option<FixedMetric> {
+    if !crate::application::events::canonical_daily_metric(event) {
+        return None;
+    }
     match (event.category(), event.metric_key().as_str()) {
         (HealthCategory::Weight, "body_weight") => Some(FixedMetric::BodyWeight),
         (HealthCategory::Sleep, "sleep_duration") => Some(FixedMetric::SleepDuration),
@@ -462,10 +465,10 @@ fn responses(
 ) -> HealthResult<(Vec<TagBowelResponse>, Vec<TagBristolComparison>)> {
     let mut bowel_by_score: [Vec<OffsetDateTime>; 7] = std::array::from_fn(|_| Vec::new());
     for event in events {
-        if event.category() == HealthCategory::Bowel {
-            if let Some(score @ 1..=7) = event.value_num().map(|value| value as usize) {
-                bowel_by_score[score - 1].push(event.occurred_at());
-            }
+        if event.category() == HealthCategory::Bowel
+            && let Some(score @ 1..=7) = event.value_num().map(|value| value as usize)
+        {
+            bowel_by_score[score - 1].push(event.occurred_at());
         }
     }
     for instants in &mut bowel_by_score {

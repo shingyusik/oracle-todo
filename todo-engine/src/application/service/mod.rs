@@ -13,6 +13,7 @@ use crate::domain::{
 mod creation;
 mod goal;
 mod materialization;
+mod policy;
 mod queries;
 pub(crate) mod table;
 mod transitions;
@@ -21,23 +22,8 @@ mod update;
 pub use creation::{
     CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
 };
-pub use queries::{GoalNode, PeriodView, TodoDashboardSummary};
+pub use queries::TodoDashboardSummary;
 pub use update::UpdateItem;
-
-/// Single source of truth for the goal-depth cap on the public `service` path
-/// (D-06 / IN-03).
-///
-/// The production const stays `pub(super) const MAX_GOAL_DEPTH` in `goal.rs`. A
-/// bare `pub use goal::MAX_GOAL_DEPTH;` re-export does not compile in Rust 2024
-/// (E0364: cannot re-export a `pub(super)` item as `pub`, RESEARCH A1's
-/// documented fallback). A `#[cfg(test)]` gate would not reach the *integration*
-/// test crate (it links the non-`cfg(test)` library build), so this public
-/// accessor *binds* the production value — readable from the parent module —
-/// rather than hand-mirroring `64`. The integration test crate imports this
-/// instead of declaring its own const: still exactly one source of truth. The
-/// widened surface is a single non-sensitive integer cap (threat T-04.1-05:
-/// accept).
-pub const MAX_GOAL_DEPTH: usize = goal::MAX_GOAL_DEPTH;
 
 pub struct TodoService {
     pub(super) store: ServiceStore,
@@ -155,6 +141,19 @@ impl TodoService {
         &mut self,
         writes: Vec<ItemEventWrite<'_>>,
     ) -> TodoResult<Vec<TodoItem>> {
+        self.store_items_and_events_checked(writes, None)
+    }
+
+    pub(super) fn store_items_and_events_checked(
+        &mut self,
+        writes: Vec<ItemEventWrite<'_>>,
+        expected_updated_at: Option<OffsetDateTime>,
+    ) -> TodoResult<Vec<TodoItem>> {
+        if expected_updated_at.is_some() && writes.len() != 1 {
+            return Err(TodoError::Internal(
+                "Conditional update requires one item".to_string(),
+            ));
+        }
         let mut item_event_pairs = Vec::with_capacity(writes.len());
         for (actor, action, before, item, reason) in writes {
             let event = TodoEvent {
@@ -175,12 +174,29 @@ impl TodoService {
 
         match &mut self.store {
             ServiceStore::InMemory(items) => {
+                if let Some(expected) = expected_updated_at {
+                    for (item, _) in &item_event_pairs {
+                        let current = items
+                            .get(&item.id)
+                            .ok_or_else(|| TodoError::NotFound(item.id.clone()))?;
+                        if current.updated_at != expected {
+                            return Err(TodoError::Conflict(
+                                "Item changed since it was read".to_string(),
+                            ));
+                        }
+                    }
+                }
                 for (item, _) in &item_event_pairs {
                     items.insert(item.id.clone(), item.clone());
                 }
             }
             ServiceStore::Persistent(store) => {
-                store.save_items_and_events(&item_event_pairs)?;
+                if let Some(expected) = expected_updated_at {
+                    let (item, event) = &item_event_pairs[0];
+                    store.save_item_and_event_if_current(item, event, expected)?;
+                } else {
+                    store.save_items_and_events(&item_event_pairs)?;
+                }
             }
         }
         self.events

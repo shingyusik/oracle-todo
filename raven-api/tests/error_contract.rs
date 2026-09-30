@@ -17,6 +17,21 @@ async fn body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+#[tokio::test]
+async fn committed_cleanup_failure_is_distinct_and_safe() {
+    let id = Uuid::new_v4();
+    let error: ApiError = HealthError::CleanupPending {
+        record_id: id.to_string(),
+        message: "private/path SELECT secret".into(),
+    }
+    .into();
+    let value = body(error.into_response()).await;
+    assert_eq!(value["code"], "cleanup_pending");
+    assert_eq!(value["committed"], true);
+    assert_eq!(value["record_id"], id.to_string());
+    assert!(!value.to_string().contains("private/path"));
+}
+
 async fn assert_error(
     error: ApiError,
     status: StatusCode,

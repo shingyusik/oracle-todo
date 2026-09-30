@@ -320,13 +320,9 @@ pub(crate) trait LedgerTransaction {
         category: &TransactionCategory,
         changed_at: OffsetDateTime,
     ) -> LedgerResult<()>;
-    fn delete_currency(&mut self, id: &str) -> LedgerResult<()>;
     fn delete_account_category(&mut self, id: &str) -> LedgerResult<()>;
-    fn delete_account(&mut self, id: &str) -> LedgerResult<()>;
-    fn delete_transaction_category(&mut self, id: &str) -> LedgerResult<()>;
     fn insert_entry(&mut self, entry: &LedgerEntry) -> LedgerResult<()>;
     fn update_entry(&mut self, entry: &LedgerEntry) -> LedgerResult<()>;
-    fn delete_entry(&mut self, id: &str) -> LedgerResult<()>;
     fn insert_audit_event(&mut self, event: &AuditEvent) -> LedgerResult<()>;
     fn get_transfer_operation(
         &self,
@@ -350,6 +346,16 @@ pub(crate) trait LedgerTransaction {
 pub trait LedgerRepository: Send {}
 
 pub(crate) trait LedgerReadRepository: LedgerRepository {
+    fn list_currencies_including_inactive(&self, page: Page) -> LedgerResult<Vec<Currency>>;
+    fn list_account_categories_including_inactive(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<AccountCategory>>;
+    fn list_accounts_including_inactive(&self, page: Page) -> LedgerResult<Vec<Account>>;
+    fn list_transaction_categories_including_inactive(
+        &self,
+        page: Page,
+    ) -> LedgerResult<Vec<TransactionCategory>>;
     fn analyze_table(
         &self,
         _query: &LedgerTableQuery,
@@ -417,8 +423,6 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
     ) -> LedgerResult<Vec<LedgerEntry>>;
     fn list_account_balance_records(&self, page: Page) -> LedgerResult<Vec<AccountBalanceRecord>>;
     fn summarize_entries(&self, start: Date, end: Date)
-    -> LedgerResult<Vec<ReportAggregateRecord>>;
-    fn account_breakdown(&self, start: Date, end: Date)
     -> LedgerResult<Vec<ReportAggregateRecord>>;
     fn category_breakdown(
         &self,

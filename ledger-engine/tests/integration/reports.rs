@@ -1,6 +1,6 @@
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
-    UpdateAccount, UpdateCurrency, UpdateEntry,
+    UpdateAccount, UpdateCurrency,
 };
 use ledger_engine::application::doctor::{DoctorOptions, DoctorSeverity};
 use ledger_engine::application::error::LedgerError;
@@ -93,70 +93,6 @@ fn monthly_summary_partitions_currencies_and_uses_type_direction() {
     assert_eq!(summary.currencies[1].income_minor, 0);
     assert_eq!(summary.currencies[1].expense_minor, 2_500);
     assert_eq!(summary.currencies[1].net_change_minor, -2_500);
-}
-
-#[test]
-fn breakdown_comparison_and_briefing_are_deterministically_ordered() {
-    let mut seeded = seeded_service();
-    create_entry(
-        &mut seeded.service,
-        "2026-06-10",
-        "previous",
-        "Bank",
-        Some("Food"),
-        EntryType::Expense,
-        1_000,
-        "KRW",
-    );
-    create_entry(
-        &mut seeded.service,
-        "2026-07-10",
-        "wallet",
-        "Wallet",
-        Some("Food"),
-        EntryType::Expense,
-        2_000,
-        "KRW",
-    );
-    create_entry(
-        &mut seeded.service,
-        "2026-07-11",
-        "bank",
-        "Bank",
-        Some("Food"),
-        EntryType::Expense,
-        3_000,
-        "KRW",
-    );
-
-    let range = ReportRange::new(date!(2026 - 07 - 01), date!(2026 - 07 - 31)).unwrap();
-    let accounts = seeded.service.account_breakdown(range).unwrap();
-    assert_eq!(
-        accounts
-            .iter()
-            .map(|row| (row.name.as_str(), row.expense_minor))
-            .collect::<Vec<_>>(),
-        vec![("Bank", 3_000), ("Wallet", 2_000)]
-    );
-    let categories = seeded.service.category_breakdown(range).unwrap();
-    assert_eq!(categories.len(), 1);
-    assert_eq!(categories[0].name, "Food");
-    assert_eq!(categories[0].expense_minor, 5_000);
-
-    let comparison = seeded
-        .service
-        .compare(
-            range,
-            ReportRange::new(date!(2026 - 06 - 01), date!(2026 - 06 - 30)).unwrap(),
-        )
-        .unwrap();
-    assert_eq!(comparison.current.currencies[0].expense_minor, 5_000);
-    assert_eq!(comparison.previous.currencies[0].expense_minor, 1_000);
-
-    let briefing = seeded.service.briefing(range).unwrap();
-    assert_eq!(briefing.summary, comparison.current);
-    assert!(briefing.markdown.contains("KRW"));
-    assert!(briefing.markdown.contains("5000"));
 }
 
 #[test]
@@ -598,7 +534,9 @@ fn trend_rejects_directly_constructed_invalid_ranges() {
 
 #[test]
 fn account_balances_include_opening_and_signed_live_movements_by_currency() {
-    let mut seeded = seeded_service();
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("historical.sqlite");
+    let mut seeded = seeded_service_at(&database);
     let opening = seeded
         .service
         .accounts_page(Page {
@@ -646,11 +584,16 @@ fn account_balances_include_opening_and_signed_live_movements_by_currency() {
         "2026-07-03",
         "adjust out",
         "Wallet",
-        None,
-        EntryType::AdjustmentOut,
+        Some("Food"),
+        EntryType::Expense,
         50,
         "KRW",
     );
+    // Historical adjustments remain readable without reopening public adjustment creation.
+    rusqlite::Connection::open(&database).unwrap().execute(
+        "UPDATE ledger_entries SET entry_type = 'adjustment_out', transaction_category_id = NULL WHERE content = 'adjust out'",
+        [],
+    ).unwrap();
     let archived = create_entry(
         &mut seeded.service,
         "2026-07-04",
@@ -972,73 +915,6 @@ fn doctor_has_no_false_positives_for_valid_mutation_history() {
 }
 
 #[test]
-fn doctor_accepts_renamed_transfer_and_service_lifecycle_through_terminal_purge() {
-    let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("ledger.sqlite");
-    let mut seeded = seeded_service_at(&database);
-    let transfer = seeded
-        .service
-        .transfer(TransferCommand {
-            operation_key: TransferOperationKey::parse("61000000-0000-4000-8000-000000000001")
-                .unwrap(),
-            date: "2026-07-02".to_string(),
-            written_at: datetime!(2026-07-02 12:00 UTC),
-            content: "lifecycle transfer".to_string(),
-            from_account: "Wallet".to_string(),
-            to_account: "Bank".to_string(),
-            amount: Money::from_minor_units(200),
-            currency: "KRW".to_string(),
-            source: "test".to_string(),
-            notes: None,
-            actor: "test".to_string(),
-        })
-        .unwrap();
-    let wallet = seeded
-        .service
-        .accounts_page(Page::default())
-        .unwrap()
-        .items
-        .into_iter()
-        .find(|account| account.name() == "Wallet")
-        .unwrap();
-    seeded
-        .service
-        .update_account(
-            wallet.id(),
-            UpdateAccount {
-                name: Some("Renamed wallet".to_string()),
-                actor: "test".to_string(),
-                ..UpdateAccount::default()
-            },
-        )
-        .unwrap();
-
-    let renamed = seeded.service.doctor().unwrap();
-    assert!(renamed.healthy, "{:#?}", renamed.issues);
-
-    seeded
-        .service
-        .archive_entry(&transfer.out_entry_id)
-        .unwrap();
-    let archived = seeded.service.doctor().unwrap();
-    assert!(archived.healthy, "{:#?}", archived.issues);
-
-    seeded
-        .service
-        .restore_entry(&transfer.out_entry_id)
-        .unwrap();
-    let restored = seeded.service.doctor().unwrap();
-    assert!(restored.healthy, "{:#?}", restored.issues);
-
-    seeded
-        .service
-        .purge_entry(&transfer.out_entry_id, &transfer.transfer_group_id)
-        .unwrap();
-    let purged = seeded.service.doctor().unwrap();
-    assert!(purged.healthy, "{:#?}", purged.issues);
-}
-
-#[test]
 fn doctor_rejects_update_before_create_and_terminal_action_violations() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
@@ -1317,42 +1193,6 @@ fn doctor_rejects_entry_lifecycle_noops_and_reverse_directions() {
             report.issues
         );
     }
-}
-
-#[test]
-fn doctor_accepts_service_entry_update_archive_restore_and_purge() {
-    let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("ledger.sqlite");
-    let mut seeded = seeded_service_at(&database);
-    let entry = create_entry(
-        &mut seeded.service,
-        "2026-07-01",
-        "valid entry lifecycle",
-        "Wallet",
-        Some("Food"),
-        EntryType::Expense,
-        100,
-        "KRW",
-    );
-    seeded
-        .service
-        .update_entry(
-            entry.id(),
-            UpdateEntry {
-                content: Some("updated entry lifecycle".to_string()),
-                actor: "test".to_string(),
-                ..UpdateEntry::default()
-            },
-        )
-        .unwrap();
-    seeded.service.archive_entry(entry.id()).unwrap();
-    seeded.service.restore_entry(entry.id()).unwrap();
-    seeded.service.purge_entry(entry.id(), entry.id()).unwrap();
-
-    let report = seeded.service.doctor().unwrap();
-
-    assert!(report.healthy, "{:#?}", report.issues);
-    assert!(report.issues.is_empty());
 }
 
 #[test]

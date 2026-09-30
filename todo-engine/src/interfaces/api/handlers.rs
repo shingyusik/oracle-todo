@@ -6,25 +6,36 @@ use axum::extract::{Path as AxumPath, Query, State};
 use serde_json::json;
 
 use super::dto::{
-    AgendaQuery, AreaBody, DateRangeQuery, EventProposeBody, GoalProposeBody, ItemsQuery, MissBody,
-    PeriodQuery, PostponeBody, ProjectProposeBody, ReasonBody, RoutineMaterializeBody,
-    RoutineProposeBody, TaskProposeBody, UpdateBody,
+    AreaBody, EventProposeBody, GoalProposeBody, ItemsQuery, MissBody, PostponeBody,
+    ProjectProposeBody, ReasonBody, RoutineMaterializeBody, RoutineProposeBody, TaskProposeBody,
+    UpdateBody,
 };
 use super::{
     ApiResult, ApiState, non_empty, non_empty_string, parse_actor_or_default, parse_bool,
-    validation_rejection, with_service,
+    validation_rejection, with_read_service, with_service,
 };
 use crate::application::error::TodoError;
-use crate::application::ports::ListFilter;
+use crate::application::ports::{ItemPageQuery, ItemPageScope, ListFilter};
 use crate::application::service::{
-    CreateArea, PeriodView, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask,
-    UpdateItem,
+    CreateArea, ProposeEvent, ProposeGoal, ProposeProject, ProposeRoutine, ProposeTask, UpdateItem,
 };
-use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
+use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
 use crate::infrastructure::system::local_today_string;
 
-pub(super) async fn health() -> Json<serde_json::Value> {
-    Json(json!({"ok": true}))
+pub(super) async fn item_history(
+    State(state): State<ApiState>,
+    AxumPath(id): AxumPath<String>,
+    Query(query): Query<super::dto::PageQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let (items, next) = with_read_service(&state, |service| {
+        service.item_history(&id, query.offset, query.limit)
+    })?;
+    Ok(Json(json!({"items": items, "next": next})))
+}
+
+pub(super) async fn health(State(state): State<ApiState>) -> ApiResult<Json<serde_json::Value>> {
+    with_read_service(&state, |service| service.list_items(ListFilter::default()))?;
+    Ok(Json(json!({"ok": true})))
 }
 
 pub(super) async fn create_area(
@@ -66,7 +77,7 @@ pub(super) async fn propose_task(
                 due: body.due,
                 scheduled: body.scheduled,
                 priority: body.priority,
-                description: body.description,
+                description: None,
                 note: body.note,
                 tags: body.tags.unwrap_or_default(),
                 ..Default::default()
@@ -128,7 +139,7 @@ pub(super) async fn propose_routine(
             title: body.title,
             area: body.area,
             project_id: body.project_id,
-            description: body.description,
+            description: None,
             priority: body.priority,
             actor,
             recurrence_rule: body.recurrence_rule,
@@ -179,7 +190,7 @@ pub(super) async fn propose_event(
             project_id: body.project_id,
             due: body.due,
             priority: body.priority,
-            description: body.description,
+            description: None,
             note: body.note,
             location: body.location,
             participants: body.participants.unwrap_or_default(),
@@ -227,7 +238,7 @@ pub(super) async fn list_items(
         scheduled: query.scheduled.and_then(non_empty_string),
         query: query.query.and_then(non_empty_string),
     };
-    let mut items = with_service(&state, |service| service.list_items(filter))?;
+    let mut items = with_read_service(&state, |service| service.list_items(filter))?;
     items.sort_by(|left, right| {
         right
             .created_at
@@ -237,38 +248,22 @@ pub(super) async fn list_items(
     Ok(Json(items))
 }
 
-pub(super) async fn archive_items(State(state): State<ApiState>) -> ApiResult<Json<Vec<TodoItem>>> {
-    let items = with_service(&state, |service| service.archive_items())?;
-    Ok(Json(items))
-}
-
-pub(super) async fn view_agenda(
+pub(super) async fn archive_items(
     State(state): State<ApiState>,
-    Query(q): Query<AgendaQuery>,
-) -> ApiResult<Json<Vec<TodoItem>>> {
-    Ok(Json(with_service(&state, |s| s.agenda(&q.date))?))
-}
-
-pub(super) async fn view_date_range(
-    State(state): State<ApiState>,
-    Query(q): Query<DateRangeQuery>,
-) -> ApiResult<Json<Vec<TodoItem>>> {
-    Ok(Json(with_service(&state, |s| {
-        s.date_range(&q.from, &q.to)
-    })?))
-}
-
-pub(super) async fn view_period(
-    State(state): State<ApiState>,
-    Query(q): Query<PeriodQuery>,
-) -> ApiResult<Json<PeriodView>> {
-    let horizon = q
-        .horizon
-        .parse::<Horizon>()
-        .map_err(TodoError::Validation)?;
-    Ok(Json(with_service(&state, |s| {
-        s.period_view(horizon, &q.period)
-    })?))
+    Query(query): Query<super::dto::PageQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let (items, next) = with_read_service(&state, |service| {
+        service.list_items_page(ItemPageQuery {
+            filter: ListFilter {
+                include_archived: true,
+                ..Default::default()
+            },
+            scope: ItemPageScope::Archive,
+            offset: query.offset,
+            limit: query.limit,
+        })
+    })?;
+    Ok(Json(json!({"items": items, "next": next})))
 }
 
 pub(super) async fn update_item(
@@ -277,12 +272,20 @@ pub(super) async fn update_item(
     body: std::result::Result<Json<UpdateBody>, JsonRejection>,
 ) -> ApiResult<Json<TodoItem>> {
     let Json(body) = body.map_err(validation_rejection)?;
+    let expected = body
+        .expected_updated_at
+        .as_deref()
+        .map(|value| {
+            time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+                .map_err(|_| TodoError::Validation("expected_updated_at must be RFC 3339".into()))
+        })
+        .transpose()?;
     let item = with_service(&state, |service| {
-        service.update_item(
+        service.update_item_if_current(
             &id,
             UpdateItem {
                 title: body.title,
-                description: body.description,
+                description: None,
                 note: body.note,
                 outcome: body.outcome,
                 definition_of_done: body.definition_of_done,
@@ -290,11 +293,11 @@ pub(super) async fn update_item(
                 review_cycle: body.review_cycle,
                 recurrence_rule: body.recurrence_rule,
                 materialization_policy: body.materialization_policy,
-                future_occurrences: body.future_occurrences,
+                future_occurrences: None,
                 area: body.area,
                 project_id: body.project_id,
                 parent_id: body.parent_id,
-                routine_id: body.routine_id,
+                routine_id: None,
                 due: body.due,
                 scheduled: body.scheduled,
                 horizon: body.horizon,
@@ -305,6 +308,7 @@ pub(super) async fn update_item(
                 commitment_type: body.commitment_type,
                 reason: body.reason,
             },
+            expected,
         )
     })?;
     Ok(Json(item))
@@ -313,9 +317,9 @@ pub(super) async fn update_item(
 pub(super) async fn pause_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
-    body: Option<Json<ReasonBody>>,
+    body: axum::body::Bytes,
 ) -> ApiResult<Json<TodoItem>> {
-    let reason = body.and_then(|Json(body)| body.reason);
+    let reason = optional_reason(&body)?;
     let item = with_service(&state, |service| service.pause(&id, reason.as_deref()))?;
     Ok(Json(item))
 }
@@ -348,9 +352,9 @@ pub(super) async fn miss_item(
 pub(super) async fn resume_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
-    body: Option<Json<ReasonBody>>,
+    body: axum::body::Bytes,
 ) -> ApiResult<Json<TodoItem>> {
-    let reason = body.and_then(|Json(body)| body.reason);
+    let reason = optional_reason(&body)?;
     let item = with_service(&state, |service| service.resume(&id, reason.as_deref()))?;
     Ok(Json(item))
 }
@@ -358,45 +362,38 @@ pub(super) async fn resume_item(
 pub(super) async fn complete_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
+    body: axum::body::Bytes,
 ) -> ApiResult<Json<TodoItem>> {
-    let item = with_service(&state, |service| service.complete(&id, None))?;
+    let reason = optional_reason(&body)?;
+    let item = with_service(&state, |service| service.complete(&id, reason.as_deref()))?;
     Ok(Json(item))
 }
 
 pub(super) async fn reopen_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
+    body: axum::body::Bytes,
 ) -> ApiResult<Json<TodoItem>> {
-    let item = with_service(&state, |service| service.reopen(&id, None))?;
+    let reason = optional_reason(&body)?;
+    let item = with_service(&state, |service| service.reopen(&id, reason.as_deref()))?;
     Ok(Json(item))
 }
 
 pub(super) async fn archive_item(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,
-    body: Option<Json<ReasonBody>>,
+    body: axum::body::Bytes,
 ) -> ApiResult<Json<TodoItem>> {
-    let reason = body.and_then(|Json(body)| body.reason);
+    let reason = optional_reason(&body)?;
     let item = with_service(&state, |service| service.archive(&id, reason.as_deref()))?;
     Ok(Json(item))
 }
 
-pub(super) async fn drop_item(
-    State(state): State<ApiState>,
-    AxumPath(id): AxumPath<String>,
-    body: Option<Json<ReasonBody>>,
-) -> ApiResult<Json<TodoItem>> {
-    let reason = body.and_then(|Json(body)| body.reason);
-    let item = with_service(&state, |service| service.drop(&id, reason.as_deref()))?;
-    Ok(Json(item))
-}
-
-pub(super) async fn cancel_item(
-    State(state): State<ApiState>,
-    AxumPath(id): AxumPath<String>,
-    body: Option<Json<ReasonBody>>,
-) -> ApiResult<Json<TodoItem>> {
-    let reason = body.and_then(|Json(body)| body.reason);
-    let item = with_service(&state, |service| service.cancel(&id, reason.as_deref()))?;
-    Ok(Json(item))
+fn optional_reason(body: &[u8]) -> ApiResult<Option<String>> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_slice::<ReasonBody>(body)
+        .map(|body| body.reason)
+        .map_err(|_| TodoError::Validation("Invalid reason JSON body".into()).into())
 }

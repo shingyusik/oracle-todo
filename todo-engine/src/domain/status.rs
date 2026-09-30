@@ -15,15 +15,6 @@ pub enum ItemStatus {
     Rejected,
 }
 
-/// Single source of truth for the "open" working-set statuses — the only
-/// statuses that surface in date-view and period-view reads. Both the
-/// application-ring period-view loader (`queries.rs`) and the infrastructure-ring
-/// recursive-CTE loader (`sqlite/repo.rs`) derive their task-status predicate
-/// from THIS constant so the InMemory and Persistent stores cannot diverge
-/// (D-07 visibility parity). Adding/removing an open status here updates both
-/// loaders in lockstep.
-pub const OPEN_STATUSES: [ItemStatus; 1] = [ItemStatus::Active];
-
 pub fn terminal_status(status: ItemStatus) -> bool {
     matches!(
         status,

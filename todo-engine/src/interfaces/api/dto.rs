@@ -1,6 +1,18 @@
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+pub(super) struct PageQuery {
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_limit")]
+    pub limit: u32,
+}
+fn default_page_limit() -> u32 {
+    50
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct AreaBody {
     pub title: String,
     pub review_cycle: Option<String>,
@@ -10,6 +22,7 @@ pub(super) struct AreaBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct TaskProposeBody {
     pub title: String,
     pub area: Option<String>,
@@ -17,13 +30,13 @@ pub(super) struct TaskProposeBody {
     pub due: Option<String>,
     pub scheduled: Option<String>,
     pub priority: Option<i64>,
-    pub description: Option<String>,
     pub note: Option<String>,
     pub actor: Option<String>,
     pub tags: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ProjectProposeBody {
     pub title: String,
     pub area: Option<String>,
@@ -36,6 +49,7 @@ pub(super) struct ProjectProposeBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct GoalProposeBody {
     pub title: String,
     pub horizon: String,
@@ -47,11 +61,11 @@ pub(super) struct GoalProposeBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct RoutineProposeBody {
     pub title: String,
     pub area: Option<String>,
     pub project_id: Option<String>,
-    pub description: Option<String>,
     pub priority: Option<i64>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: Option<String>,
@@ -62,6 +76,7 @@ pub(super) struct RoutineProposeBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct EventProposeBody {
     pub title: String,
     pub scheduled: String,
@@ -69,7 +84,6 @@ pub(super) struct EventProposeBody {
     pub project_id: Option<String>,
     pub due: Option<String>,
     pub priority: Option<i64>,
-    pub description: Option<String>,
     pub note: Option<String>,
     pub location: Option<String>,
     pub participants: Option<Vec<String>>,
@@ -79,21 +93,25 @@ pub(super) struct EventProposeBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct RoutineMaterializeBody {
     pub future_occurrences: i64,
 }
 
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ReasonBody {
     pub reason: Option<String>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct MissBody {
     pub reason: Option<String>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PostponeBody {
     pub today: String,
     pub scheduled: String,
@@ -101,9 +119,10 @@ pub(super) struct PostponeBody {
 }
 
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub(super) struct UpdateBody {
+    pub expected_updated_at: Option<String>,
     pub title: Option<String>,
-    pub description: Option<String>,
     pub note: Option<String>,
     pub outcome: Option<String>,
     pub definition_of_done: Option<String>,
@@ -111,11 +130,9 @@ pub(super) struct UpdateBody {
     pub review_cycle: Option<String>,
     pub recurrence_rule: Option<String>,
     pub materialization_policy: Option<String>,
-    pub future_occurrences: Option<i64>,
     pub area: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
-    pub routine_id: Option<String>,
     pub due: Option<String>,
     pub scheduled: Option<String>,
     pub horizon: Option<String>,
@@ -128,31 +145,14 @@ pub(super) struct UpdateBody {
 }
 
 #[derive(Deserialize)]
-pub(super) struct AgendaQuery {
-    pub date: String,
-}
-
-#[derive(Deserialize)]
-pub(super) struct DateRangeQuery {
-    pub from: String,
-    pub to: String,
-}
-
-#[derive(Deserialize)]
-pub(super) struct PeriodQuery {
-    pub horizon: String,
-    pub period: String,
-}
-
-#[derive(Deserialize)]
 pub(super) struct ItemsQuery {
+    pub routine_id: Option<String>,
     pub status: Option<String>,
     #[serde(rename = "type")]
     pub item_type: Option<String>,
     pub area_id: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
-    pub routine_id: Option<String>,
     pub horizon: Option<String>,
     pub scheduled: Option<String>,
     pub query: Option<String>,

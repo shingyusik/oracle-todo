@@ -11,6 +11,8 @@ use crate::config::RavenPaths;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UiCommandError {
+    #[error("UI artifact is missing, unreadable, or invalid")]
+    Artifact,
     #[error("invalid RAVEN_UI_PUBLIC_ORIGIN")]
     PublicOrigin,
 }
@@ -18,14 +20,15 @@ pub enum UiCommandError {
 impl UiCommandError {
     pub fn cli_exit_code(&self) -> i32 {
         match self {
+            Self::Artifact => 1,
             Self::PublicOrigin => 2,
         }
     }
 }
 
 pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
-    let ui_path = resolve_ui_path(args.ui_path)?;
-    let artifact = raven_api::UiArtifact::load(ui_path)?;
+    let ui_path = resolve_ui_path(args.ui_path).map_err(|_| UiCommandError::Artifact)?;
+    let artifact = raven_api::UiArtifact::load(ui_path).map_err(|_| UiCommandError::Artifact)?;
     let public_origin = public_origin_from_env()?;
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
     validate_public_origin(public_origin.as_deref(), addr)?;
@@ -44,14 +47,15 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
         validate_public_origin(public_origin.as_deref(), actual)?;
-        let app = raven_api::ui_router(config, artifact, session, actual, public_origin.as_deref())?;
+        let app =
+            raven_api::ui_router(config, artifact, session, actual, public_origin.as_deref())?;
         let (url, session_url) = ui_urls(actual);
         println!("Raven UI listening on {url}");
         println!("Open Raven UI: {session_url}");
-        if !args.no_open {
-            if let Err(error) = open_browser(&session_url) {
-                tracing::warn!(event = "browser_open_failed", %error, "browser could not be opened");
-            }
+        if !args.no_open
+            && let Err(error) = open_browser(&session_url)
+        {
+            tracing::warn!(event = "browser_open_failed", %error, "browser could not be opened");
         }
         axum::serve(listener, app).await?;
         anyhow::Ok(())

@@ -8,7 +8,7 @@ use ledger_engine::application::commands::{
     UpdateAccount, UpdateAccountCategory, UpdateCurrency, UpdateEntry, UpdateTransactionCategory,
 };
 use ledger_engine::application::ports::{EntryQuery, MAX_PAGE_LIMIT, Page};
-use ledger_engine::application::reports::{ReportPeriod, ReportRange, TrendGranularity, YearMonth};
+use ledger_engine::application::reports::{ReportPeriod, ReportRange};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::table::{
     AccountTableFilterField, AccountTableGroup, AccountTableSortField, CategoryTableFilterField,
@@ -43,18 +43,10 @@ pub fn router() -> Router<RavenApiState> {
         .route("/entries/:id", get(get_entry).patch(update_entry))
         .route("/entries/:id/archive", post(archive_entry))
         .route("/entries/:id/restore", post(restore_entry))
-        .route(
-            "/entries/:id/purge",
-            get(preview_purge_entry).delete(purge_entry),
-        )
         .route("/transfers", post(create_transfer))
         .route("/transfers/:id", get(get_transfer).patch(update_transfer))
         .route("/currencies", get(list_currencies).post(create_currency))
-        .route(
-            "/currencies/:id",
-            patch(update_currency).delete(purge_currency),
-        )
-        .route("/currencies/:id/purge", get(preview_purge_currency))
+        .route("/currencies/:id", patch(update_currency))
         .route(
             "/account-categories",
             get(list_account_categories).post(create_account_category),
@@ -68,32 +60,33 @@ pub fn router() -> Router<RavenApiState> {
             get(preview_purge_account_category),
         )
         .route("/accounts", get(list_accounts).post(create_account))
-        .route("/accounts/:id", patch(update_account).delete(purge_account))
-        .route("/accounts/:id/purge", get(preview_purge_account))
+        .route("/accounts/:id", patch(update_account))
         .route(
             "/transaction-categories",
             get(list_categories).post(create_category),
         )
-        .route(
-            "/transaction-categories/:id",
-            patch(update_category).delete(purge_category),
-        )
-        .route(
-            "/transaction-categories/:id/purge",
-            get(preview_purge_category),
-        )
+        .route("/transaction-categories/:id", patch(update_category))
         .route("/account-balances", get(account_balances))
         .route("/table/query", post(query_table))
         .route("/table/analysis", post(analyze_table))
         .route("/table/lookups", get(table_lookups))
         .route("/audit/:record_type/:record_id", get(audit))
         .route("/reports/summary", get(report_summary))
-        .route("/reports/accounts", get(report_accounts))
         .route("/reports/categories", get(report_categories))
         .route("/reports/compare", get(report_compare))
         .route("/reports/trend", get(report_trend))
-        .route("/reports/briefing", get(report_briefing))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MasterPageQuery {
+    #[serde(default)]
+    offset: u32,
+    #[serde(default = "default_limit")]
+    limit: u16,
+    #[serde(default)]
+    include_inactive: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -291,33 +284,13 @@ struct LookupOption {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReportQuery {
-    from: Option<String>,
-    to: Option<String>,
-    year: Option<i32>,
-    month: Option<u8>,
-}
-
-enum ReportSelector {
-    Month(YearMonth),
-    Range(ReportRange),
+    from: String,
+    to: String,
 }
 
 impl ReportQuery {
-    fn selector(self) -> Result<ReportSelector, ApiError> {
-        match (self.year, self.month, self.from, self.to) {
-            (Some(year), Some(month), None, None) => {
-                Ok(ReportSelector::Month(YearMonth::new(year, month)?))
-            }
-            (None, None, Some(from), Some(to)) => Ok(ReportSelector::Range(range(&from, &to)?)),
-            _ => Err(ApiError::validation(None)),
-        }
-    }
-
     fn range(self) -> Result<ReportRange, ApiError> {
-        match self.selector()? {
-            ReportSelector::Range(range) => Ok(range),
-            ReportSelector::Month(_) => Err(ApiError::validation(None)),
-        }
+        range(&self.from, &self.to)
     }
 }
 
@@ -327,10 +300,6 @@ struct CompareQuery {
     period: Option<ComparePeriod>,
     from: Option<String>,
     to: Option<String>,
-    current_from: Option<String>,
-    current_to: Option<String>,
-    previous_from: Option<String>,
-    previous_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -344,41 +313,16 @@ enum ComparePeriod {
 
 impl CompareQuery {
     fn ranges(self, as_of: Date) -> Result<(ReportRange, ReportRange), ApiError> {
-        match self {
-            Self {
-                period: None,
-                from: None,
-                to: None,
-                current_from: Some(current_from),
-                current_to: Some(current_to),
-                previous_from: Some(previous_from),
-                previous_to: Some(previous_to),
-            } => Ok((
-                range(&current_from, &current_to)?,
-                range(&previous_from, &previous_to)?,
-            )),
-            Self {
-                period: Some(period),
-                from,
-                to,
-                current_from: None,
-                current_to: None,
-                previous_from: None,
-                previous_to: None,
-            } => {
-                let period = match (period, from, to) {
-                    (ComparePeriod::CurrentMonth, None, None) => ReportPeriod::CurrentMonth,
-                    (ComparePeriod::PreviousMonth, None, None) => ReportPeriod::PreviousMonth,
-                    (ComparePeriod::CurrentYear, None, None) => ReportPeriod::CurrentYear,
-                    (ComparePeriod::Custom, Some(from), Some(to)) => {
-                        ReportPeriod::Custom(range(&from, &to)?)
-                    }
-                    _ => return Err(ApiError::validation(None)),
-                };
-                period.comparison_ranges(as_of).map_err(Into::into)
+        let period = match (self.period, self.from, self.to) {
+            (Some(ComparePeriod::CurrentMonth), None, None) => ReportPeriod::CurrentMonth,
+            (Some(ComparePeriod::PreviousMonth), None, None) => ReportPeriod::PreviousMonth,
+            (Some(ComparePeriod::CurrentYear), None, None) => ReportPeriod::CurrentYear,
+            (Some(ComparePeriod::Custom), Some(from), Some(to)) => {
+                ReportPeriod::Custom(range(&from, &to)?)
             }
-            _ => Err(ApiError::validation(None)),
-        }
+            _ => return Err(ApiError::validation(None)),
+        };
+        period.comparison_ranges(as_of).map_err(Into::into)
     }
 }
 
@@ -387,27 +331,6 @@ impl CompareQuery {
 struct TrendQuery {
     from: String,
     to: String,
-    granularity: Option<TrendGranularityQuery>,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum TrendGranularityQuery {
-    Auto,
-    Daily,
-    Weekly,
-    Monthly,
-}
-
-impl TrendGranularityQuery {
-    const fn explicit(self) -> Option<TrendGranularity> {
-        match self {
-            Self::Auto => None,
-            Self::Daily => Some(TrendGranularity::Daily),
-            Self::Weekly => Some(TrendGranularity::Weekly),
-            Self::Monthly => Some(TrendGranularity::Monthly),
-        }
-    }
 }
 
 async fn query_table(
@@ -415,7 +338,7 @@ async fn query_table(
     body: Result<Json<TableQueryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let query = validated_table_query(json_value(body)?)?;
-    let page = ledger(&state, move |service| service.query_table(&query)).await?;
+    let page = ledger(&state, false, move |service| service.query_table(&query)).await?;
     Ok(Json(json!(page)))
 }
 
@@ -424,7 +347,7 @@ async fn analyze_table(
     body: Result<Json<TableQueryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let query = validated_table_query(json_value(body)?)?;
-    let buckets = ledger(&state, move |service| service.analyze_table(&query)).await?;
+    let buckets = ledger(&state, false, move |service| service.analyze_table(&query)).await?;
     Ok(Json(json!({"buckets": buckets})))
 }
 
@@ -465,7 +388,7 @@ async fn table_lookups(
     query: Result<Query<TableLookupQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let scope = query_value(query)?.scope;
-    ledger(&state, move |service| {
+    ledger(&state, false, move |service| {
         let value = match scope {
             LedgerTableScope::Transactions => json!({
                 "accounts": all_pages(|page| service.accounts_page(page))?
@@ -656,7 +579,7 @@ async fn list_entries(
         offset: query.offset,
         limit: query.limit,
     };
-    let page = ledger(&state, move |service| service.entries_page(query)).await?;
+    let page = ledger(&state, false, move |service| service.entries_page(query)).await?;
     Ok(Json(json!({
         "items": page.items,
         "next_offset": page.next.map(|page| page.offset)
@@ -667,7 +590,7 @@ async fn get_entry(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let entry = ledger(&state, move |service| service.get_entry(&id)).await?;
+    let entry = ledger(&state, false, move |service| service.get_entry(&id)).await?;
     Ok(Json(json!(entry)))
 }
 
@@ -676,8 +599,8 @@ async fn create_entry(
     body: Result<Json<CreateEntryBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let body = json_value(body)?;
-    let written_at = parse_time(&body.written_at, "written_at")?;
-    let entry = ledger(&state, move |service| {
+    let written_at = OffsetDateTime::now_utc();
+    let entry = ledger(&state, true, move |service| {
         let precision = service.resolve_active_currency_precision(&body.currency)?;
         let amount = parse_money(&body.amount, precision, "amount")?;
         service.create_entry(CreateEntry {
@@ -690,9 +613,9 @@ async fn create_entry(
             amount,
             currency: body.currency,
             transfer_group: None,
-            source: body.source,
+            source: "api".into(),
             notes: body.notes,
-            actor: body.actor,
+            actor: "raven-api".into(),
         })
     })
     .await?;
@@ -705,12 +628,8 @@ async fn update_entry(
     body: Result<Json<UpdateEntryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let written_at = body
-        .written_at
-        .as_deref()
-        .map(|value| parse_time(value, "written_at"))
-        .transpose()?;
-    let entry = ledger(&state, move |service| {
+    let written_at = None;
+    let entry = ledger(&state, true, move |service| {
         let amount = body
             .amount
             .as_deref()
@@ -734,10 +653,10 @@ async fn update_entry(
                 amount,
                 currency: body.currency,
                 transfer_group: None,
-                source: body.source,
+                source: None,
                 notes: body.notes.optional(),
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".into(),
+                reason: None,
             },
         )
     })
@@ -749,7 +668,7 @@ async fn archive_entry(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let entry = ledger(&state, move |service| service.archive_entry(&id)).await?;
+    let entry = ledger(&state, true, move |service| service.archive_entry(&id)).await?;
     Ok(Json(json!(entry)))
 }
 
@@ -757,33 +676,8 @@ async fn restore_entry(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let entry = ledger(&state, move |service| service.restore_entry(&id)).await?;
+    let entry = ledger(&state, true, move |service| service.restore_entry(&id)).await?;
     Ok(Json(json!(entry)))
-}
-
-async fn purge_entry(
-    State(state): State<RavenApiState>,
-    Path(id): Path<String>,
-    body: Result<Json<PurgeBody>, JsonRejection>,
-) -> Result<StatusCode, ApiError> {
-    let body = json_value(body)?;
-    ledger(&state, move |service| {
-        service.purge_entry(&id, &body.confirmation)
-    })
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn preview_purge_entry(
-    State(state): State<RavenApiState>,
-    Path(id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let preview = ledger(&state, move |service| service.purge_entry_preview(&id)).await?;
-    Ok(Json(json!({
-        "confirmation_id": preview.confirmation_id,
-        "transfer_group_id": preview.transfer_group_id,
-        "entry_ids": preview.entry_ids,
-    })))
 }
 
 async fn create_transfer(
@@ -791,9 +685,9 @@ async fn create_transfer(
     body: Result<Json<TransferBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let body = json_value(body)?;
-    let written_at = parse_time(&body.written_at, "written_at")?;
+    let written_at = OffsetDateTime::now_utc();
     let operation_key = TransferOperationKey::parse(&body.operation_key)?;
-    let transfer = ledger(&state, move |service| {
+    let transfer = ledger(&state, true, move |service| {
         let precision = service.resolve_active_currency_precision(&body.currency)?;
         let amount = parse_money(&body.amount, precision, "amount")?;
         service.transfer(TransferCommand {
@@ -805,9 +699,9 @@ async fn create_transfer(
             to_account: body.to_account,
             amount,
             currency: body.currency,
-            source: body.source,
+            source: "api".into(),
             notes: body.notes,
-            actor: body.actor,
+            actor: "raven-api".into(),
         })
     })
     .await?;
@@ -818,7 +712,7 @@ async fn get_transfer(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let transfer = ledger(&state, move |service| service.show_transfer(&id)).await?;
+    let transfer = ledger(&state, false, move |service| service.show_transfer(&id)).await?;
     Ok(Json(json!(transfer)))
 }
 
@@ -828,7 +722,7 @@ async fn update_transfer(
     body: Result<Json<UpdateTransferBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let transfer = ledger(&state, move |service| {
+    let transfer = ledger(&state, true, move |service| {
         let precision = service.resolve_active_currency_precision(&body.currency)?;
         let amount = parse_money(&body.amount, precision, "amount")?;
         service.update_transfer(
@@ -841,8 +735,8 @@ async fn update_transfer(
                 amount,
                 currency: body.currency,
                 notes: body.notes,
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".into(),
+                reason: None,
             },
         )
     })
@@ -855,13 +749,13 @@ async fn create_currency(
     body: Result<Json<CreateCurrencyBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         service.create_currency(CreateCurrency {
             code: body.code,
             name: body.name,
             symbol: body.symbol,
             decimal_places: body.decimal_places,
-            actor: body.actor,
+            actor: "raven-api".into(),
         })
     })
     .await?;
@@ -874,7 +768,7 @@ async fn update_currency(
     body: Result<Json<UpdateCurrencyBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         service.update_currency(
             &id,
             UpdateCurrency {
@@ -883,8 +777,8 @@ async fn update_currency(
                 symbol: body.symbol,
                 decimal_places: body.decimal_places,
                 active: body.active,
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".into(),
+                reason: None,
             },
         )
     })
@@ -897,12 +791,12 @@ async fn create_account_category(
     body: Result<Json<CreateAccountCategoryBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         service.create_account_category(CreateAccountCategory {
             name: body.name,
             parent: body.parent,
             liability: body.liability,
-            actor: body.actor,
+            actor: "raven-api".into(),
         })
     })
     .await?;
@@ -915,7 +809,7 @@ async fn update_account_category(
     body: Result<Json<UpdateAccountCategoryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         service.update_account_category(
             &id,
             UpdateAccountCategory {
@@ -923,8 +817,8 @@ async fn update_account_category(
                 parent: body.parent.optional(),
                 liability: body.liability,
                 active: body.active,
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".into(),
+                reason: None,
             },
         )
     })
@@ -937,7 +831,7 @@ async fn create_account(
     body: Result<Json<CreateAccountBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         let precision = service.resolve_active_currency_precision(&body.currency)?;
         let opening_balance = parse_money(&body.opening_balance, precision, "opening_balance")?;
         service.create_account(CreateAccount {
@@ -945,7 +839,7 @@ async fn create_account(
             category: body.category,
             currency: body.currency,
             opening_balance,
-            actor: body.actor,
+            actor: "raven-api".into(),
         })
     })
     .await?;
@@ -958,7 +852,7 @@ async fn update_account(
     body: Result<Json<UpdateAccountBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         let opening_balance = body
             .opening_balance
             .as_deref()
@@ -978,8 +872,8 @@ async fn update_account(
                 currency: body.currency,
                 opening_balance,
                 active: body.active,
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".into(),
+                reason: None,
             },
         )
     })
@@ -992,12 +886,12 @@ async fn create_category(
     body: Result<Json<CreateCategoryBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         service.create_category(CreateTransactionCategory {
             name: body.name,
             parent: body.parent,
             kind: body.kind,
-            actor: body.actor,
+            actor: "raven-api".into(),
         })
     })
     .await?;
@@ -1010,7 +904,7 @@ async fn update_category(
     body: Result<Json<UpdateCategoryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
-    let value = ledger(&state, move |service| {
+    let value = ledger(&state, true, move |service| {
         service.update_category(
             &id,
             UpdateTransactionCategory {
@@ -1018,8 +912,8 @@ async fn update_category(
                 parent: body.parent.optional(),
                 kind: body.kind,
                 active: body.active,
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".into(),
+                reason: None,
             },
         )
     })
@@ -1035,7 +929,7 @@ macro_rules! purge_master {
             body: Result<Json<PurgeBody>, JsonRejection>,
         ) -> Result<StatusCode, ApiError> {
             let body = json_value(body)?;
-            ledger(&state, move |service| {
+            ledger(&state, false, move |service| {
                 service.$method(&id, &body.confirmation)
             })
             .await?;
@@ -1044,10 +938,7 @@ macro_rules! purge_master {
     };
 }
 
-purge_master!(purge_currency, purge_currency);
 purge_master!(purge_account_category, purge_account_category);
-purge_master!(purge_account, purge_account);
-purge_master!(purge_category, purge_category);
 
 macro_rules! preview_master {
     ($name:ident, $method:ident) => {
@@ -1055,7 +946,7 @@ macro_rules! preview_master {
             State(state): State<RavenApiState>,
             Path(id): Path<String>,
         ) -> Result<Json<Value>, ApiError> {
-            let preview = ledger(&state, move |service| service.$method(&id)).await?;
+            let preview = ledger(&state, false, move |service| service.$method(&id)).await?;
             Ok(Json(json!({
                 "confirmation_id": preview.confirmation_id,
                 "record_type": preview.record_type,
@@ -1064,13 +955,10 @@ macro_rules! preview_master {
     };
 }
 
-preview_master!(preview_purge_currency, purge_currency_preview);
 preview_master!(
     preview_purge_account_category,
     purge_account_category_preview
 );
-preview_master!(preview_purge_account, purge_account_preview);
-preview_master!(preview_purge_category, purge_category_preview);
 
 macro_rules! page_handler {
     ($name:ident, $method:ident) => {
@@ -1080,7 +968,7 @@ macro_rules! page_handler {
         ) -> Result<Json<Value>, ApiError> {
             let query = query_value(query)?;
             let page = checked_page(query.offset, query.limit)?;
-            let result = ledger(&state, move |service| service.$method(page)).await?;
+            let result = ledger(&state, false, move |service| service.$method(page)).await?;
             Ok(Json(json!(PageBody {
                 items: result.items,
                 next_offset: result.next.map(|page| page.offset),
@@ -1089,10 +977,49 @@ macro_rules! page_handler {
     };
 }
 
-page_handler!(list_currencies, currencies_page);
-page_handler!(list_account_categories, account_categories_page);
-page_handler!(list_accounts, accounts_page);
-page_handler!(list_categories, transaction_categories_page);
+macro_rules! master_page_handler {
+    ($name:ident, $active:ident, $all:ident) => {
+        async fn $name(
+            State(state): State<RavenApiState>,
+            query: Result<Query<MasterPageQuery>, QueryRejection>,
+        ) -> Result<Json<Value>, ApiError> {
+            let query = query_value(query)?;
+            let page = checked_page(query.offset, query.limit)?;
+            let result = ledger(&state, false, move |service| {
+                if query.include_inactive {
+                    service.$all(page)
+                } else {
+                    service.$active(page)
+                }
+            })
+            .await?;
+            Ok(Json(json!(PageBody {
+                items: result.items,
+                next_offset: result.next.map(|page| page.offset)
+            })))
+        }
+    };
+}
+master_page_handler!(
+    list_currencies,
+    currencies_page,
+    currencies_including_inactive_page
+);
+master_page_handler!(
+    list_account_categories,
+    account_categories_page,
+    account_categories_including_inactive_page
+);
+master_page_handler!(
+    list_accounts,
+    accounts_page,
+    accounts_including_inactive_page
+);
+master_page_handler!(
+    list_categories,
+    transaction_categories_page,
+    transaction_categories_including_inactive_page
+);
 page_handler!(account_balances, account_balances_page);
 
 async fn audit(
@@ -1102,7 +1029,7 @@ async fn audit(
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
     let page = checked_page(query.offset, query.limit)?;
-    let result = ledger(&state, move |service| {
+    let result = ledger(&state, false, move |service| {
         service.audit_page(&record_type, &record_id, page)
     })
     .await?;
@@ -1116,23 +1043,9 @@ async fn report_summary(
     State(state): State<RavenApiState>,
     query: Result<Query<ReportQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    match query_value(query)?.selector()? {
-        ReportSelector::Month(month) => Ok(Json(json!(
-            ledger(&state, move |service| service.monthly_summary(month)).await?
-        ))),
-        ReportSelector::Range(range) => Ok(Json(json!(
-            ledger(&state, move |service| service.summary(range)).await?
-        ))),
-    }
-}
-
-async fn report_accounts(
-    State(state): State<RavenApiState>,
-    query: Result<Query<ReportQuery>, QueryRejection>,
-) -> Result<Json<Value>, ApiError> {
     let range = query_value(query)?.range()?;
     Ok(Json(json!(
-        ledger(&state, move |service| service.account_breakdown(range)).await?
+        ledger(&state, false, move |service| service.summary(range)).await?
     )))
 }
 
@@ -1142,7 +1055,9 @@ async fn report_categories(
 ) -> Result<Json<Value>, ApiError> {
     let range = query_value(query)?.range()?;
     Ok(Json(json!(
-        ledger(&state, move |service| service.category_breakdown(range)).await?
+        ledger(&state, false, move |service| service
+            .category_breakdown(range))
+        .await?
     )))
 }
 
@@ -1156,7 +1071,9 @@ async fn report_compare(
         .date();
     let (current, previous) = query.ranges(as_of)?;
     Ok(Json(json!(
-        ledger(&state, move |service| service.compare(current, previous)).await?
+        ledger(&state, false, move |service| service
+            .compare(current, previous))
+        .await?
     )))
 }
 
@@ -1166,23 +1083,12 @@ async fn report_trend(
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
     let range = range(&query.from, &query.to)?;
-    let granularity = query.granularity.and_then(TrendGranularityQuery::explicit);
     Ok(Json(json!(
-        ledger(&state, move |service| service.trend(range, granularity)).await?
+        ledger(&state, false, move |service| service.trend(range, None)).await?
     )))
 }
 
-async fn report_briefing(
-    State(state): State<RavenApiState>,
-    query: Result<Query<ReportQuery>, QueryRejection>,
-) -> Result<Json<Value>, ApiError> {
-    let range = query_value(query)?.range()?;
-    Ok(Json(json!(
-        ledger(&state, move |service| service.briefing(range)).await?
-    )))
-}
-
-async fn ledger<T, F>(state: &RavenApiState, action: F) -> Result<T, ApiError>
+async fn ledger<T, F>(state: &RavenApiState, mutation: bool, action: F) -> Result<T, ApiError>
 where
     T: Send + 'static,
     F: FnOnce(
@@ -1193,7 +1099,11 @@ where
 {
     let path = state.ledger_db().to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let repository = SqliteLedgerRepository::open(path)?;
+        let repository = if mutation {
+            SqliteLedgerRepository::open(path)?
+        } else {
+            SqliteLedgerRepository::open_read_only(path)?
+        };
         action(&mut LedgerService::new(repository))
     })
     .await
@@ -1215,11 +1125,6 @@ fn json_value<T>(body: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
             ApiError::validation(None)
         }
     })
-}
-
-fn parse_time(value: &str, field: &'static str) -> Result<OffsetDateTime, ApiError> {
-    OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
-        .map_err(|_| ApiError::validation(Some(field)))
 }
 
 fn parse_optional_date(value: Option<&str>, field: &'static str) -> Result<Option<Date>, ApiError> {
@@ -1296,10 +1201,6 @@ mod tests {
                 period: Some(period),
                 from: None,
                 to: None,
-                current_from: None,
-                current_to: None,
-                previous_from: None,
-                previous_to: None,
             }
             .ranges(date!(2026 - 01 - 15))
             .unwrap();

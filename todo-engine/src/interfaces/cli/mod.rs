@@ -4,12 +4,11 @@ mod markdown;
 mod output;
 mod views;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use rusqlite::{Connection, OpenFlags};
 use std::str::FromStr;
 
@@ -17,7 +16,9 @@ use crate::application::error::TodoError;
 use crate::application::service::TodoService;
 use crate::domain::{Actor, ItemStatus, ItemType};
 use crate::infrastructure::paths::{db_path, todo_home};
-use crate::infrastructure::sqlite::{SqliteTodoRepository, connect, init_schema, user_version};
+use crate::infrastructure::sqlite::{
+    SqliteTodoRepository, connect, connect_read_only, init_schema, user_version,
+};
 use crate::infrastructure::system::{init_tracing, local_today_string};
 
 #[derive(Debug, Parser)]
@@ -38,10 +39,12 @@ enum Command {
     Init,
     /// Check database reachability and schema baseline.
     Health,
-    /// Serve the HTTP API.
-    Api(ApiArgs),
     /// List items.
     List(ListArgs),
+    /// Show an item as JSON.
+    Show { item_id: String },
+    /// Reopen a completed task or event.
+    Reopen(ItemTransitionArgs),
     /// Create and maintain areas.
     Area {
         #[command(subcommand)]
@@ -84,26 +87,15 @@ enum Command {
     Complete(ItemTransitionArgs),
     /// Archive an item.
     Archive(ItemTransitionArgs),
-    /// Drop an item.
-    Drop(ItemTransitionArgs),
-    /// Cancel an item.
-    Cancel(ItemTransitionArgs),
     /// Update item fields.
-    Update(UpdateArgs),
+    Update(Box<UpdateArgs>),
     /// List terminal/archive items.
     #[command(name = "archive-list")]
-    ArchiveList,
+    ArchiveList(ReadArgs),
     /// Show active work.
-    Pending,
-    /// Show today's materialized task view.
-    Today,
-    /// Show items scheduled or due on a date (JSON).
-    Agenda(AgendaArgs),
-    /// Show items scheduled within an inclusive date range (JSON).
-    #[command(name = "date-range")]
-    DateRange(DateRangeArgs),
-    /// Show the goal-tree period view for a horizon and period (JSON).
-    Period(PeriodArgs),
+    Pending(ReadArgs),
+    /// Show today's existing task view.
+    Today(ReadArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -114,25 +106,29 @@ enum AreaCommand {
 
 #[derive(Debug, Subcommand)]
 enum ProjectCommand {
-    /// Propose a project.
+    /// Create an active project.
+    #[command(name = "create", visible_alias = "propose")]
     Propose(ProjectProposeArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum GoalCommand {
-    /// Propose a goal.
+    /// Create an active goal.
+    #[command(name = "create", visible_alias = "propose")]
     Propose(GoalProposeArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum TaskCommand {
-    /// Propose a task.
+    /// Create an active task.
+    #[command(name = "create", visible_alias = "propose")]
     Propose(TaskProposeArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum RoutineCommand {
-    /// Propose a routine.
+    /// Create an active routine.
+    #[command(name = "create", visible_alias = "propose")]
     Propose(Box<RoutineProposeArgs>),
     /// Materialize due routine tasks.
     Materialize(RoutineMaterializeArgs),
@@ -141,11 +137,14 @@ enum RoutineCommand {
 #[derive(Debug, Subcommand)]
 enum EventCommand {
     /// Propose an event.
+    #[command(name = "create", visible_alias = "propose")]
     Propose(EventProposeArgs),
 }
 
 #[derive(Debug, Args)]
 struct AreaCreateArgs {
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     title: String,
     #[arg(long)]
     review_cycle: Option<String>,
@@ -157,6 +156,14 @@ struct AreaCreateArgs {
 
 #[derive(Debug, Args)]
 struct ListArgs {
+    #[arg(long)]
+    parent_id: Option<String>,
+    #[arg(long)]
+    horizon: Option<String>,
+    #[arg(long)]
+    scheduled: Option<String>,
+    #[command(flatten)]
+    read: ReadArgs,
     #[arg(long, value_parser = parse_status)]
     status: Option<ItemStatus>,
     #[arg(long = "type", value_parser = parse_item_type)]
@@ -173,16 +180,25 @@ struct ListArgs {
     include_archived: bool,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ReadFormat {
+    Markdown,
+    Json,
+}
 #[derive(Debug, Args)]
-struct ApiArgs {
-    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
-    host: IpAddr,
-    #[arg(long, default_value_t = 3002)]
-    port: u16,
+struct ReadArgs {
+    #[arg(long, value_enum, default_value = "markdown")]
+    format: ReadFormat,
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32))]
+    offset: u32,
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..=1000))]
+    limit: u32,
 }
 
 #[derive(Debug, Args)]
 struct ProjectProposeArgs {
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     title: String,
     #[arg(long)]
     area: Option<String>,
@@ -200,6 +216,8 @@ struct ProjectProposeArgs {
 
 #[derive(Debug, Args)]
 struct GoalProposeArgs {
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     title: String,
     #[arg(long)]
     horizon: String,
@@ -215,6 +233,10 @@ struct GoalProposeArgs {
 
 #[derive(Debug, Args)]
 struct TaskProposeArgs {
+    #[arg(long)]
+    project_id: Option<String>,
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     title: String,
     #[arg(long)]
     area: Option<String>,
@@ -224,8 +246,6 @@ struct TaskProposeArgs {
     scheduled: Option<String>,
     #[arg(long)]
     priority: Option<i64>,
-    #[arg(long)]
-    description: Option<String>,
     #[arg(long)]
     note: Option<String>,
     #[arg(long, default_value = "agent", value_parser = parse_actor)]
@@ -239,8 +259,6 @@ struct RoutineProposeArgs {
     area: Option<String>,
     #[arg(long)]
     project_id: Option<String>,
-    #[arg(long)]
-    description: Option<String>,
     #[arg(long)]
     priority: Option<i64>,
     #[arg(long)]
@@ -258,10 +276,17 @@ struct RoutineProposeArgs {
 }
 
 #[derive(Debug, Args)]
-struct RoutineMaterializeArgs {}
+struct RoutineMaterializeArgs {
+    /// Routine to materialize; omit to materialize all due routines.
+    item_id: Option<String>,
+    #[arg(long, requires = "item_id")]
+    future_occurrences: Option<i64>,
+}
 
 #[derive(Debug, Args)]
 struct EventProposeArgs {
+    #[arg(long = "tag")]
+    tags: Vec<String>,
     title: String,
     scheduled: String,
     #[arg(long)]
@@ -272,8 +297,6 @@ struct EventProposeArgs {
     due: Option<String>,
     #[arg(long)]
     priority: Option<i64>,
-    #[arg(long)]
-    description: Option<String>,
     #[arg(long)]
     note: Option<String>,
     #[arg(long)]
@@ -304,11 +327,24 @@ struct PostponeArgs {
 
 #[derive(Debug, Args)]
 struct UpdateArgs {
+    /// Reject the update if the item's RFC 3339 version has changed.
+    #[arg(long)]
+    expected_updated_at: Option<String>,
+    #[arg(long, conflicts_with = "tags")]
+    clear_tags: bool,
+    #[arg(long)]
+    location: Option<String>,
+    #[arg(long = "with")]
+    participants: Vec<String>,
+    #[arg(long, conflicts_with = "participants")]
+    clear_participants: bool,
+    #[arg(long)]
+    commitment_type: Option<String>,
+    #[arg(long)]
+    horizon: Option<String>,
     item_id: String,
     #[arg(long)]
     title: Option<String>,
-    #[arg(long)]
-    description: Option<String>,
     #[arg(long)]
     note: Option<String>,
     #[arg(long)]
@@ -324,15 +360,11 @@ struct UpdateArgs {
     #[arg(long)]
     materialization_policy: Option<String>,
     #[arg(long)]
-    future_occurrences: Option<i64>,
-    #[arg(long)]
     area: Option<String>,
     #[arg(long)]
     project_id: Option<String>,
     #[arg(long = "parent-id")]
     parent_id: Option<String>,
-    #[arg(long)]
-    routine_id: Option<String>,
     #[arg(long)]
     due: Option<String>,
     #[arg(long)]
@@ -343,25 +375,6 @@ struct UpdateArgs {
     tags: Vec<String>,
     #[arg(long)]
     reason: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct AgendaArgs {
-    date: String,
-}
-
-#[derive(Debug, Args)]
-struct DateRangeArgs {
-    from: String,
-    to: String,
-}
-
-#[derive(Debug, Args)]
-struct PeriodArgs {
-    #[arg(long)]
-    horizon: String,
-    #[arg(long)]
-    period: String,
 }
 
 pub fn run() -> Result<()> {
@@ -441,8 +454,9 @@ fn execute(home: PathBuf, command: Command) -> Result<()> {
     let result = match command {
         Command::Init => init(&home),
         Command::Health => health(&home),
-        Command::Api(args) => api(&home, args),
         Command::List(args) => views::list(&home, args),
+        Command::Show { item_id } => views::show(&home, &item_id),
+        Command::Reopen(args) => lifecycle::reopen(&home, args),
         Command::Area {
             command: AreaCommand::Create(args),
         } => create::area_create(&home, args),
@@ -470,15 +484,10 @@ fn execute(home: PathBuf, command: Command) -> Result<()> {
         Command::Resume(args) => lifecycle::resume(&home, args),
         Command::Complete(args) => lifecycle::complete(&home, args),
         Command::Archive(args) => lifecycle::archive(&home, args),
-        Command::Drop(args) => lifecycle::drop_item(&home, args),
-        Command::Cancel(args) => lifecycle::cancel(&home, args),
-        Command::Update(args) => lifecycle::update(&home, args),
-        Command::ArchiveList => views::archive_list(&home),
-        Command::Pending => views::pending(&home),
-        Command::Today => views::today(&home),
-        Command::Agenda(args) => views::agenda(&home, args),
-        Command::DateRange(args) => views::date_range(&home, args),
-        Command::Period(args) => views::period(&home, args),
+        Command::Update(args) => lifecycle::update(&home, *args),
+        Command::ArchiveList(args) => views::archive_list(&home, args),
+        Command::Pending(args) => views::pending(&home, args),
+        Command::Today(args) => views::today(&home, args),
     };
 
     let duration_ms = elapsed_millis(started_at);
@@ -506,8 +515,9 @@ fn command_label(command: &Command) -> &'static str {
     match command {
         Command::Init => "init",
         Command::Health => "health",
-        Command::Api(_) => "api",
         Command::List(_) => "list",
+        Command::Show { .. } => "show",
+        Command::Reopen(_) => "reopen",
         Command::Area {
             command: AreaCommand::Create(_),
         } => "area create",
@@ -535,15 +545,10 @@ fn command_label(command: &Command) -> &'static str {
         Command::Resume(_) => "resume",
         Command::Complete(_) => "complete",
         Command::Archive(_) => "archive",
-        Command::Drop(_) => "drop",
-        Command::Cancel(_) => "cancel",
         Command::Update(_) => "update",
-        Command::ArchiveList => "archive-list",
-        Command::Pending => "pending",
-        Command::Today => "today",
-        Command::Agenda(_) => "agenda",
-        Command::DateRange(_) => "date-range",
-        Command::Period(_) => "period",
+        Command::ArchiveList(_) => "archive-list",
+        Command::Pending(_) => "pending",
+        Command::Today(_) => "today",
     }
 }
 
@@ -566,29 +571,10 @@ fn init(home: &Path) -> Result<()> {
 fn health(home: &Path) -> Result<()> {
     let db_path = db_path(home);
     tracing::debug!(event = "database_path_resolved", path = %db_path.display());
-    let conn = connect_path(&db_path)?;
-    tracing::debug!(event = "database_opened", path = %db_path.display());
+    let conn = connect_read_only(db_path.to_str().context("invalid database path")?)?;
     let user_version = user_version(&conn)?;
     println!("ok db={} user_version={}", db_path.display(), user_version);
     Ok(())
-}
-
-fn api(home: &Path, args: ApiArgs) -> Result<()> {
-    std::fs::create_dir_all(home)?;
-    let db_path = db_path(home);
-    tracing::debug!(event = "database_path_resolved", path = %db_path.display());
-    let conn = connect_path(&db_path)?;
-    init_schema(&conn)?;
-    drop(conn);
-
-    let addr = SocketAddr::new(args.host, args.port);
-    let router = crate::interfaces::api::router(&db_path)?;
-    println!("serving http://{addr}");
-    tokio::runtime::Runtime::new()?.block_on(async {
-        let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, router).await?;
-        anyhow::Ok(())
-    })
 }
 
 pub(super) fn service(home: &Path) -> Result<TodoService> {
@@ -600,6 +586,31 @@ pub(super) fn service(home: &Path) -> Result<TodoService> {
     tracing::debug!(event = "schema_initialized", path = %db_path.display());
     tracing::debug!(event = "service_ready", path = %db_path.display());
     Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
+}
+
+pub(super) fn read_service(home: &Path) -> Result<TodoService> {
+    let path = db_path(home);
+    let conn = connect_read_only(path.to_str().context("invalid database path")?)?;
+    Ok(TodoService::persistent(SqliteTodoRepository::new(conn)))
+}
+
+pub fn run_raven_at<I, T>(home: &Path, args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let original = Cli::command();
+    let subcommands = original.get_subcommands().cloned().collect::<Vec<_>>();
+    let command = clap::Command::new("raven todo")
+        .about("Policy-enforced personal ToDo engine")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommands(subcommands);
+    let matches = command
+        .try_get_matches_from(args)
+        .map_err(anyhow::Error::new)?;
+    let command = Command::from_arg_matches(&matches).map_err(anyhow::Error::new)?;
+    execute(home.to_path_buf(), command)
 }
 
 pub(super) fn connect_path(path: &Path) -> Result<rusqlite::Connection> {

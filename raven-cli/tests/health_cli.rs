@@ -30,17 +30,6 @@ fn json_success(home: &Path, args: &[&str]) -> Value {
     serde_json::from_slice(&success(home, args).stdout).unwrap()
 }
 
-fn json_success_owned(home: &Path, args: &[String]) -> Value {
-    let output = raven(home).args(args).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{args:?}\nstdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-    serde_json::from_slice(&output.stdout).unwrap()
-}
-
 fn assert_exit(home: &Path, args: &[&str], code: i32) -> Output {
     let output = run(home, args);
     assert_eq!(
@@ -99,7 +88,11 @@ fn init_is_idempotent_and_health_check_is_read_only() {
 fn read_commands_do_not_initialize_missing_health_storage() {
     let home = tempfile::tempdir().unwrap();
 
-    let output = assert_exit(home.path(), &["health", "timeline", "--format", "json"], 1);
+    let output = assert_exit(
+        home.path(),
+        &["health", "diet", "list", "--format", "json"],
+        1,
+    );
 
     assert!(!home.path().join("health.sqlite").exists());
     assert!(!home.path().join("media/health").exists());
@@ -111,16 +104,15 @@ fn read_commands_do_not_initialize_missing_health_storage() {
 }
 
 #[test]
-fn diet_and_timeline_json_round_trip_and_table_output() {
+fn diet_json_round_trip_and_table_output() {
     let home = tempfile::tempdir().unwrap();
     init(home.path());
     let diet = add_diet(home.path());
 
-    let timeline = json_success(home.path(), &["health", "timeline", "--format", "json"]);
-    assert_eq!(timeline[0]["kind"], "diet");
-    assert_eq!(timeline[0]["record"]["meal_type"], "lunch");
+    let timeline = json_success(home.path(), &["health", "diet", "list", "--format", "json"]);
+    assert_eq!(timeline["items"][0]["meal_type"], "lunch");
     assert_eq!(
-        timeline[0]["record"]["tags"],
+        timeline["items"][0]["tags"],
         serde_json::json!(["spicy", "wheat"])
     );
 
@@ -175,142 +167,18 @@ fn diet_image_is_bounded_validated_and_stored_by_generated_name() {
 }
 
 #[test]
-fn bowel_medication_and_all_metric_categories_round_trip() {
-    let home = tempfile::tempdir().unwrap();
-    init(home.path());
-
-    let bowel = json_success(
-        home.path(),
-        &[
-            "health",
-            "bowel",
-            "add",
-            "--at",
-            "2026-07-30T13:00:00+09:00",
-            "--bristol",
-            "4",
-            "--blood-visible",
-        ],
-    );
-    assert_eq!(bowel["attributes"]["bristol_scale"], 4);
-    assert_eq!(bowel["attributes"]["blood_visible"], true);
-
-    let medication = json_success(
-        home.path(),
-        &[
-            "health",
-            "medication",
-            "add",
-            "--at",
-            "2026-07-30T14:00:00+09:00",
-            "--name",
-            "Vitamin",
-            "--dose",
-            "1",
-            "--unit",
-            "tablet",
-        ],
-    );
-    assert_eq!(medication["category"], "medication");
-
-    for args in [
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T07:00:00+09:00",
-            "--category",
-            "weight",
-            "--name",
-            "Weight",
-            "--value",
-            "70",
-            "--unit",
-            "kg",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T08:00:00+09:00",
-            "--category",
-            "sleep",
-            "--name",
-            "Sleep",
-            "--value",
-            "8",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T09:00:00+09:00",
-            "--category",
-            "lab",
-            "--key",
-            "fasting_glucose",
-            "--name",
-            "Fasting glucose",
-            "--value",
-            "90",
-            "--unit",
-            "mg/dL",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T10:00:00+09:00",
-            "--category",
-            "symptom",
-            "--key",
-            "headache",
-            "--name",
-            "Headache",
-            "--value",
-            "3",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T11:00:00+09:00",
-            "--category",
-            "overall_condition",
-            "--name",
-            "Condition",
-            "--value",
-            "8",
-        ],
-    ] {
-        json_success(home.path(), &args);
-    }
-
-    let metrics = json_success(
-        home.path(),
-        &["health", "metric", "list", "--format", "json"],
-    );
-    assert_eq!(metrics.as_array().unwrap().len(), 5);
-}
-
-#[test]
 fn daily_upsert_is_stable_and_strict_json_rejects_unknown_fields() {
     let home = tempfile::tempdir().unwrap();
     init(home.path());
-    let input = r#"[{"at":"2026-07-30T07:00:00+09:00","category":"weight","name":"Weight","value":70,"unit":"kg"}]"#;
+    let input = r#"[{"at":"2026-07-30T07:00:00+09:00","category":"weight","name":"Body weight","value":70,"unit":"kg"}]"#;
     let first = json_success(
         home.path(),
         &["health", "metric", "daily-upsert", "--json", input],
     );
-    let changed = r#"[{"at":"2026-07-30T08:00:00+09:00","category":"weight","name":"Weight","value":71,"unit":"kg"}]"#;
+    let changed = serde_json::json!([{ "at":"2026-07-30T08:00:00+09:00", "category":"weight", "value":71,"unit":"kg", "expected_updated_at":first[0]["updated_at"] }]).to_string();
     let second = json_success(
         home.path(),
-        &["health", "metric", "daily-upsert", "--json", changed],
+        &["health", "metric", "daily-upsert", "--json", &changed],
     );
     assert_eq!(first[0]["id"], second[0]["id"]);
     assert_eq!(second[0]["value_num"], 71.0);
@@ -326,41 +194,6 @@ fn daily_upsert_is_stable_and_strict_json_rejects_unknown_fields() {
         ],
         2,
     );
-}
-
-#[test]
-fn update_lifecycle_and_exact_purge_confirmation_work() {
-    let home = tempfile::tempdir().unwrap();
-    init(home.path());
-    let diet = add_diet(home.path());
-    let id = diet["id"].as_str().unwrap();
-
-    let updated = json_success(
-        home.path(),
-        &["health", "diet", "update", id, "--food", "Noodles"],
-    );
-    assert_eq!(updated["food_name"], "Noodles");
-    assert_exit(home.path(), &["health", "diet", "purge", id], 2);
-    json_success(home.path(), &["health", "diet", "archive", id]);
-    json_success(home.path(), &["health", "diet", "restore", id]);
-    json_success(home.path(), &["health", "diet", "archive", id]);
-
-    let preview = assert_exit(home.path(), &["health", "diet", "purge", id], 2);
-    assert_eq!(
-        serde_json::from_slice::<Value>(&preview.stdout).unwrap()["confirmation_id"],
-        id
-    );
-    assert_exit(
-        home.path(),
-        &["health", "diet", "purge", id, "--confirm", "wrong"],
-        2,
-    );
-    let purged = json_success(
-        home.path(),
-        &["health", "diet", "purge", id, "--confirm", id],
-    );
-    assert_eq!(purged["purged"], true);
-    assert_exit(home.path(), &["health", "diet", "show", id], 4);
 }
 
 #[test]
@@ -388,7 +221,7 @@ fn read_commands_do_not_retry_pending_cleanup_but_mutations_do() {
         .unwrap();
     drop(connection);
 
-    success(home.path(), &["health", "timeline", "--format", "json"]);
+    success(home.path(), &["health", "diet", "list", "--format", "json"]);
     assert!(blocked_path.is_dir());
     assert_exit(
         home.path(),
@@ -404,6 +237,33 @@ fn read_commands_do_not_retry_pending_cleanup_but_mutations_do() {
         1,
     );
 
+    let failed = run(
+        home.path(),
+        &[
+            "--error-format",
+            "json",
+            "health",
+            "bowel",
+            "add",
+            "--at",
+            "2026-07-30T12:00:00Z",
+            "--bristol",
+            "4",
+        ],
+    );
+    assert_eq!(failed.status.code(), Some(1));
+    let failure: Value = serde_json::from_slice(&failed.stderr).unwrap();
+    assert_eq!(failure["code"], "cleanup_failed");
+    assert_eq!(failure["committed"], false);
+    assert!(failed.stdout.is_empty());
+    assert_eq!(
+        rusqlite::Connection::open(home.path().join("health.sqlite"))
+            .unwrap()
+            .query_row("SELECT count(*) FROM health_events", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
     std::fs::remove_dir(&blocked_path).unwrap();
     json_success(
         home.path(),
@@ -493,469 +353,8 @@ fn validation_exit_codes_and_help_are_stable() {
 
     let help = success(home.path(), &["health", "--help"]);
     let help = String::from_utf8(help.stdout).unwrap();
-    for command in [
-        "diet",
-        "bowel",
-        "medication",
-        "metric",
-        "timeline",
-        "trends",
-    ] {
+    for command in ["diet", "bowel", "medication", "metric"] {
         assert!(help.contains(command));
-    }
-}
-
-#[test]
-fn metric_pagination_filters_before_limit_and_offset() {
-    let home = tempfile::tempdir().unwrap();
-    init(home.path());
-    for _ in 0..101 {
-        json_success(
-            home.path(),
-            &[
-                "health",
-                "bowel",
-                "add",
-                "--at",
-                "2026-07-31T12:00:00Z",
-                "--bristol",
-                "4",
-            ],
-        );
-    }
-    for (category, key, name, value, unit) in [
-        ("weight", None, "Weight", "70", Some("kg")),
-        ("sleep", None, "Sleep", "8", None),
-        ("lab", Some("glucose"), "Glucose", "90", Some("mg/dL")),
-    ] {
-        let mut args = vec![
-            "health".to_string(),
-            "metric".to_string(),
-            "add".to_string(),
-            "--at".to_string(),
-            "2026-07-30T12:00:00Z".to_string(),
-            "--category".to_string(),
-            category.to_string(),
-            "--name".to_string(),
-            name.to_string(),
-            "--value".to_string(),
-            value.to_string(),
-        ];
-        if let Some(key) = key {
-            args.extend(["--key".to_string(), key.to_string()]);
-        }
-        if let Some(unit) = unit {
-            args.extend(["--unit".to_string(), unit.to_string()]);
-        }
-        json_success_owned(home.path(), &args);
-    }
-
-    let all = json_success(
-        home.path(),
-        &[
-            "health", "metric", "list", "--limit", "100", "--format", "json",
-        ],
-    );
-    let first = json_success(
-        home.path(),
-        &[
-            "health", "metric", "list", "--limit", "2", "--format", "json",
-        ],
-    );
-    let second = json_success(
-        home.path(),
-        &[
-            "health", "metric", "list", "--offset", "2", "--limit", "2", "--format", "json",
-        ],
-    );
-    assert_eq!(all.as_array().unwrap().len(), 3);
-    let paged = first
-        .as_array()
-        .unwrap()
-        .iter()
-        .chain(second.as_array().unwrap())
-        .map(|record| record["id"].clone())
-        .collect::<Vec<_>>();
-    let expected = all
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|record| record["id"].clone())
-        .collect::<Vec<_>>();
-    assert_eq!(paged, expected);
-}
-
-#[test]
-fn metric_fields_are_category_strict_and_optional_updates_can_clear() {
-    let home = tempfile::tempdir().unwrap();
-    init(home.path());
-
-    for args in [
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:00:00Z",
-            "--category",
-            "sleep",
-            "--name",
-            "Sleep",
-            "--value",
-            "8",
-            "--unit",
-            "ignored",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:00:00Z",
-            "--category",
-            "weight",
-            "--name",
-            "Weight",
-            "--value",
-            "70",
-            "--unit",
-            "kg",
-            "--condition-note",
-            "ignored",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:00:00Z",
-            "--category",
-            "lab",
-            "--key",
-            "lab_key",
-            "--name",
-            "Lab",
-            "--value",
-            "1",
-            "--condition-note",
-            "ignored",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:00:00Z",
-            "--category",
-            "symptom",
-            "--key",
-            "pain",
-            "--name",
-            "Pain",
-            "--value",
-            "3",
-            "--unit",
-            "ignored",
-        ],
-        vec![
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:00:00Z",
-            "--category",
-            "overall_condition",
-            "--key",
-            "ignored",
-            "--name",
-            "Condition",
-            "--value",
-            "8",
-        ],
-    ] {
-        assert_exit(home.path(), &args, 2);
-    }
-    assert_exit(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "daily-upsert",
-            "--json",
-            r#"[{"at":"2026-07-31T00:00:00Z","category":"sleep","name":"Sleep","value":8,"unit":"ignored"}]"#,
-        ],
-        2,
-    );
-
-    let weight = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:30:00Z",
-            "--category",
-            "weight",
-            "--name",
-            "Weight",
-            "--value",
-            "70",
-            "--unit",
-            "kg",
-        ],
-    );
-    for incompatible in [
-        vec!["--clear-unit"],
-        vec!["--condition-note", "ignored"],
-        vec!["--clear-condition-note"],
-    ] {
-        let mut args = vec!["health", "metric", "update", weight["id"].as_str().unwrap()];
-        args.extend(incompatible);
-        assert_exit(home.path(), &args, 2);
-    }
-
-    let sleep = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T00:45:00Z",
-            "--category",
-            "sleep",
-            "--name",
-            "Sleep",
-            "--value",
-            "8",
-        ],
-    );
-    for incompatible in [
-        vec!["--unit", "ignored"],
-        vec!["--clear-unit"],
-        vec!["--condition-note", "ignored"],
-        vec!["--clear-condition-note"],
-    ] {
-        let mut args = vec!["health", "metric", "update", sleep["id"].as_str().unwrap()];
-        args.extend(incompatible);
-        assert_exit(home.path(), &args, 2);
-    }
-
-    let lab = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T01:00:00Z",
-            "--category",
-            "lab",
-            "--key",
-            "lab_key",
-            "--name",
-            "Lab",
-            "--value",
-            "1",
-            "--unit",
-            "mg",
-        ],
-    );
-    let lab = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "update",
-            lab["id"].as_str().unwrap(),
-            "--clear-unit",
-        ],
-    );
-    assert!(lab["unit"].is_null());
-    assert_exit(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "update",
-            lab["id"].as_str().unwrap(),
-            "--condition-note",
-            "ignored",
-        ],
-        2,
-    );
-
-    let symptom = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T02:00:00Z",
-            "--category",
-            "symptom",
-            "--key",
-            "pain",
-            "--name",
-            "Pain",
-            "--value",
-            "3",
-            "--condition-note",
-            "before",
-        ],
-    );
-    let symptom = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "update",
-            symptom["id"].as_str().unwrap(),
-            "--clear-condition-note",
-        ],
-    );
-    assert!(symptom["attributes"]["condition_note"].is_null());
-    assert_exit(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "update",
-            symptom["id"].as_str().unwrap(),
-            "--unit",
-            "ignored",
-        ],
-        2,
-    );
-
-    let condition = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T03:00:00Z",
-            "--category",
-            "overall_condition",
-            "--name",
-            "Condition",
-            "--value",
-            "8",
-        ],
-    );
-    assert_exit(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "update",
-            condition["id"].as_str().unwrap(),
-            "--unit",
-            "ignored",
-        ],
-        2,
-    );
-    assert_exit(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "update",
-            condition["id"].as_str().unwrap(),
-            "--json",
-            r#"{"unit":"ignored","clear_unit":true}"#,
-        ],
-        2,
-    );
-}
-
-#[test]
-fn trends_table_renders_every_projection_and_empty_states() {
-    let home = tempfile::tempdir().unwrap();
-    init(home.path());
-    let empty = success(home.path(), &["health", "trends", "--days", "30"]);
-    assert!(String::from_utf8(empty.stdout).unwrap().contains("empty"));
-    add_diet(home.path());
-    json_success(
-        home.path(),
-        &[
-            "health",
-            "bowel",
-            "add",
-            "--at",
-            "2026-07-30T13:00:00Z",
-            "--bristol",
-            "4",
-        ],
-    );
-    json_success(
-        home.path(),
-        &[
-            "health",
-            "medication",
-            "add",
-            "--at",
-            "2026-07-30T14:00:00Z",
-            "--name",
-            "Vitamin",
-            "--dose",
-            "1",
-            "--unit",
-            "tablet",
-        ],
-    );
-    json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T15:00:00Z",
-            "--category",
-            "weight",
-            "--name",
-            "Weight",
-            "--value",
-            "70",
-            "--unit",
-            "kg",
-        ],
-    );
-    json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-30T16:00:00Z",
-            "--category",
-            "symptom",
-            "--key",
-            "pain",
-            "--name",
-            "Pain",
-            "--value",
-            "3",
-        ],
-    );
-
-    let output = success(home.path(), &["health", "trends", "--days", "30"]);
-    let table = String::from_utf8(output.stdout).unwrap();
-    for section in [
-        "diet_tag",
-        "bowel_average",
-        "symptom_frequency",
-        "medication_frequency",
-        "numeric_series",
-        "possible_tag_reaction",
-        "reaction_disclaimer",
-    ] {
-        assert!(table.contains(section), "missing {section}\n{table}");
     }
 }
 
@@ -981,31 +380,11 @@ fn every_health_table_cell_neutralizes_control_characters() {
             "note\u{1b}[31mred",
         ],
     );
-    let weight = json_success(
-        home.path(),
-        &[
-            "health",
-            "metric",
-            "add",
-            "--at",
-            "2026-07-31T13:00:00Z",
-            "--category",
-            "weight",
-            "--name",
-            "Weight",
-            "--value",
-            "70",
-            "--unit",
-            "kg\tINJECT\u{1b}[31m",
-        ],
-    );
-
     for args in [
         vec!["health", "diet", "list"],
         vec!["health", "diet", "show", diet["id"].as_str().unwrap()],
         vec!["health", "metric", "list"],
-        vec!["health", "metric", "show", weight["id"].as_str().unwrap()],
-        vec!["health", "timeline"],
+        vec!["health", "diet", "list"],
     ] {
         let output = success(home.path(), &args);
         let table = String::from_utf8(output.stdout).unwrap();
@@ -1142,6 +521,52 @@ fn image_input_rejects_a_fifo_without_blocking() {
                 "--image",
                 path.to_str().unwrap(),
             ],
+            2,
+        );
+    }
+}
+
+#[test]
+fn metrics_are_canonical_daily_only_and_require_current_version() {
+    let home = tempfile::tempdir().unwrap();
+    init(home.path());
+    for args in [
+        vec!["health", "metric", "add"],
+        vec!["health", "metric", "update", "any"],
+        vec!["health", "timeline"],
+        vec!["health", "trends"],
+        vec!["health", "diet", "purge", "any"],
+    ] {
+        assert_exit(home.path(), &args, 2);
+    }
+    let input = r#"[{"at":"2026-09-30T12:00:00+09:00","category":"weight","value":68}]"#;
+    let first = json_success(
+        home.path(),
+        &["health", "metric", "daily-upsert", "--json", input],
+    );
+    assert_exit(
+        home.path(),
+        &["health", "metric", "daily-upsert", "--json", input],
+        2,
+    );
+    let update=serde_json::json!([{ "at":"2026-09-30T12:00:00+09:00", "category":"weight","value":69,"expected_updated_at":first[0]["updated_at"] }]).to_string();
+    let second = json_success(
+        home.path(),
+        &["health", "metric", "daily-upsert", "--json", &update],
+    );
+    assert_eq!(first[0]["id"], second[0]["id"]);
+    assert_exit(
+        home.path(),
+        &["health", "metric", "daily-upsert", "--json", &update],
+        2,
+    );
+    for invalid in [
+        r#"[{"at":"2026-09-30T12:00:00+09:00","category":"lab","key":"crp","value":-1,"unit":"mg/L"}]"#,
+        r#"[{"at":"2026-09-30T12:00:00+09:00","category":"weight","value":68,"unit":"lb"}]"#,
+    ] {
+        assert_exit(
+            home.path(),
+            &["health", "metric", "daily-upsert", "--json", invalid],
             2,
         );
     }

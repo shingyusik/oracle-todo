@@ -2,26 +2,21 @@ use std::path::Path;
 
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
-    UpdateAccount, UpdateCurrency,
 };
 use ledger_engine::application::error::LedgerError;
-use ledger_engine::application::ports::{EntryQuery, Page};
+use ledger_engine::application::ports::Page;
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
 use time::macros::datetime;
-use uuid::Uuid;
 
 type TestService = LedgerService<SqliteLedgerRepository>;
 
 struct Seeded {
     service: TestService,
-    currency_id: String,
     account_category_id: String,
-    account_id: String,
-    transaction_category_id: String,
 }
 
 #[test]
@@ -81,164 +76,6 @@ fn archive_and_restore_are_audited_reversible_and_idempotent() {
 }
 
 #[test]
-fn purge_requires_exact_confirmation_accepts_archived_rows_and_keeps_final_audit() {
-    let mut seeded = seeded_service_in_memory();
-    let entry = seeded.service.create_entry(valid_expense()).unwrap();
-    let archived = seeded.service.archive_entry(entry.id()).unwrap();
-
-    assert_eq!(
-        seeded.service.purge_entry(entry.id(), "wrong"),
-        Err(LedgerError::ConfirmationMismatch)
-    );
-    assert_eq!(
-        seeded
-            .service
-            .entry_including_archived(entry.id())
-            .unwrap()
-            .map(|view| view.entry),
-        Some(archived.clone())
-    );
-
-    seeded.service.purge_entry(entry.id(), entry.id()).unwrap();
-    assert!(
-        seeded
-            .service
-            .entry_including_archived(entry.id())
-            .unwrap()
-            .is_none()
-    );
-    let events = seeded
-        .service
-        .audit_page("ledger_entry", entry.id(), Page::default())
-        .unwrap()
-        .items;
-    assert_eq!(events.len(), 3);
-    let purge = &events[2];
-    assert_eq!(purge.action, "purge");
-    assert_eq!(purge.before, Some(serde_json::to_value(&archived).unwrap()));
-    assert_eq!(purge.after, None);
-    assert_eq!(
-        seeded.service.purge_entry(entry.id(), entry.id()),
-        Err(LedgerError::NotFound(format!(
-            "ledger entry {}",
-            entry.id()
-        )))
-    );
-}
-
-#[test]
-fn missing_entries_have_explicit_lifecycle_errors() {
-    let mut seeded = seeded_service_in_memory();
-
-    for result in [
-        seeded.service.archive_entry("missing").map(drop),
-        seeded.service.restore_entry("missing").map(drop),
-        seeded.service.purge_entry("missing", "missing"),
-    ] {
-        assert!(matches!(
-            result,
-            Err(LedgerError::NotFound(message)) if message == "ledger entry missing"
-        ));
-    }
-}
-
-#[test]
-fn transfer_lifecycle_updates_and_purges_the_validated_pair_together() {
-    let mut seeded = seeded_service_in_memory();
-    let result = seeded.service.transfer(valid_transfer()).unwrap();
-
-    let preview = seeded
-        .service
-        .purge_entry_preview(&result.out_entry_id)
-        .unwrap();
-    assert_eq!(preview.confirmation_id, result.transfer_group_id);
-    assert_eq!(
-        preview.transfer_group_id.as_deref(),
-        Some(result.transfer_group_id.as_str())
-    );
-    assert_eq!(
-        preview.entry_ids,
-        [result.out_entry_id.clone(), result.in_entry_id.clone()]
-    );
-
-    seeded.service.archive_entry(&result.out_entry_id).unwrap();
-    let archived = seeded
-        .service
-        .entries_page(EntryQuery {
-            include_archived: true,
-            ..EntryQuery::default()
-        })
-        .unwrap()
-        .items;
-    assert_eq!(archived.len(), 2);
-    assert!(archived.iter().all(|entry| entry.is_archived()));
-
-    seeded.service.restore_entry(&result.in_entry_id).unwrap();
-    let active = seeded
-        .service
-        .entries_page(EntryQuery::default())
-        .unwrap()
-        .items;
-    assert_eq!(active.len(), 2);
-    assert!(active.iter().all(|entry| !entry.is_archived()));
-
-    assert_eq!(
-        seeded
-            .service
-            .purge_entry(&result.out_entry_id, &result.out_entry_id),
-        Err(LedgerError::ConfirmationMismatch)
-    );
-    seeded
-        .service
-        .purge_entry(&result.out_entry_id, &result.transfer_group_id)
-        .unwrap();
-    assert!(
-        seeded
-            .service
-            .entries_page(EntryQuery {
-                include_archived: true,
-                ..EntryQuery::default()
-            })
-            .unwrap()
-            .items
-            .is_empty()
-    );
-    for id in [&result.out_entry_id, &result.in_entry_id] {
-        assert!(
-            seeded
-                .service
-                .audit_page("ledger_entry", id, Page::default())
-                .unwrap()
-                .items
-                .is_empty()
-        );
-    }
-    let events = seeded
-        .service
-        .audit_page("transfer", &result.transfer_group_id, Page::default())
-        .unwrap()
-        .items;
-    let actions: Vec<_> = events.iter().map(|event| event.action.as_str()).collect();
-    assert_eq!(actions, ["create", "archive", "restore", "purge"]);
-    for event in &events[1..] {
-        let before = event.before.as_ref().unwrap();
-        assert_eq!(
-            before["transfer_group_id"],
-            result.transfer_group_id.as_str()
-        );
-        assert!(Uuid::parse_str(before["operation_id"].as_str().unwrap()).is_ok());
-        assert!(before["out_entry"].is_object());
-        assert!(before["in_entry"].is_object());
-        if let Some(after) = &event.after {
-            assert_eq!(after["operation_id"], before["operation_id"]);
-            assert_eq!(after["transfer_group_id"], before["transfer_group_id"]);
-            assert!(after["out_entry"].is_object());
-            assert!(after["in_entry"].is_object());
-        }
-    }
-}
-
-#[test]
 fn lifecycle_rejects_a_damaged_transfer_pair_without_mutation_or_audit() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
@@ -276,7 +113,7 @@ fn lifecycle_rejects_a_damaged_transfer_pair_without_mutation_or_audit() {
 
 #[test]
 fn every_pair_lifecycle_operation_rejects_corrupt_identity_and_timestamp_invariants() {
-    for operation in ["archive", "restore", "purge"] {
+    for operation in ["archive", "restore"] {
         for corruption in [
             "group_uuid",
             "entry_uuid",
@@ -286,273 +123,6 @@ fn every_pair_lifecycle_operation_rejects_corrupt_identity_and_timestamp_invaria
         ] {
             assert_corrupt_pair_is_rejected(operation, corruption);
         }
-    }
-}
-
-#[test]
-fn lifecycle_preserves_historical_master_references_and_purge_never_deletes_them() {
-    let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("ledger.sqlite");
-    let mut seeded = seeded_service_at(&database);
-    let entry = seeded.service.create_entry(valid_expense()).unwrap();
-    seeded
-        .service
-        .update_account(
-            &seeded.account_id,
-            UpdateAccount {
-                active: Some(false),
-                actor: "tester".to_string(),
-                ..UpdateAccount::default()
-            },
-        )
-        .unwrap();
-    seeded
-        .service
-        .update_currency(
-            &seeded.currency_id,
-            UpdateCurrency {
-                active: Some(false),
-                actor: "tester".to_string(),
-                ..UpdateCurrency::default()
-            },
-        )
-        .unwrap();
-
-    seeded.service.archive_entry(entry.id()).unwrap();
-    seeded.service.restore_entry(entry.id()).unwrap();
-    seeded.service.purge_entry(entry.id(), entry.id()).unwrap();
-    let account_id = seeded.account_id.clone();
-    let currency_id = seeded.currency_id.clone();
-    drop(seeded);
-
-    let connection = rusqlite::Connection::open(&database).unwrap();
-    let account_count: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM accounts WHERE id = ?1",
-            [&account_id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let currency_count: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM currencies WHERE id = ?1",
-            [&currency_id],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(account_count, 1);
-    assert_eq!(currency_count, 1);
-}
-
-#[test]
-fn referenced_master_data_cannot_be_purged_even_when_the_entry_is_archived() {
-    let mut seeded = seeded_service_in_memory();
-    let entry = seeded.service.create_entry(valid_expense()).unwrap();
-    seeded.service.archive_entry(entry.id()).unwrap();
-
-    for preview in [
-        seeded
-            .service
-            .purge_currency_preview(&seeded.currency_id)
-            .map(|_| ()),
-        seeded
-            .service
-            .purge_account_category_preview(&seeded.account_category_id)
-            .map(|_| ()),
-        seeded
-            .service
-            .purge_account_preview(&seeded.account_id)
-            .map(|_| ()),
-        seeded
-            .service
-            .purge_category_preview(&seeded.transaction_category_id)
-            .map(|_| ()),
-    ] {
-        assert!(
-            matches!(preview, Err(LedgerError::Conflict(message)) if message.contains("referenced"))
-        );
-    }
-
-    for (record_type, record_id, result) in [
-        (
-            "currency",
-            seeded.currency_id.clone(),
-            seeded
-                .service
-                .purge_currency(&seeded.currency_id, &seeded.currency_id),
-        ),
-        (
-            "account_category",
-            seeded.account_category_id.clone(),
-            seeded
-                .service
-                .purge_account_category(&seeded.account_category_id, &seeded.account_category_id),
-        ),
-        (
-            "account",
-            seeded.account_id.clone(),
-            seeded
-                .service
-                .purge_account(&seeded.account_id, &seeded.account_id),
-        ),
-        (
-            "transaction_category",
-            seeded.transaction_category_id.clone(),
-            seeded.service.purge_category(
-                &seeded.transaction_category_id,
-                &seeded.transaction_category_id,
-            ),
-        ),
-    ] {
-        assert!(
-            matches!(result, Err(LedgerError::Conflict(message)) if message.contains("referenced"))
-        );
-        assert!(
-            seeded
-                .service
-                .audit_page(record_type, &record_id, Page::default())
-                .unwrap()
-                .items
-                .iter()
-                .all(|event| event.action != "purge")
-        );
-    }
-}
-
-#[test]
-fn unreferenced_master_purge_keeps_final_snapshot_audits() {
-    let mut seeded = seeded_service_in_memory();
-    let currency = seeded
-        .service
-        .create_currency(CreateCurrency {
-            code: "JPY".to_string(),
-            name: "Japanese yen".to_string(),
-            symbol: "¥".to_string(),
-            decimal_places: 0,
-            actor: "tester".to_string(),
-        })
-        .unwrap();
-    let account_category = seeded
-        .service
-        .create_account_category(CreateAccountCategory {
-            name: "Unused".to_string(),
-            parent: None,
-            liability: false,
-            actor: "tester".to_string(),
-        })
-        .unwrap();
-    let account = seeded
-        .service
-        .create_account(CreateAccount {
-            name: "Unused account".to_string(),
-            category: seeded.account_category_id.clone(),
-            currency: seeded.currency_id.clone(),
-            opening_balance: Money::from_minor_units(0),
-            actor: "tester".to_string(),
-        })
-        .unwrap();
-    let transaction_category = seeded
-        .service
-        .create_category(CreateTransactionCategory {
-            name: "Unused expense".to_string(),
-            parent: None,
-            kind: TransactionCategoryKind::Expense,
-            actor: "tester".to_string(),
-        })
-        .unwrap();
-
-    let currency_preview = seeded
-        .service
-        .purge_currency_preview(currency.id())
-        .unwrap();
-    assert_eq!(currency_preview.confirmation_id, currency.id());
-    assert_eq!(currency_preview.record_type, "currency");
-    let account_category_preview = seeded
-        .service
-        .purge_account_category_preview(account_category.id())
-        .unwrap();
-    assert_eq!(
-        account_category_preview.confirmation_id,
-        account_category.id()
-    );
-    assert_eq!(account_category_preview.record_type, "account_category");
-    let account_preview = seeded.service.purge_account_preview(account.id()).unwrap();
-    assert_eq!(account_preview.confirmation_id, account.id());
-    assert_eq!(account_preview.record_type, "account");
-    let category_preview = seeded
-        .service
-        .purge_category_preview(transaction_category.id())
-        .unwrap();
-    assert_eq!(category_preview.confirmation_id, transaction_category.id());
-    assert_eq!(category_preview.record_type, "transaction_category");
-
-    let expected = [
-        (
-            "currency",
-            currency.id().to_string(),
-            serde_json::to_value(&currency).unwrap(),
-        ),
-        (
-            "account_category",
-            account_category.id().to_string(),
-            serde_json::to_value(&account_category).unwrap(),
-        ),
-        (
-            "account",
-            account.id().to_string(),
-            serde_json::to_value(&account).unwrap(),
-        ),
-        (
-            "transaction_category",
-            transaction_category.id().to_string(),
-            serde_json::to_value(&transaction_category).unwrap(),
-        ),
-    ];
-
-    seeded
-        .service
-        .purge_currency(currency.id(), currency.id())
-        .unwrap();
-    seeded
-        .service
-        .purge_account_category(account_category.id(), account_category.id())
-        .unwrap();
-    seeded
-        .service
-        .purge_account(account.id(), account.id())
-        .unwrap();
-    seeded
-        .service
-        .purge_category(transaction_category.id(), transaction_category.id())
-        .unwrap();
-
-    for (record_type, record_id, before) in expected {
-        let events = seeded
-            .service
-            .audit_page(record_type, &record_id, Page::default())
-            .unwrap()
-            .items;
-        let purge = events.last().unwrap();
-        assert_eq!(purge.action, "purge");
-        assert_eq!(purge.before, Some(before));
-        assert_eq!(purge.after, None);
-    }
-}
-
-#[test]
-fn missing_master_purge_previews_return_not_found() {
-    let mut seeded = seeded_service_in_memory();
-
-    for preview in [
-        seeded.service.purge_currency_preview("missing").map(|_| ()),
-        seeded
-            .service
-            .purge_account_category_preview("missing")
-            .map(|_| ()),
-        seeded.service.purge_account_preview("missing").map(|_| ()),
-        seeded.service.purge_category_preview("missing").map(|_| ()),
-    ] {
-        assert!(matches!(preview, Err(LedgerError::NotFound(_))));
     }
 }
 
@@ -586,7 +156,7 @@ fn seed(mut service: TestService) -> Seeded {
             actor: "seed".to_string(),
         })
         .unwrap();
-    let wallet = service
+    service
         .create_account(CreateAccount {
             name: "Wallet".to_string(),
             category: category.id().to_string(),
@@ -604,7 +174,7 @@ fn seed(mut service: TestService) -> Seeded {
             actor: "seed".to_string(),
         })
         .unwrap();
-    let transaction_category = service
+    service
         .create_category(CreateTransactionCategory {
             name: "Food".to_string(),
             parent: None,
@@ -614,10 +184,7 @@ fn seed(mut service: TestService) -> Seeded {
         .unwrap();
     Seeded {
         service,
-        currency_id: currency.id().to_string(),
         account_category_id: category.id().to_string(),
-        account_id: wallet.id().to_string(),
-        transaction_category_id: transaction_category.id().to_string(),
     }
 }
 
@@ -747,7 +314,6 @@ fn assert_corrupt_pair_is_rejected(operation: &str, corruption: &str) {
     let result_error = match operation {
         "archive" => service.archive_entry(&result.out_entry_id).map(drop),
         "restore" => service.restore_entry(&result.out_entry_id).map(drop),
-        "purge" => service.purge_entry(&result.out_entry_id, &result.transfer_group_id),
         _ => unreachable!(),
     }
     .unwrap_err();
@@ -783,4 +349,109 @@ fn assert_corrupt_pair_is_rejected(operation: &str, corruption: &str) {
     };
     assert_eq!(audit_count_after, audit_count_before);
     assert_eq!(rows_after, rows_before);
+}
+
+#[test]
+fn account_type_purge_keeps_exact_confirmation_and_dependency_policy() {
+    let mut seeded = seeded_service_in_memory();
+    assert!(
+        seeded
+            .service
+            .purge_account_category_preview(&seeded.account_category_id)
+            .is_err()
+    );
+    let unused = seeded
+        .service
+        .create_account_category(CreateAccountCategory {
+            name: "Unused".into(),
+            parent: None,
+            liability: false,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let preview = seeded
+        .service
+        .purge_account_category_preview(unused.id())
+        .unwrap();
+    assert_eq!(preview.confirmation_id, unused.id());
+    assert!(
+        seeded
+            .service
+            .purge_account_category(unused.id(), "wrong")
+            .is_err()
+    );
+    seeded
+        .service
+        .purge_account_category(unused.id(), unused.id())
+        .unwrap();
+    assert!(
+        seeded
+            .service
+            .purge_account_category_preview(unused.id())
+            .is_err()
+    );
+    assert_eq!(
+        seeded
+            .service
+            .audit_page("account_category", unused.id(), Page::default())
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn historical_adjustments_remain_readable_editable_and_recoverable() {
+    use ledger_engine::application::commands::UpdateEntry;
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("historical.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let entry = seeded.service.create_entry(valid_expense()).unwrap();
+    Connection::open(&database).unwrap().execute(
+        "UPDATE ledger_entries SET entry_type = 'adjustment_out', transaction_category_id = NULL WHERE id = ?1",
+        [entry.id()],
+    ).unwrap();
+    let historical = seeded.service.get_entry(entry.id()).unwrap().entry;
+    assert_eq!(historical.entry_type(), EntryType::AdjustmentOut);
+    let updated = seeded
+        .service
+        .update_entry(
+            entry.id(),
+            UpdateEntry {
+                notes: Some(Some("Historical correction".into())),
+                actor: "test".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.written_at(), historical.written_at());
+    assert_eq!(updated.source(), historical.source());
+    assert!(
+        seeded
+            .service
+            .update_entry(
+                entry.id(),
+                UpdateEntry {
+                    entry_type: Some(EntryType::Expense),
+                    actor: "test".into(),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+    );
+    seeded.service.archive_entry(entry.id()).unwrap();
+    assert!(seeded.service.get_entry(entry.id()).is_err());
+    let restored = seeded.service.restore_entry(entry.id()).unwrap();
+    assert_eq!(restored.entry_type(), EntryType::AdjustmentOut);
+    assert_eq!(restored.notes(), Some("Historical correction"));
+    assert_eq!(
+        seeded
+            .service
+            .audit_page("ledger_entry", entry.id(), Page::default())
+            .unwrap()
+            .items
+            .len(),
+        4
+    );
 }

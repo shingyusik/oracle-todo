@@ -9,10 +9,12 @@ use ledger_engine::application::export::ExportOptions;
 use ledger_engine::application::ports::{AuditEvent, EntryQuery, Page};
 use ledger_engine::application::queries::{AccountBalanceView, EntryView, TransferView};
 use ledger_engine::application::reports::{
-    CurrencySummary, LedgerBriefing, LedgerComparison, LedgerSummary, ReportRange,
+    CurrencySummary, LedgerComparison, LedgerSummary, ReportPeriod, ReportRange,
 };
 use ledger_engine::application::service::LedgerService;
-use ledger_engine::application::transfers::{TransferCommand, TransferOperationKey};
+use ledger_engine::application::transfers::{
+    TransferCommand, TransferOperationKey, UpdateTransferCommand,
+};
 use ledger_engine::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, Money, TransactionCategory,
     TransactionCategoryKind,
@@ -20,7 +22,7 @@ use ledger_engine::domain::{
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
-use time::{Date, OffsetDateTime, UtcOffset, macros::format_description};
+use time::{Date, OffsetDateTime, macros::format_description};
 
 use crate::cli::{
     AccountCategoryCommand, AccountCategoryCreateArgs, AccountCategoryUpdateArgs, AccountCommand,
@@ -28,7 +30,8 @@ use crate::cli::{
     CategoryKindArg, CategoryUpdateArgs, CompareArgs, CurrencyCommand, CurrencyCreateArgs,
     CurrencyUpdateArgs, DoctorArgs, EntryAddArgs, EntryIdentityArgs, EntryListArgs, EntryShowArgs,
     EntryTypeArg, EntryUpdateArgs, ExportArgs, LedgerCommand, LedgerEntryCommand, OutputFormat,
-    PageReadArgs, PurgeArgs, ReportArgs, ReportBy, ReportRangeArgs, TransferArgs, TransferShowArgs,
+    PageReadArgs, ReportArgs, ReportBy, ReportRangeArgs, TransferArgs, TransferShowArgs,
+    TransferUpdateArgs,
 };
 use crate::config::RavenPaths;
 
@@ -37,8 +40,64 @@ type Service = LedgerService<SqliteLedgerRepository>;
 const DEFAULT_ACTOR: &str = "raven-cli";
 const DEFAULT_SOURCE: &str = "raven-cli";
 
+fn is_mutation(command: &LedgerCommand) -> bool {
+    match command {
+        LedgerCommand::Entry { command } => !matches!(
+            command,
+            LedgerEntryCommand::List(_) | LedgerEntryCommand::Show(_)
+        ),
+        LedgerCommand::Account { command } => !matches!(command, AccountCommand::List(_)),
+        LedgerCommand::AccountCategory { command } => match command {
+            AccountCategoryCommand::List(_) => false,
+            AccountCategoryCommand::Purge(args) => args.confirm.is_some(),
+            _ => true,
+        },
+        LedgerCommand::Category { command } => !matches!(command, CategoryCommand::List(_)),
+        LedgerCommand::Currency { command } => !matches!(command, CurrencyCommand::List(_)),
+        LedgerCommand::Transfer(_) | LedgerCommand::TransferUpdate(_) => true,
+        _ => false,
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransferUpdateInput {
+    date: String,
+    content: String,
+    from_account: String,
+    to_account: String,
+    amount: String,
+    currency: String,
+    notes: Option<String>,
+}
+
+fn transfer_update(service: &mut Service, args: TransferUpdateArgs) -> LedgerResult<()> {
+    let input: TransferUpdateInput = json_input(&args.json)?;
+    let precision = service.resolve_active_currency_precision(&input.currency)?;
+    let result = service.update_transfer(
+        &args.id,
+        UpdateTransferCommand {
+            date: parse_date(&input.date, "date")?.to_string(),
+            content: input.content,
+            from_account: input.from_account,
+            to_account: input.to_account,
+            amount: parse_money(&input.amount, precision, "amount")?,
+            currency: input.currency,
+            notes: input.notes,
+            actor: DEFAULT_ACTOR.to_string(),
+            reason: None,
+        },
+    )?;
+    print_json(&TransferOutput::from(&result))
+}
+
 pub fn run(paths: &RavenPaths, command: LedgerCommand) -> Result<()> {
-    let repository = SqliteLedgerRepository::open(paths.ledger_db()).map_err(anyhow::Error::new)?;
+    let repository = if is_mutation(&command) {
+        SqliteLedgerRepository::open(paths.ledger_db())
+    } else {
+        SqliteLedgerRepository::open_read_only(paths.ledger_db())
+    }
+    .map_err(anyhow::Error::new)?;
     let mut service = LedgerService::new(repository);
     execute(&mut service, command).map_err(anyhow::Error::new)
 }
@@ -48,13 +107,13 @@ fn execute(service: &mut Service, command: LedgerCommand) -> LedgerResult<()> {
         LedgerCommand::Entry { command } => entry(service, command),
         LedgerCommand::Transfer(args) => transfer(service, args),
         LedgerCommand::TransferShow(args) => transfer_show(service, args),
+        LedgerCommand::TransferUpdate(args) => transfer_update(service, args),
         LedgerCommand::Account { command } => account(service, command),
         LedgerCommand::AccountCategory { command } => account_category(service, command),
         LedgerCommand::Category { command } => category(service, command),
         LedgerCommand::Currency { command } => currency(service, command),
         LedgerCommand::Reports(args) => reports(service, args),
         LedgerCommand::Balances(args) => balances(service, args),
-        LedgerCommand::Briefing(args) => briefing(service, args),
         LedgerCommand::Compare(args) => compare(service, args),
         LedgerCommand::Audit(args) => audit(service, args),
         LedgerCommand::Doctor(args) => doctor(service, args),
@@ -70,7 +129,6 @@ fn entry(service: &mut Service, command: LedgerEntryCommand) -> LedgerResult<()>
         LedgerEntryCommand::Show(args) => show_entry(service, args),
         LedgerEntryCommand::Archive(args) => archive_entry(service, args),
         LedgerEntryCommand::Restore(args) => restore_entry(service, args),
-        LedgerEntryCommand::Purge(args) => purge_entry(service, args),
     }
 }
 
@@ -82,7 +140,7 @@ fn add_entry(service: &mut Service, args: EntryAddArgs) -> LedgerResult<()> {
     let entry_type = parse_entry_type(&input.entry_type)?;
     let created = service.create_entry(CreateEntry {
         date: date.to_string(),
-        written_at: parse_written_at(input.written_at.as_deref(), date)?,
+        written_at: OffsetDateTime::now_utc(),
         content: input.content,
         category: input.category,
         account: input.account,
@@ -90,9 +148,9 @@ fn add_entry(service: &mut Service, args: EntryAddArgs) -> LedgerResult<()> {
         amount,
         currency: input.currency,
         transfer_group: None,
-        source: input.source.unwrap_or_else(|| DEFAULT_SOURCE.to_string()),
+        source: DEFAULT_SOURCE.to_string(),
         notes: input.notes,
-        actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
+        actor: DEFAULT_ACTOR.to_string(),
     })?;
     let view = service.get_entry(created.id())?;
     print_json(&EntryOutput::from(&view))
@@ -119,11 +177,7 @@ fn update_entry(service: &mut Service, args: EntryUpdateArgs) -> LedgerResult<()
                 .as_deref()
                 .map(|value| parse_date(value, "date").map(|date| date.to_string()))
                 .transpose()?,
-            written_at: input
-                .written_at
-                .as_deref()
-                .map(parse_timestamp)
-                .transpose()?,
+            written_at: None,
             content: input.content,
             category: optional_clear(input.category, input.clear_category, "category")?,
             account: input.account,
@@ -135,10 +189,10 @@ fn update_entry(service: &mut Service, args: EntryUpdateArgs) -> LedgerResult<()
             amount,
             currency: input.currency,
             transfer_group: None,
-            source: input.source,
+            source: None,
             notes: optional_clear(input.notes, input.clear_notes, "notes")?,
-            actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
-            reason: input.reason,
+            actor: DEFAULT_ACTOR.to_string(),
+            reason: None,
         },
     )?;
     let view = service.get_entry(updated.id())?;
@@ -168,7 +222,7 @@ fn list_entries(service: &Service, args: EntryListArgs) -> LedgerResult<()> {
     })?;
     let output = PageOutput {
         items: page.items.iter().map(EntryOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -224,23 +278,6 @@ fn restore_entry(service: &mut Service, args: EntryIdentityArgs) -> LedgerResult
     print_json(&EntryOutput::from(&view))
 }
 
-fn purge_entry(service: &mut Service, args: PurgeArgs) -> LedgerResult<()> {
-    let preview = service.purge_entry_preview(&args.id)?;
-    let Some(confirmation) = args.confirm else {
-        print_json(&PurgePreviewOutput {
-            confirmation_id: preview.confirmation_id,
-            transfer_group_id: preview.transfer_group_id,
-            entry_ids: preview.entry_ids,
-        })?;
-        return Err(LedgerError::ConfirmationMismatch);
-    };
-    service.purge_entry(&args.id, &confirmation)?;
-    print_json(&PurgeResult {
-        purged: true,
-        id: args.id,
-    })
-}
-
 fn transfer(service: &mut Service, args: TransferArgs) -> LedgerResult<()> {
     let input = transfer_input(args)?;
     let operation_key = TransferOperationKey::parse(&input.operation_key)?;
@@ -249,15 +286,15 @@ fn transfer(service: &mut Service, args: TransferArgs) -> LedgerResult<()> {
     let result = service.transfer(TransferCommand {
         operation_key,
         date: date.to_string(),
-        written_at: parse_written_at(input.written_at.as_deref(), date)?,
+        written_at: OffsetDateTime::now_utc(),
         content: input.content,
         from_account: input.from_account,
         to_account: input.to_account,
         amount: parse_money(&input.amount, precision, "amount")?,
         currency: input.currency,
-        source: input.source.unwrap_or_else(|| DEFAULT_SOURCE.to_string()),
+        source: DEFAULT_SOURCE.to_string(),
         notes: input.notes,
-        actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
+        actor: DEFAULT_ACTOR.to_string(),
     })?;
     print_json(&result)
 }
@@ -293,7 +330,7 @@ fn currency(service: &mut Service, command: CurrencyCommand) -> LedgerResult<()>
                 name: input.name,
                 symbol: input.symbol,
                 decimal_places: input.decimal_places,
-                actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
+                actor: DEFAULT_ACTOR.to_string(),
             })?;
             print_json(&CurrencyOutput::from(&currency))
         }
@@ -308,24 +345,13 @@ fn currency(service: &mut Service, command: CurrencyCommand) -> LedgerResult<()>
                     symbol: input.symbol,
                     decimal_places: input.decimal_places,
                     active: input.active,
-                    actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
-                    reason: input.reason,
+                    actor: DEFAULT_ACTOR.to_string(),
+                    reason: None,
                 },
             )?;
             print_json(&CurrencyOutput::from(&currency))
         }
         CurrencyCommand::List(args) => list_currencies(service, args),
-        CurrencyCommand::Purge(args) => {
-            let Some(confirmation) = args.confirm.as_deref() else {
-                let preview = service.purge_currency_preview(&args.id)?;
-                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
-            };
-            service.purge_currency(&args.id, confirmation)?;
-            print_json(&PurgeResult {
-                purged: true,
-                id: args.id,
-            })
-        }
     }
 }
 
@@ -337,7 +363,7 @@ fn account_category(service: &mut Service, command: AccountCategoryCommand) -> L
                 name: input.name,
                 parent: input.parent,
                 liability: input.liability,
-                actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
+                actor: DEFAULT_ACTOR.to_string(),
             })?;
             print_json(&AccountCategoryOutput::from(&category))
         }
@@ -351,8 +377,8 @@ fn account_category(service: &mut Service, command: AccountCategoryCommand) -> L
                     parent: optional_clear(input.parent, input.clear_parent, "parent")?,
                     liability: input.liability,
                     active: input.active,
-                    actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
-                    reason: input.reason,
+                    actor: DEFAULT_ACTOR.to_string(),
+                    reason: None,
                 },
             )?;
             print_json(&AccountCategoryOutput::from(&category))
@@ -382,7 +408,7 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
                 category: input.category,
                 currency: input.currency,
                 opening_balance: parse_money(&input.opening_balance, precision, "opening_balance")?,
-                actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
+                actor: DEFAULT_ACTOR.to_string(),
             })?;
             print_json(&AccountOutput::from(&account))
         }
@@ -407,24 +433,13 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
                     currency: input.currency,
                     opening_balance,
                     active: input.active,
-                    actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
-                    reason: input.reason,
+                    actor: DEFAULT_ACTOR.to_string(),
+                    reason: None,
                 },
             )?;
             print_json(&AccountOutput::from(&account))
         }
         AccountCommand::List(args) => list_accounts(service, args),
-        AccountCommand::Purge(args) => {
-            let Some(confirmation) = args.confirm.as_deref() else {
-                let preview = service.purge_account_preview(&args.id)?;
-                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
-            };
-            service.purge_account(&args.id, confirmation)?;
-            print_json(&PurgeResult {
-                purged: true,
-                id: args.id,
-            })
-        }
     }
 }
 
@@ -436,7 +451,7 @@ fn category(service: &mut Service, command: CategoryCommand) -> LedgerResult<()>
                 name: input.name,
                 parent: input.parent,
                 kind: parse_category_kind(&input.kind)?,
-                actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
+                actor: DEFAULT_ACTOR.to_string(),
             })?;
             print_json(&CategoryOutput::from(&category))
         }
@@ -450,24 +465,13 @@ fn category(service: &mut Service, command: CategoryCommand) -> LedgerResult<()>
                     parent: optional_clear(input.parent, input.clear_parent, "parent")?,
                     kind: input.kind.as_deref().map(parse_category_kind).transpose()?,
                     active: input.active,
-                    actor: input.actor.unwrap_or_else(|| DEFAULT_ACTOR.to_string()),
-                    reason: input.reason,
+                    actor: DEFAULT_ACTOR.to_string(),
+                    reason: None,
                 },
             )?;
             print_json(&CategoryOutput::from(&category))
         }
         CategoryCommand::List(args) => list_categories(service, args),
-        CategoryCommand::Purge(args) => {
-            let Some(confirmation) = args.confirm.as_deref() else {
-                let preview = service.purge_category_preview(&args.id)?;
-                return print_master_purge_preview(preview.confirmation_id, preview.record_type);
-            };
-            service.purge_category(&args.id, confirmation)?;
-            print_json(&PurgeResult {
-                purged: true,
-                id: args.id,
-            })
-        }
     }
 }
 
@@ -475,7 +479,7 @@ fn list_currencies(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     let page = service.currencies_page(page(&args))?;
     let output = PageOutput {
         items: page.items.iter().map(CurrencyOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -501,7 +505,7 @@ fn list_account_categories(service: &Service, args: PageReadArgs) -> LedgerResul
     let page = service.account_categories_page(page(&args))?;
     let output = PageOutput {
         items: page.items.iter().map(AccountCategoryOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -526,7 +530,7 @@ fn list_accounts(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     let page = service.accounts_page(page(&args))?;
     let output = PageOutput {
         items: page.items.iter().map(AccountOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -552,7 +556,7 @@ fn list_categories(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     let page = service.transaction_categories_page(page(&args))?;
     let output = PageOutput {
         items: page.items.iter().map(CategoryOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -596,10 +600,7 @@ fn reports(service: &Service, args: ReportArgs) -> LedgerResult<()> {
                 }
             }
         }
-        ReportBy::Account => {
-            let report = service.account_breakdown(range)?;
-            print_report_rows(report, args.range.format)
-        }
+
         ReportBy::Category => {
             let report = service.category_breakdown(range)?;
             print_report_rows(report, args.range.format)
@@ -635,7 +636,7 @@ fn balances(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     let page = service.account_balances_page(page(&args))?;
     let output = PageOutput {
         items: page.items.iter().map(BalanceOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -655,51 +656,12 @@ fn balances(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     }
 }
 
-fn briefing(service: &Service, args: ReportRangeArgs) -> LedgerResult<()> {
-    let report = service.briefing(report_range(&args)?)?;
-    match args.format {
-        OutputFormat::Json => print_json(&BriefingOutput::from(report)),
-        OutputFormat::Table => {
-            println!("FROM\tTO\tCURRENCY\tINCOME_MINOR\tEXPENSE_MINOR\tNET_CHANGE_MINOR\tENTRIES");
-            if report.summary.currencies.is_empty() {
-                println!(
-                    "{}\t{}\t-\t0\t0\t0\t0",
-                    report.summary.range.start, report.summary.range.end
-                );
-            } else {
-                for row in &report.summary.currencies {
-                    println!(
-                        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                        report.summary.range.start,
-                        report.summary.range.end,
-                        table_cell(&row.currency_code),
-                        row.income_minor,
-                        row.expense_minor,
-                        row.net_change_minor,
-                        row.entry_count
-                    );
-                }
-            }
-            Ok(())
-        }
-    }
-}
-
 fn compare(service: &Service, args: CompareArgs) -> LedgerResult<()> {
-    let current = explicit_range(
-        &args.current_from,
-        &args.current_to,
-        "current_from",
-        "current_to",
-    )?;
-    let previous = explicit_range(
-        &args.previous_from,
-        &args.previous_to,
-        "previous_from",
-        "previous_to",
-    )?;
+    let range = explicit_range(&args.range.from, &args.range.to, "from", "to")?;
+    let (current, previous) =
+        ReportPeriod::Custom(range).comparison_ranges(OffsetDateTime::now_utc().date())?;
     let report = service.compare(current, previous)?;
-    match args.format {
+    match args.range.format {
         OutputFormat::Json => print_json(&ComparisonOutput::from(report)),
         OutputFormat::Table => {
             println!(
@@ -748,7 +710,7 @@ fn audit(service: &Service, args: AuditArgs) -> LedgerResult<()> {
     )?;
     let output = PageOutput {
         items: page.items.into_iter().map(AuditEventOutput::from).collect(),
-        next: page.next.map(PageCursor::from),
+        next: page.next.map(|page| page.offset),
     };
     match args.format {
         OutputFormat::Json => print_json(&output),
@@ -882,22 +844,6 @@ fn parse_date(value: &str, field: &'static str) -> LedgerResult<Date> {
             message: "date must be a valid YYYY-MM-DD calendar date".to_string(),
         }
     })
-}
-
-fn parse_timestamp(value: &str) -> LedgerResult<OffsetDateTime> {
-    OffsetDateTime::parse(value.trim(), &Rfc3339)
-        .map(|value| value.to_offset(UtcOffset::UTC))
-        .map_err(|_| validation("written_at", "timestamp must use RFC3339"))
-}
-
-fn parse_written_at(value: Option<&str>, date: Date) -> LedgerResult<OffsetDateTime> {
-    match value {
-        Some(value) => parse_timestamp(value),
-        None => Ok(date
-            .with_hms(0, 0, 0)
-            .map_err(|_| validation("date", "date is outside the supported range"))?
-            .assume_utc()),
-    }
 }
 
 fn parse_entry_type(value: &str) -> LedgerResult<EntryType> {
@@ -1048,7 +994,6 @@ fn print_entry_table(entry: &EntryOutput) {
 #[serde(deny_unknown_fields)]
 struct EntryAddInput {
     date: String,
-    written_at: Option<String>,
     #[serde(alias = "type")]
     entry_type: String,
     amount: String,
@@ -1056,32 +1001,26 @@ struct EntryAddInput {
     account: String,
     category: Option<String>,
     content: String,
-    source: Option<String>,
     notes: Option<String>,
-    actor: Option<String>,
 }
 
 fn entry_add_input(args: EntryAddArgs) -> LedgerResult<EntryAddInput> {
     reject_mixed_json(
         &args.json,
         args.date.is_some()
-            || args.written_at.is_some()
             || args.entry_type.is_some()
             || args.amount.is_some()
             || args.currency.is_some()
             || args.account.is_some()
             || args.category.is_some()
             || args.content.is_some()
-            || args.source.is_some()
-            || args.notes.is_some()
-            || args.actor.is_some(),
+            || args.notes.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
     }
     Ok(EntryAddInput {
         date: required(args.date, "date")?,
-        written_at: args.written_at,
         entry_type: args
             .entry_type
             .map(|value| EntryType::from(value).as_str().to_string())
@@ -1091,9 +1030,7 @@ fn entry_add_input(args: EntryAddArgs) -> LedgerResult<EntryAddInput> {
         account: required(args.account, "account")?,
         category: args.category,
         content: required(args.content, "content")?,
-        source: args.source,
         notes: args.notes,
-        actor: args.actor,
     })
 }
 
@@ -1101,7 +1038,6 @@ fn entry_add_input(args: EntryAddArgs) -> LedgerResult<EntryAddInput> {
 #[serde(deny_unknown_fields)]
 struct EntryUpdateInput {
     date: Option<String>,
-    written_at: Option<String>,
     #[serde(alias = "type")]
     entry_type: Option<String>,
     amount: Option<String>,
@@ -1111,19 +1047,15 @@ struct EntryUpdateInput {
     #[serde(default)]
     clear_category: bool,
     content: Option<String>,
-    source: Option<String>,
     notes: Option<String>,
     #[serde(default)]
     clear_notes: bool,
-    actor: Option<String>,
-    reason: Option<String>,
 }
 
 fn entry_update_input(args: EntryUpdateArgs) -> LedgerResult<EntryUpdateInput> {
     reject_mixed_json(
         &args.json,
         args.date.is_some()
-            || args.written_at.is_some()
             || args.entry_type.is_some()
             || args.amount.is_some()
             || args.currency.is_some()
@@ -1131,18 +1063,14 @@ fn entry_update_input(args: EntryUpdateArgs) -> LedgerResult<EntryUpdateInput> {
             || args.category.is_some()
             || args.clear_category
             || args.content.is_some()
-            || args.source.is_some()
             || args.notes.is_some()
-            || args.clear_notes
-            || args.actor.is_some()
-            || args.reason.is_some(),
+            || args.clear_notes,
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
     }
     Ok(EntryUpdateInput {
         date: args.date,
-        written_at: args.written_at,
         entry_type: args
             .entry_type
             .map(|value| EntryType::from(value).as_str().to_string()),
@@ -1152,11 +1080,8 @@ fn entry_update_input(args: EntryUpdateArgs) -> LedgerResult<EntryUpdateInput> {
         category: args.category,
         clear_category: args.clear_category,
         content: args.content,
-        source: args.source,
         notes: args.notes,
         clear_notes: args.clear_notes,
-        actor: args.actor,
-        reason: args.reason,
     })
 }
 
@@ -1166,15 +1091,12 @@ struct TransferInput {
     #[serde(alias = "idempotency_key")]
     operation_key: String,
     date: String,
-    written_at: Option<String>,
     amount: String,
     currency: String,
     from_account: String,
     to_account: String,
     content: String,
-    source: Option<String>,
     notes: Option<String>,
-    actor: Option<String>,
 }
 
 fn transfer_input(args: TransferArgs) -> LedgerResult<TransferInput> {
@@ -1182,15 +1104,12 @@ fn transfer_input(args: TransferArgs) -> LedgerResult<TransferInput> {
         &args.json,
         args.operation_key.is_some()
             || args.date.is_some()
-            || args.written_at.is_some()
             || args.amount.is_some()
             || args.currency.is_some()
             || args.from_account.is_some()
             || args.to_account.is_some()
             || args.content.is_some()
-            || args.source.is_some()
-            || args.notes.is_some()
-            || args.actor.is_some(),
+            || args.notes.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1198,15 +1117,12 @@ fn transfer_input(args: TransferArgs) -> LedgerResult<TransferInput> {
     Ok(TransferInput {
         operation_key: required(args.operation_key, "operation_key")?,
         date: required(args.date, "date")?,
-        written_at: args.written_at,
         amount: required(args.amount, "amount")?,
         currency: required(args.currency, "currency")?,
         from_account: required(args.from_account, "from_account")?,
         to_account: required(args.to_account, "to_account")?,
         content: required(args.content, "content")?,
-        source: args.source,
         notes: args.notes,
-        actor: args.actor,
     })
 }
 
@@ -1217,7 +1133,6 @@ struct CurrencyCreateInput {
     name: String,
     symbol: String,
     decimal_places: u8,
-    actor: Option<String>,
 }
 
 fn currency_create_input(args: CurrencyCreateArgs) -> LedgerResult<CurrencyCreateInput> {
@@ -1226,8 +1141,7 @@ fn currency_create_input(args: CurrencyCreateArgs) -> LedgerResult<CurrencyCreat
         args.code.is_some()
             || args.name.is_some()
             || args.symbol.is_some()
-            || args.decimal_places.is_some()
-            || args.actor.is_some(),
+            || args.decimal_places.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1239,7 +1153,6 @@ fn currency_create_input(args: CurrencyCreateArgs) -> LedgerResult<CurrencyCreat
         decimal_places: args
             .decimal_places
             .ok_or_else(|| validation("decimal_places", "field is required"))?,
-        actor: args.actor,
     })
 }
 
@@ -1251,8 +1164,6 @@ struct CurrencyUpdateInput {
     symbol: Option<String>,
     decimal_places: Option<u8>,
     active: Option<bool>,
-    actor: Option<String>,
-    reason: Option<String>,
 }
 
 fn currency_update_input(args: CurrencyUpdateArgs) -> LedgerResult<CurrencyUpdateInput> {
@@ -1262,9 +1173,7 @@ fn currency_update_input(args: CurrencyUpdateArgs) -> LedgerResult<CurrencyUpdat
             || args.name.is_some()
             || args.symbol.is_some()
             || args.decimal_places.is_some()
-            || args.active.is_some()
-            || args.actor.is_some()
-            || args.reason.is_some(),
+            || args.active.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1275,8 +1184,6 @@ fn currency_update_input(args: CurrencyUpdateArgs) -> LedgerResult<CurrencyUpdat
         symbol: args.symbol,
         decimal_places: args.decimal_places,
         active: args.active,
-        actor: args.actor,
-        reason: args.reason,
     })
 }
 
@@ -1287,7 +1194,6 @@ struct AccountCategoryCreateInput {
     parent: Option<String>,
     #[serde(default)]
     liability: bool,
-    actor: Option<String>,
 }
 
 fn account_category_create_input(
@@ -1295,7 +1201,7 @@ fn account_category_create_input(
 ) -> LedgerResult<AccountCategoryCreateInput> {
     reject_mixed_json(
         &args.json,
-        args.name.is_some() || args.parent.is_some() || args.liability || args.actor.is_some(),
+        args.name.is_some() || args.parent.is_some() || args.liability,
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1304,7 +1210,6 @@ fn account_category_create_input(
         name: required(args.name, "name")?,
         parent: args.parent,
         liability: args.liability,
-        actor: args.actor,
     })
 }
 
@@ -1317,8 +1222,6 @@ struct AccountCategoryUpdateInput {
     clear_parent: bool,
     liability: Option<bool>,
     active: Option<bool>,
-    actor: Option<String>,
-    reason: Option<String>,
 }
 
 fn account_category_update_input(
@@ -1330,9 +1233,7 @@ fn account_category_update_input(
             || args.parent.is_some()
             || args.clear_parent
             || args.liability.is_some()
-            || args.active.is_some()
-            || args.actor.is_some()
-            || args.reason.is_some(),
+            || args.active.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1343,8 +1244,6 @@ fn account_category_update_input(
         clear_parent: args.clear_parent,
         liability: args.liability,
         active: args.active,
-        actor: args.actor,
-        reason: args.reason,
     })
 }
 
@@ -1355,7 +1254,6 @@ struct AccountCreateInput {
     category: String,
     currency: String,
     opening_balance: String,
-    actor: Option<String>,
 }
 
 fn account_create_input(args: AccountCreateArgs) -> LedgerResult<AccountCreateInput> {
@@ -1364,8 +1262,7 @@ fn account_create_input(args: AccountCreateArgs) -> LedgerResult<AccountCreateIn
         args.name.is_some()
             || args.category.is_some()
             || args.currency.is_some()
-            || args.opening_balance.is_some()
-            || args.actor.is_some(),
+            || args.opening_balance.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1375,7 +1272,6 @@ fn account_create_input(args: AccountCreateArgs) -> LedgerResult<AccountCreateIn
         category: required(args.category, "category")?,
         currency: required(args.currency, "currency")?,
         opening_balance: required(args.opening_balance, "opening_balance")?,
-        actor: args.actor,
     })
 }
 
@@ -1387,8 +1283,6 @@ struct AccountUpdateInput {
     currency: Option<String>,
     opening_balance: Option<String>,
     active: Option<bool>,
-    actor: Option<String>,
-    reason: Option<String>,
 }
 
 fn account_update_input(args: AccountUpdateArgs) -> LedgerResult<AccountUpdateInput> {
@@ -1398,9 +1292,7 @@ fn account_update_input(args: AccountUpdateArgs) -> LedgerResult<AccountUpdateIn
             || args.category.is_some()
             || args.currency.is_some()
             || args.opening_balance.is_some()
-            || args.active.is_some()
-            || args.actor.is_some()
-            || args.reason.is_some(),
+            || args.active.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1411,8 +1303,6 @@ fn account_update_input(args: AccountUpdateArgs) -> LedgerResult<AccountUpdateIn
         currency: args.currency,
         opening_balance: args.opening_balance,
         active: args.active,
-        actor: args.actor,
-        reason: args.reason,
     })
 }
 
@@ -1422,13 +1312,12 @@ struct CategoryCreateInput {
     name: String,
     parent: Option<String>,
     kind: String,
-    actor: Option<String>,
 }
 
 fn category_create_input(args: CategoryCreateArgs) -> LedgerResult<CategoryCreateInput> {
     reject_mixed_json(
         &args.json,
-        args.name.is_some() || args.parent.is_some() || args.kind.is_some() || args.actor.is_some(),
+        args.name.is_some() || args.parent.is_some() || args.kind.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1441,7 +1330,6 @@ fn category_create_input(args: CategoryCreateArgs) -> LedgerResult<CategoryCreat
             .map(kind_name)
             .ok_or_else(|| validation("kind", "field is required"))?
             .to_string(),
-        actor: args.actor,
     })
 }
 
@@ -1454,8 +1342,6 @@ struct CategoryUpdateInput {
     clear_parent: bool,
     kind: Option<String>,
     active: Option<bool>,
-    actor: Option<String>,
-    reason: Option<String>,
 }
 
 fn category_update_input(args: CategoryUpdateArgs) -> LedgerResult<CategoryUpdateInput> {
@@ -1465,9 +1351,7 @@ fn category_update_input(args: CategoryUpdateArgs) -> LedgerResult<CategoryUpdat
             || args.parent.is_some()
             || args.clear_parent
             || args.kind.is_some()
-            || args.active.is_some()
-            || args.actor.is_some()
-            || args.reason.is_some(),
+            || args.active.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1478,8 +1362,6 @@ fn category_update_input(args: CategoryUpdateArgs) -> LedgerResult<CategoryUpdat
         clear_parent: args.clear_parent,
         kind: args.kind.map(kind_name).map(str::to_string),
         active: args.active,
-        actor: args.actor,
-        reason: args.reason,
     })
 }
 
@@ -1506,22 +1388,7 @@ impl From<EntryTypeArg> for EntryType {
 #[derive(Debug, Serialize)]
 struct PageOutput<T> {
     items: Vec<T>,
-    next: Option<PageCursor>,
-}
-
-#[derive(Debug, Serialize)]
-struct PageCursor {
-    offset: u32,
-    limit: u16,
-}
-
-impl From<Page> for PageCursor {
-    fn from(value: Page) -> Self {
-        Self {
-            offset: value.offset,
-            limit: value.limit,
-        }
-    }
+    next: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1799,22 +1666,8 @@ impl From<LedgerComparison> for ComparisonOutput {
 }
 
 #[derive(Debug, Serialize)]
-struct BriefingOutput {
-    summary: SummaryOutput,
-    markdown: String,
-}
-
-impl From<LedgerBriefing> for BriefingOutput {
-    fn from(value: LedgerBriefing) -> Self {
-        Self {
-            summary: value.summary.into(),
-            markdown: value.markdown,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
 struct AuditEventOutput {
+    reason: Option<String>,
     id: String,
     occurred_at: String,
     actor: String,
@@ -1823,7 +1676,6 @@ struct AuditEventOutput {
     record_id: String,
     before: Option<serde_json::Value>,
     after: Option<serde_json::Value>,
-    reason: Option<String>,
 }
 
 impl From<AuditEvent> for AuditEventOutput {
@@ -1840,13 +1692,6 @@ impl From<AuditEvent> for AuditEventOutput {
             reason: value.reason,
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-struct PurgePreviewOutput {
-    confirmation_id: String,
-    transfer_group_id: Option<String>,
-    entry_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

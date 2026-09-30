@@ -438,3 +438,30 @@ fn symlink_dir(original: &std::path::Path, link: &std::path::Path) -> bool {
         Err(error) => panic!("failed to create directory symlink: {error}"),
     }
 }
+
+#[test]
+fn opening_existing_media_never_creates_missing_directories() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("missing").join("media");
+    assert!(LocalMediaStore::open_existing(&root).is_err());
+    assert!(!directory.path().join("missing").exists());
+}
+
+#[test]
+fn opening_existing_media_preserves_contents_and_permissions() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("media");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("sentinel"), b"unchanged").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let before = fs::metadata(&root).unwrap().permissions();
+    let store = LocalMediaStore::open_existing(&root).unwrap();
+    assert_eq!(store.max_bytes(), DEFAULT_MAX_MEDIA_BYTES);
+    assert_eq!(fs::read(root.join("sentinel")).unwrap(), b"unchanged");
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    assert_eq!(fs::metadata(&root).unwrap().permissions(), before);
+}

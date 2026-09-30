@@ -8,9 +8,13 @@ use serde_json::Value;
 
 use crate::{ApiError, RavenApiState};
 
-const MAX_KEY_BYTES: usize = 96;
 const MAX_BODY_BYTES: usize = 16 * 1024;
-const PREFIXES: [&str; 4] = ["planner.", "workspace.", "ledger.", "health."];
+const KEYS: [&str; 4] = [
+    "planner.v1",
+    "workspace.views.v1",
+    "ledger.views.v1",
+    "health.views.v1",
+];
 const ROUTE_PREFIX: &str = "/api/v1/preferences/";
 
 pub fn router() -> Router<RavenApiState> {
@@ -67,32 +71,10 @@ pub(crate) async fn invalid_route() -> ApiError {
 
 fn validate_key(uri: &axum::http::Uri, key: &str) -> Result<(), ApiError> {
     let raw = uri.path().strip_prefix(ROUTE_PREFIX);
-    if raw != Some(key) || key.is_empty() || key.len() > MAX_KEY_BYTES {
+    if raw != Some(key) || !KEYS.contains(&key) {
         return Err(ApiError::validation(Some("key")));
     }
-    let Some(suffix) = PREFIXES.iter().find_map(|prefix| key.strip_prefix(prefix)) else {
-        return Err(ApiError::validation(Some("key")));
-    };
-    if suffix.split('.').all(valid_segment) {
-        Ok(())
-    } else {
-        Err(ApiError::validation(Some("key")))
-    }
-}
-
-fn valid_segment(segment: &str) -> bool {
-    !segment.is_empty()
-        && segment.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-        })
-        && segment
-            .as_bytes()
-            .first()
-            .is_some_and(u8::is_ascii_alphanumeric)
-        && segment
-            .as_bytes()
-            .last()
-            .is_some_and(u8::is_ascii_alphanumeric)
+    Ok(())
 }
 
 fn json_rejection(rejection: JsonRejection) -> ApiError {

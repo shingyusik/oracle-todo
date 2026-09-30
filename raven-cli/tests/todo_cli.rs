@@ -211,7 +211,7 @@ fn area_create_and_pending_show_current_cli_behavior() {
 }
 
 #[test]
-fn today_materializes_active_routines() {
+fn today_reads_explicitly_materialized_routines() {
     let home = TestHome::new();
 
     raven()
@@ -243,6 +243,17 @@ fn today_materializes_active_routines() {
         .clone();
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(routine["future_occurrences"], 2);
+
+    raven()
+        .args([
+            "--home",
+            home.path().to_str().unwrap(),
+            "todo",
+            "routine",
+            "materialize",
+        ])
+        .assert()
+        .success();
 
     raven()
         .args(["--home", home.path().to_str().unwrap(), "todo", "today"])
@@ -286,8 +297,6 @@ fn routine_propose_preserves_task_template_fields() {
             "daily",
             "--project-id",
             project_id,
-            "--description",
-            "500ml를 마신다",
             "--note",
             "찬물 제외",
             "--priority",
@@ -305,7 +314,7 @@ fn routine_propose_preserves_task_template_fields() {
     let routine: serde_json::Value = serde_json::from_slice(&output).unwrap();
 
     assert_eq!(routine["project_id"], project_id);
-    assert_eq!(routine["description"], "500ml를 마신다");
+    assert!(routine["description"].is_null());
     assert_eq!(routine["note"], "찬물 제외");
     assert_eq!(routine["priority"], 2);
     assert_eq!(routine["tags"], serde_json::json!(["health", "daily"]));
@@ -350,7 +359,7 @@ fn event_propose_prints_external_commitment_metadata() {
             "event",
             "propose",
             "병원 예약",
-            "2026-06-01 15:00",
+            "2026-06-01T15:00:00Z",
             "--with",
             "서울대병원",
             "--location",
@@ -370,7 +379,7 @@ fn event_propose_prints_external_commitment_metadata() {
             "event",
             "propose",
             "컨설팅",
-            "2026-06-02 10:00",
+            "2026-06-02T10:00:00Z",
             "--commitment-type",
             "consultation",
         ])
@@ -501,11 +510,8 @@ fn lifecycle_commands_emit_json_status_changes() {
         .success()
         .stdout(contains("\"status\":\"completed\""));
 
-    for (title, command, status) in [
-        ("보관할 일", "archive", "archived"),
-        ("버릴 일", "drop", "dropped"),
-        ("취소할 일", "cancel", "cancelled"),
-    ] {
+    {
+        let (title, command, status) = ("보관할 일", "archive", "archived");
         let output = raven()
             .args([
                 "--home",
@@ -543,9 +549,11 @@ fn lifecycle_commands_emit_json_status_changes() {
             "--home",
             home.path().to_str().unwrap(),
             "todo",
-            "task",
+            "routine",
             "propose",
             "일시정지할 일",
+            "--recurrence-rule",
+            "daily",
             "--actor",
             "user",
         ])
@@ -819,78 +827,6 @@ fn goal_propose_prints_active_json() {
 }
 
 #[test]
-fn agenda_date_range_period_emit_json() {
-    let home = TestHome::new();
-
-    raven()
-        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
-        .assert()
-        .success();
-
-    // agenda <date> emits a JSON array (not a Markdown table) — D-01.
-    let agenda = raven()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "todo",
-            "agenda",
-            "2026-06-26",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let agenda: serde_json::Value = serde_json::from_slice(&agenda).unwrap();
-    assert!(agenda.is_array(), "agenda stdout must be a JSON array");
-
-    // date-range <from> <to> emits a JSON array.
-    let range = raven()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "todo",
-            "date-range",
-            "2026-06-01",
-            "2026-06-30",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let range: serde_json::Value = serde_json::from_slice(&range).unwrap();
-    assert!(range.is_array(), "date-range stdout must be a JSON array");
-
-    // period --horizon --period emits a PeriodView JSON object with period_key + roots.
-    let period = raven()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "todo",
-            "period",
-            "--horizon",
-            "month",
-            "--period",
-            "2026-06-01",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let period: serde_json::Value = serde_json::from_slice(&period).unwrap();
-    assert!(
-        period["period_key"].is_string(),
-        "period stdout must carry period_key"
-    );
-    assert!(
-        period["roots"].is_array(),
-        "period stdout must carry a roots array"
-    );
-}
-
-#[test]
 fn update_parent_id_links_task_to_goal() {
     let home = TestHome::new();
 
@@ -957,33 +893,6 @@ fn update_parent_id_links_task_to_goal() {
     let linked: serde_json::Value = serde_json::from_slice(&linked).unwrap();
     assert_eq!(linked["parent_id"], goal_id);
     assert_eq!(linked["scheduled"], "2026-06-29");
-}
-
-#[test]
-fn period_bad_horizon_exits_two() {
-    let home = TestHome::new();
-
-    raven()
-        .args(["--home", home.path().to_str().unwrap(), "todo", "init"])
-        .assert()
-        .success();
-
-    // Present-but-invalid horizon => TodoError::Validation => exit code 2.
-    // This is the CLI half of the SC3 rejection-parity pair (API half: HTTP 400).
-    raven()
-        .args([
-            "--home",
-            home.path().to_str().unwrap(),
-            "todo",
-            "period",
-            "--horizon",
-            "bogus",
-            "--period",
-            "2026-06-01",
-        ])
-        .assert()
-        .failure()
-        .code(2);
 }
 
 #[test]

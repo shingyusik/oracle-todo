@@ -2,14 +2,13 @@ use axum::body::Bytes;
 use axum::extract::rejection::{BytesRejection, JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use health_engine::application::commands::{
     CreateDietEntry, CreateHealthEvent, DailyMetricArchive, DailyMetricInput, DietMediaUpdate,
     MediaUpload, UpdateDietEntry, UpdateHealthEvent,
 };
 use health_engine::application::ports::{EventQuery, Page};
-use health_engine::application::queries::HealthQuery;
 use health_engine::application::reports::HealthReportRange;
 use health_engine::application::service::HealthService;
 use health_engine::application::table::{
@@ -30,7 +29,7 @@ use serde_json::{Value, json};
 use time::{Date, OffsetDateTime};
 
 use crate::dto::health::{
-    CreateDietBody, DailyMetricsBody, EventBody, PurgeBody, UpdateDietBody, UpdateEventBody,
+    CreateDietBody, DailyMetricsBody, EventBody, UpdateDietBody, UpdateEventBody,
 };
 use crate::{ApiError, RavenApiState};
 
@@ -45,18 +44,16 @@ pub fn router() -> Router<RavenApiState> {
         .route("/diet/:id", get(get_diet).patch(update_diet))
         .route("/diet/:id/archive", post(archive_diet))
         .route("/diet/:id/restore", post(restore_diet))
-        .route("/diet/:id/purge", delete(purge_diet))
+        .route("/diet/:id/image", get(diet_image_read))
         .route("/events", get(list_events).post(create_event))
         .route("/events/:id", get(get_event).patch(update_event))
         .route("/events/:id/archive", post(archive_event))
         .route("/events/:id/restore", post(restore_event))
-        .route("/events/:id/purge", delete(purge_event))
         .route("/metrics/daily", post(upsert_daily_metrics))
         .route("/table/query", post(query_table))
         .route("/table/lookups", get(table_lookups))
         .route("/reports", get(reports))
-        .route("/timeline", get(timeline))
-        .route("/trends", get(trends))
+        .route("/records", get(records))
         .route("/audit/:record_type/:record_id", get(audit))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_JSON_BYTES));
     json.merge(
@@ -94,27 +91,6 @@ struct EventListQuery {
     metric_key: Option<String>,
     #[serde(default)]
     daily_only: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TimelineQuery {
-    #[serde(default)]
-    offset: u32,
-    #[serde(default = "default_limit")]
-    limit: u16,
-    from: Option<String>,
-    to: Option<String>,
-    category: Option<HealthCategory>,
-    #[serde(default)]
-    include_archived: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TrendsQuery {
-    #[serde(default = "default_trend_days")]
-    days: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -595,7 +571,7 @@ async fn create_diet(
             note: body.note,
             tags: body.tags,
             media: None,
-            actor: body.actor,
+            actor: "raven-api".to_string(),
         })
     })
     .await?;
@@ -633,7 +609,7 @@ async fn create_event(
             occurred_at,
             details,
             note: body.note,
-            actor: body.actor,
+            actor: "raven-api".to_string(),
         })
     })
     .await?;
@@ -661,8 +637,8 @@ async fn update_event(
                 details,
                 note: body.note.optional(),
                 expected_updated_at,
-                actor: body.actor,
-                reason: body.reason,
+                actor: "raven-api".to_string(),
+                reason: None,
             },
         )
     })
@@ -711,8 +687,8 @@ async fn upsert_daily_metrics(
             Ok(DailyMetricInput {
                 occurred_at: parse_time(&metric.occurred_at, "occurred_at")?,
                 details: metric.details.into_domain()?,
-                note: metric.note,
-                actor: metric.actor,
+                note: None,
+                actor: "raven-api".to_string(),
                 expected_updated_at: parse_optional_time(
                     metric.expected_updated_at.as_deref(),
                     "expected_updated_at",
@@ -740,74 +716,66 @@ async fn upsert_daily_metrics(
     Ok(Json(json!({"items": items})))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransitionBody {
+    expected_updated_at: String,
+}
+
 macro_rules! transition {
     ($name:ident, $method:ident) => {
         async fn $name(
             State(state): State<RavenApiState>,
             Path(id): Path<String>,
+            body: Result<Json<TransitionBody>, JsonRejection>,
         ) -> Result<Json<Value>, ApiError> {
-            let item = health(&state, true, move |service| service.$method(&id)).await?;
+            let body = json_value(body)?;
+            let expected = parse_time(&body.expected_updated_at, "expected_updated_at")?;
+            let item = health(&state, true, move |service| {
+                service.$method(&id, Some(expected))
+            })
+            .await?;
             Ok(Json(json!(item)))
         }
     };
 }
 
-transition!(archive_diet, archive_diet);
-transition!(restore_diet, restore_diet);
-transition!(archive_event, archive_event);
-transition!(restore_event, restore_event);
+transition!(archive_diet, archive_diet_if_current);
+transition!(restore_diet, restore_diet_if_current);
+transition!(archive_event, archive_event_if_current);
+transition!(restore_event, restore_event_if_current);
 
-async fn purge_diet(
+async fn records(
     State(state): State<RavenApiState>,
-    Path(id): Path<String>,
-    body: Result<Json<PurgeBody>, JsonRejection>,
-) -> Result<StatusCode, ApiError> {
-    let body = json_value(body)?;
-    health(&state, true, move |service| {
-        service.purge_diet(&id, &body.confirmation)
-    })
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn purge_event(
-    State(state): State<RavenApiState>,
-    Path(id): Path<String>,
-    body: Result<Json<PurgeBody>, JsonRejection>,
-) -> Result<StatusCode, ApiError> {
-    let body = json_value(body)?;
-    health(&state, true, move |service| {
-        service.purge_event(&id, &body.confirmation)
-    })
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn timeline(
-    State(state): State<RavenApiState>,
-    query: Result<Query<TimelineQuery>, QueryRejection>,
+    query: Result<Query<PageQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
-    let mut health_query = HealthQuery::new(page(query.offset, query.limit)?)
-        .with_range(
-            parse_optional_time(query.from.as_deref(), "from")?,
-            parse_optional_time(query.to.as_deref(), "to")?,
-        )?
-        .include_archived(query.include_archived);
-    if let Some(category) = query.category {
-        health_query = health_query.with_category(category);
-    }
-    let items = health(&state, false, move |service| service.timeline(health_query)).await?;
+    let page = page(query.offset, query.limit)?;
+    let items = health(&state, false, move |service| service.inspect_records(page)).await?;
     Ok(Json(json!({"items": items})))
 }
 
-async fn trends(
+async fn diet_image_read(
     State(state): State<RavenApiState>,
-    query: Result<Query<TrendsQuery>, QueryRejection>,
-) -> Result<Json<Value>, ApiError> {
-    let query = query_value(query)?;
-    let value = health(&state, false, move |service| service.trends(query.days)).await?;
-    Ok(Json(json!(value)))
+    Path(id): Path<String>,
+) -> Result<(HeaderMap, Bytes), ApiError> {
+    let (mime_type, bytes) = health(&state, false, move |service| service.diet_photo(&id)).await?;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        mime_type
+            .parse()
+            .map_err(|_| ApiError::internal(anyhow::anyhow!("invalid stored photo type")))?,
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        "private, no-store".parse().expect("constant header"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        "nosniff".parse().expect("constant header"),
+    );
+    Ok((headers, Bytes::from(bytes)))
 }
 
 async fn reports(
@@ -870,7 +838,7 @@ async fn create_diet_with_image(
             note: metadata.note,
             tags: metadata.tags,
             media: Some(MediaUpload::new(content_type, body.to_vec())),
-            actor: metadata.actor,
+            actor: "raven-api".to_string(),
         })
     })
     .await?;
@@ -911,8 +879,8 @@ fn diet_update(body: UpdateDietBody, media: DietMediaUpdate) -> Result<UpdateDie
             body.expected_updated_at.as_deref(),
             "expected_updated_at",
         )?,
-        actor: body.actor,
-        reason: body.reason,
+        actor: "raven-api".to_string(),
+        reason: None,
     })
 }
 
@@ -969,16 +937,22 @@ where
 {
     let db = state.health_db().to_path_buf();
     let media = state.health_media_dir().to_path_buf();
-    let local_offset = state.local_offset();
     tokio::task::spawn_blocking(move || {
-        let repository = SqliteHealthRepository::open(db)?;
-        let store = LocalMediaStore::new(media)?;
-        let mut service = (if mutation {
+        let repository = if mutation {
+            SqliteHealthRepository::open(db)?
+        } else {
+            SqliteHealthRepository::open_read_only(db)?
+        };
+        let store = if mutation {
+            LocalMediaStore::new(media)?
+        } else {
+            LocalMediaStore::open_existing(media)?
+        };
+        let mut service = if mutation {
             HealthService::start(repository, store)?
         } else {
             HealthService::new(repository, store)
-        })
-        .with_local_offset(local_offset);
+        };
         action(&mut service)
     })
     .await
@@ -1037,8 +1011,4 @@ const fn default_table_limit() -> u16 {
 
 const fn default_filter_mode() -> FilterMode {
     FilterMode::And
-}
-
-const fn default_trend_days() -> u16 {
-    30
 }

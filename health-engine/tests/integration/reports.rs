@@ -81,26 +81,28 @@ fn reports_compare_equal_periods_and_use_preceding_daily_reading() {
     medication(&mut service, datetime!(2026-07-02 11:00 UTC), "A");
     medication(&mut service, datetime!(2026-07-03 11:00 UTC), "B");
     daily_weight(&mut service, datetime!(2026-06-30 09:00 UTC), 70.0);
-    event(
-        &mut service,
+    super::legacy_support::seed(
+        &fixture.database,
         datetime!(2026-07-01 09:00 UTC),
         HealthEventDetails::Weight(WeightAttributes::body_weight("ordinary", 69.5, "kg").unwrap()),
+        false,
     );
     let archived_daily = service
         .upsert_daily_metrics(vec![daily(
             datetime!(2026-07-02 09:00 UTC),
             HealthEventDetails::Weight(
-                WeightAttributes::body_weight("archived", 69.0, "kg").unwrap(),
+                WeightAttributes::body_weight("Body weight", 69.0, "kg").unwrap(),
             ),
         )])
         .unwrap()
         .remove(0);
     service.archive_event(archived_daily.id().as_str()).unwrap();
     daily_weight(&mut service, datetime!(2026-07-03 09:00 UTC), 68.0);
-    event(
-        &mut service,
+    super::legacy_support::seed(
+        &fixture.database,
         datetime!(2026-07-04 09:00 UTC),
         HealthEventDetails::Weight(WeightAttributes::body_weight("ordinary", 1.0, "kg").unwrap()),
+        false,
     );
 
     let report = service
@@ -390,7 +392,7 @@ fn report_points_break_equal_instant_ties_by_id() {
         ("00000000-0000-4000-8000-000000000001", 67.0),
     ] {
         let attributes = serde_json::json!({
-            "metric_key": "body_weight", "name": "Weight", "value": value, "unit": "kg"
+            "metric_key": "body_weight", "name": "Body weight", "value": value, "unit": "kg"
         })
         .to_string();
         connection
@@ -400,7 +402,7 @@ fn report_points_break_equal_instant_ties_by_id() {
                 unit, attributes_json, daily_upsert, created_at, updated_at
              ) VALUES (
                 ?1, '2026-07-03T09:00:00.000000000Z', '2026-07-03',
-                'weight', 'body_weight', 'Weight', ?2, 'kg', ?3, 1,
+                'weight', 'body_weight', 'Body weight', ?2, 'kg', ?3, 1,
                 '2026-07-03T09:00:00.000000000Z', '2026-07-03T09:00:00.000000000Z'
              )",
                 rusqlite::params![id, value, attributes],
@@ -455,7 +457,7 @@ fn reports_publish_all_five_fixed_daily_metrics() {
             daily(
                 occurred_at,
                 HealthEventDetails::Weight(
-                    WeightAttributes::body_weight("Weight", 68.0, "kg").unwrap(),
+                    WeightAttributes::body_weight("Body weight", 68.0, "kg").unwrap(),
                 ),
             ),
             daily(
@@ -613,7 +615,7 @@ fn daily_weight(service: &mut Service, occurred_at: time::OffsetDateTime, value:
         .upsert_daily_metrics(vec![DailyMetricInput {
             occurred_at,
             details: HealthEventDetails::Weight(
-                WeightAttributes::body_weight("Weight", value, "kg").unwrap(),
+                WeightAttributes::body_weight("Body weight", value, "kg").unwrap(),
             ),
             note: None,
             actor: "test".into(),
@@ -636,16 +638,14 @@ struct Fixture {
     _directory: tempfile::TempDir,
     database: std::path::PathBuf,
     media: std::path::PathBuf,
-    offset: UtcOffset,
 }
 impl Fixture {
-    fn new(offset: UtcOffset) -> Self {
+    fn new(_offset: UtcOffset) -> Self {
         let directory = tempfile::tempdir().unwrap();
         Self {
             database: directory.path().join("health.sqlite"),
             media: directory.path().join("media"),
             _directory: directory,
-            offset,
         }
     }
     fn service(&self) -> Service {
@@ -653,6 +653,5 @@ impl Fixture {
             SqliteHealthRepository::open(&self.database).unwrap(),
             LocalMediaStore::new(&self.media).unwrap(),
         )
-        .with_local_offset(self.offset)
     }
 }

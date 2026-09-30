@@ -8,4 +8,4 @@ pub use model::{
     Actor, DEFAULT_FUTURE_OCCURRENCES, ItemType, MAX_FUTURE_OCCURRENCES, TodoEvent, TodoItem,
 };
 pub use recurrence::{RecurrenceError, future_occurrences, occurrences};
-pub use status::{ItemStatus, OPEN_STATUSES, hidden_by_default_status, terminal_status};
+pub use status::{ItemStatus, hidden_by_default_status, terminal_status};

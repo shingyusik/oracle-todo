@@ -624,16 +624,7 @@ fn bowel_medication_and_metrics_rows_are_categorized() {
             },
         ])
         .unwrap();
-    service
-        .create_event(CreateHealthEvent {
-            occurred_at: datetime!(2025-01-01 17:00 UTC),
-            details: HealthEventDetails::Weight(
-                WeightAttributes::body_weight("Body weight", 99.0, "kg").unwrap(),
-            ),
-            note: None,
-            actor: "test".into(),
-        })
-        .unwrap();
+
     let make = |scope, sort, group| {
         HealthTableQuery::new(
             scope,
