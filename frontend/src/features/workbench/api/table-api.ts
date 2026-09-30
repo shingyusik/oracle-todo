@@ -86,7 +86,7 @@ function mapLookup(value: unknown): TodoTableLookup {
   return { id: nonEmptyString(wire.id, "todo table lookup.id"), type: itemType(wire.type), title: nonEmptyString(wire.title, "todo table lookup.title"), tags: strings(wire.tags, "todo table lookup.tags") };
 }
 
-function mapWorkspaceItem(value: unknown): WorkspaceItemModel {
+export function mapWorkspaceItem(value: unknown): WorkspaceItemModel {
   const wire = record(value, "todo table record");
   const metadata = record(wire.metadata_, "todo table record.metadata_");
   return {
@@ -103,16 +103,16 @@ function mapWorkspaceItem(value: unknown): WorkspaceItemModel {
     completed_at: nullableTimestamp(wire.completed_at, "todo table record.completed_at"), last_materialized_at: nullableTimestamp(wire.last_materialized_at, "todo table record.last_materialized_at"),
     created_at: timestamp(wire.created_at, "todo table record.created_at"), updated_at: timestamp(wire.updated_at, "todo table record.updated_at"),
     metadata_: {
-      ...(nullableString(metadata.location, "todo table record.metadata_.location") === null ? {} : { location: string(metadata.location, "todo table record.metadata_.location") }),
-      participants: strings(metadata.participants, "todo table record.metadata_.participants"),
-      ...(nullableString(metadata.commitment_type, "todo table record.metadata_.commitment_type") === null ? {} : { commitment_type: string(metadata.commitment_type, "todo table record.metadata_.commitment_type") }),
+      ...(nullableString(metadata.location ?? null, "todo table record.metadata_.location") === null ? {} : { location: string(metadata.location, "todo table record.metadata_.location") }),
+      participants: strings(metadata.participants ?? [], "todo table record.metadata_.participants"),
+      ...(nullableString(metadata.commitment_type ?? null, "todo table record.metadata_.commitment_type") === null ? {} : { commitment_type: string(metadata.commitment_type, "todo table record.metadata_.commitment_type") }),
     },
   };
 }
 
 function itemType(value: unknown): string {
   const decoded = string(value, "todo item type");
-  if (!["area", "project", "goal", "routine", "task", "event"].includes(decoded)) throw new TypeError("invalid todo item type");
+  if (!["area", "project", "goal", "routine", "task", "event", "review", "archive_item"].includes(decoded)) throw new TypeError("invalid todo item type");
   return decoded;
 }
 function strings(value: unknown, field: string): string[] { return array(value, field).map((item) => string(item, field)); }

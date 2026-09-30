@@ -92,6 +92,7 @@ import {
   workspaceSortFieldsForScope,
 } from "@/features/workbench/model/workspace-table-views";
 import { PlannerTableTabs } from "@/features/workbench/ui/PlannerTableTabs";
+import { TodoItemHistory } from "@/features/workbench/ui/TodoItemHistory";
 import { MarkdownNoteEditor } from "@/features/workbench/ui/MarkdownNoteEditor";
 import {
   type PlannerFilterOptionSet,
@@ -103,6 +104,7 @@ import {
 import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
+import { TodoArchive } from "@/features/workbench/ui/TodoArchive";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import {
   formatTags,
@@ -747,6 +749,7 @@ function DetailView({
               <label className="field-label">
                 Title
                 <input
+                  disabled={isTerminalTodo(item)}
                   value={draft.title}
                   onChange={(event) => setField("title", event.target.value)}
                 />
@@ -756,6 +759,7 @@ function DetailView({
                 value={draft.status}
                 onChange={(value) => setField("status", value)}
               />
+              <fieldset disabled={isTerminalTodo(item)} style={{ border: 0, padding: 0, margin: 0 }}>
               <DetailTagsField
                 value={draft.tags}
                 tagOptions={detailWorkspaceItems.tagOptions}
@@ -769,6 +773,7 @@ function DetailView({
                 workspaceItems={detailWorkspaceItems}
                 controller={controller}
               />
+              </fieldset>
             </div>
           </div>
         </section>
@@ -788,11 +793,12 @@ function DetailView({
             ))}
           </section>
         ) : null}
+        <TodoItemHistory itemId={item.id} version={item.updated_at} />
         <section className="detail-note" aria-label="Markdown note editor">
-          <MarkdownNoteEditor
+          {isTerminalTodo(item) ? <p style={{ whiteSpace: "pre-wrap" }}>{draft.note || "No note"}</p> : <MarkdownNoteEditor
             value={draft.note}
             onChange={(value) => setField("note", value)}
-          />
+          />}
         </section>
       </div>
       {pendingNavigation ? (
@@ -3012,14 +3018,14 @@ function detailDraftForItem(item: WorkspaceItemModel | null): DetailDraft {
     project_id: item?.project_id ?? "",
     routine_id: item?.routine_id ?? "",
     parent_id: item?.parent_id ?? "",
-    note: item?.note ?? "",
+    note: item?.note ?? item?.description ?? "",
     outcome: item?.outcome ?? "",
     horizon: item?.horizon ?? "month",
     definition_of_done: item?.definition_of_done ?? "",
     review_cycle: item?.review_cycle ?? "",
     standard: item?.standard ?? "",
     recurrence_rule:
-      item?.type === "routine" ? item.recurrence_rule ?? "RRULE:FREQ=DAILY" : "",
+      item?.type === "routine" ? item.recurrence_rule ?? "" : "",
     materialization_policy: item?.materialization_policy ?? "single_open",
     location: item?.metadata_?.location ?? "",
     participants: item?.metadata_?.participants?.join(", ") ?? "",
@@ -3040,7 +3046,7 @@ function detailPatchForItem(
   const patch: WorkspaceItemPatch = {};
 
   addStringPatch(patch, "title", draft.title, item.title);
-  addStringPatch(patch, "note", draft.note, item.note);
+  addStringPatch(patch, "note", draft.note, item.note ?? item.description);
   const draftTags = parseTagInput(draft.tags);
   if (!sameTags(draftTags, item.tags)) {
     patch.tags = draftTags;
@@ -3050,9 +3056,6 @@ function detailPatchForItem(
   }
   if (draft.project_id !== (item.project_id ?? "")) {
     patch.project_id = draft.project_id;
-  }
-  if (draft.routine_id !== (item.routine_id ?? "")) {
-    patch.routine_id = draft.routine_id;
   }
   if (draft.parent_id !== (item.parent_id ?? "")) {
     patch.parent_id = draft.parent_id;
@@ -3085,7 +3088,7 @@ function detailPatchForItem(
   }
   if (item.type === "task") {
     addStringPatch(patch, "due", draft.due, item.due);
-    addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
+    addStringPatch(patch, "scheduled", draft.scheduled, formatDateValue(item.scheduled));
     addPriorityPatch(patch, draft.priority, item.priority);
   }
   if (item.type === "event") {
@@ -3095,12 +3098,9 @@ function detailPatchForItem(
       .filter(Boolean);
     const currentParticipants = item.metadata_?.participants?.join(", ") ?? "";
 
-    addStringPatch(
-      patch,
-      "scheduled",
-      formatDateTimeCommitValue(draft.scheduled),
-      item.scheduled,
-    );
+    if (draft.scheduled !== formatDateTimeLocalValue(item.scheduled)) {
+      patch.scheduled = formatDateTimeCommitValue(draft.scheduled);
+    }
     addStringPatch(patch, "due", draft.due, item.due);
     addPriorityPatch(patch, draft.priority, item.priority);
     addStringPatch(patch, "location", draft.location, item.metadata_?.location);
@@ -3120,7 +3120,7 @@ function detailPatchForItem(
   }
   if (item.type === "goal") {
     addStringPatch(patch, "horizon", draft.horizon, item.horizon);
-    addStringPatch(patch, "scheduled", draft.scheduled, item.scheduled);
+    addStringPatch(patch, "scheduled", draft.scheduled, formatDateValue(item.scheduled));
   }
 
   return patch;
@@ -3207,9 +3207,8 @@ function blockNonDigitPaste(event: React.ClipboardEvent<HTMLInputElement>) {
   }
 }
 
-function itemDescription(item: WorkspaceItemModel | null | undefined): string | null | undefined {
-  return (item as WorkspaceItemModel & { description?: string | null } | null | undefined)
-    ?.description;
+function itemNote(item: WorkspaceItemModel | null | undefined): string | null | undefined {
+  return item?.note ?? item?.description;
 }
 
 function relatedItemsForDetail(
@@ -3344,6 +3343,14 @@ function DetailTypeFields({
           options={detailRelatedItems.projects}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
+        />
+        <DetailRelationField
+          label="Goal parent"
+          controlLabel={`Goal parent for ${item.title}`}
+          value={draft.parent_id}
+          options={detailRelatedItems.goals}
+          allowNone
+          onChange={(parent_id) => setField("parent_id", parent_id)}
         />
         <div className="property-row">
           <span>Routine</span>
@@ -4218,14 +4225,51 @@ const recurrenceFrequencyOptions: [RecurrenceFrequency, string][] = [
   ["yearly", "Yearly"],
 ];
 
-function RecurrenceRuleField({
+function RecurrenceRuleField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  if (value.trim() && !editableRecurrenceRule(value)) {
+    return <div className="property-row"><span>Legacy recurrence rule (read only)</span><code>{value || "No recurrence rule"}</code></div>;
+  }
+  return <EditableRecurrenceRuleField value={value} onChange={onChange} />;
+}
+
+function editableRecurrenceRule(value: string): boolean {
+  const normalized = value.trim().toUpperCase();
+  if (!normalized.startsWith("RRULE:")) {
+    const legacy = value.trim().toLowerCase();
+    if (legacyWeekdays(legacy)) return true;
+    if (["daily", "weekly", "monthly", "yearly", "매일", "매주", "매월", "매년"].includes(legacy)) return true;
+    const every = legacy.match(/^every (?:(\d+) )?(days?|weeks?|months?|years?)(?: on (.+))?$/);
+    if (!every || Number(every[1] ?? 1) < 1 || Number(every[1] ?? 1) > 365) return false;
+    const anchor = every[3];
+    return !anchor || every[2].startsWith("week") && legacyWeekdays(anchor) !== null || every[2].startsWith("month") && legacyMonthDay(anchor) !== null && (legacyMonthDay(anchor)?.lastDayOfMonth === true || Number(anchor.match(/\d+/)?.[0] ?? 0) >= 1 && Number(anchor.match(/\d+/)?.[0] ?? 0) <= 31);
+  }
+  const fields = new Map<string, string>();
+  for (const part of normalized.slice(6).split(";")) {
+    const pieces = part.split("=");
+    if (pieces.length !== 2 || fields.has(pieces[0]) || !["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "BYMONTH"].includes(pieces[0])) return false;
+    fields.set(pieces[0], pieces[1]);
+  }
+  const frequency = fields.get("FREQ");
+  if (!frequency || !["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(frequency)) return false;
+  const integer = (key: string, min: number, max: number) => !fields.has(key) || /^\d+$/.test(fields.get(key)!) && Number(fields.get(key)) >= min && Number(fields.get(key)) <= max;
+  if (!integer("INTERVAL", 1, 365) || !integer("BYMONTH", 1, 12)) return false;
+  if (fields.has("BYMONTHDAY") && fields.get("BYMONTHDAY") !== "-1" && !integer("BYMONTHDAY", 1, 31)) return false;
+  if (fields.has("BYDAY") && !fields.get("BYDAY")!.split(",").every((day) => weekdayOptions.some(([key]) => key === day))) return false;
+  if (fields.has("BYDAY") && frequency !== "WEEKLY") return false;
+  if (fields.has("BYMONTHDAY") && !["MONTHLY", "YEARLY"].includes(frequency)) return false;
+  return !fields.has("BYMONTH") || frequency === "YEARLY";
+}
+
+function EditableRecurrenceRuleField({
   value,
   onChange,
 }: {
   value: string;
   onChange: (value: string) => void;
 }) {
-  const parsed = parseRecurrenceRule(value);
+  const lastRule = React.useRef(value);
+  if (value.trim()) lastRule.current = value;
+  const parsed = parseRecurrenceRule(value.trim() ? value : lastRule.current);
   const [intervalDraft, setIntervalDraft] = React.useState(parsed.interval);
 
   React.useEffect(() => {
@@ -4799,6 +4843,7 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
   return (
     <section className="items-section">
       <header className="workspace-table-header">
+        <TodoArchive onOpen={controller.openDetailView} />
         <div className="workspace-table-header-row">
           <TableViewControls adapter={controlsAdapter} />
           <button
@@ -5155,12 +5200,12 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
         itemType,
         scheduled,
         horizon,
+        tags: tags.length > 0 ? tags : undefined,
         ...(creationContext
           ? {
               area_id: areaId || undefined,
               project_id: projectId || undefined,
               priority: priority ? Number(priority) : undefined,
-              tags: tags.length > 0 ? tags : undefined,
             }
           : {}),
         definition_of_done: isProject ? trimmedDefinitionOfDone : undefined,
@@ -5262,6 +5307,9 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
                 </label>
               </>
             ) : null}
+
+          </>
+        ) : null}
             <label className="field-label">
               Tags
               <TagsInput
@@ -5273,8 +5321,6 @@ function CreationDialog({ controller }: { controller: WorkbenchController }) {
                 portalDropdown
               />
             </label>
-          </>
-        ) : null}
         {isProject ? (
           <label className="field-label">
             Definition of Done
@@ -5688,7 +5734,15 @@ function DetailStatusField({
   );
 }
 
+function isTerminalTodo(item: WorkspaceItemModel): boolean {
+  return ["completed", "archived", "dropped", "cancelled", "missed", "rejected"].includes(item.status);
+}
+
 function statusOptionsForItem(item: WorkspaceItemModel): string[] {
+  if (["completed", "archived", "dropped", "cancelled", "missed", "rejected"].includes(item.status)) {
+    return item.status === "completed" && ["task", "event"].includes(item.type)
+      ? ["completed", "active"] : [item.status];
+  }
   const options = item.type === "area"
     ? areaStatusOptions
     : item.type === "task"
@@ -5719,7 +5773,7 @@ function transitionActionForStatus(
     return currentStatus === "paused" ? "resume" : null;
   }
   if (nextStatus === "paused") {
-    return "pause";
+    return currentStatus === "active" && itemType !== "task" ? "pause" : null;
   }
   if (nextStatus === "completed") {
     return "complete";
@@ -5944,7 +5998,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       ),
     },
     { label: "Standard", value: (item) => displayValue(item.standard) },
-    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Note", value: (item) => displayValue(itemNote(item)) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
@@ -5955,7 +6009,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     dueColumn(),
     { label: "Outcome", value: (item) => displayValue(item.outcome) },
     { label: "Definition of Done", value: (item) => displayValue(item.definition_of_done) },
-    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Note", value: (item) => displayValue(itemNote(item)) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
@@ -5968,8 +6022,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     scheduledDateColumn(),
     dueColumn(),
     priorityColumn(),
-    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
-    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Note", value: (item) => displayValue(itemNote(item)) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
@@ -5994,8 +6047,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       ),
     },
     priorityColumn(),
-    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
-    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Note", value: (item) => displayValue(itemNote(item)) },
     {
       label: "Last Materialized",
       value: (item) => formatDate(item.last_materialized_at),
@@ -6017,8 +6069,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
       value: (item) => displayValue(item.metadata_?.participants?.join(", ")),
     },
     commitmentTypeColumn(),
-    { label: "Description", value: (item) => displayValue(itemDescription(item)) },
-    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Note", value: (item) => displayValue(itemNote(item)) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
@@ -6027,7 +6078,7 @@ const itemColumns: Partial<Record<LeafTabId, ItemColumn[]>> = {
     tagsColumn(),
     goalPeriodColumn(),
     parentGoalColumn(),
-    { label: "Note", value: (item) => displayValue(item.note) },
+    { label: "Note", value: (item) => displayValue(itemNote(item)) },
     { label: "Created", value: (item) => formatDate(item.created_at) },
     { label: "Updated", value: (item) => formatDate(item.updated_at) },
   ],
@@ -6301,15 +6352,18 @@ function formatDateValue(value: string | null | undefined): string {
 }
 
 function formatDateTimeLocalValue(value: string | null | undefined): string {
-  const match = value?.trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
-
-  return match ? `${match[1]}T${match[2]}` : "";
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T00:00`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function formatDateTimeCommitValue(value: string): string {
-  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?/);
-
-  return match ? `${match[1]}T${match[2]}:${match[3] ?? "00"}Z` : value;
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 function formatDate(value: string | null | undefined): string {

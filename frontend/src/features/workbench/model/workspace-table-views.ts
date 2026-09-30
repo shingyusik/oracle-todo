@@ -92,7 +92,6 @@ const workspaceFilterFields: Record<
     "recurrence_rule",
     "materialization_policy",
     "priority",
-    "description",
     "note",
   ],
   task: [
@@ -105,7 +104,6 @@ const workspaceFilterFields: Record<
     "scheduled",
     "due",
     "priority",
-    "description",
     "note",
   ],
   event: [
@@ -120,7 +118,6 @@ const workspaceFilterFields: Record<
     "location",
     "participants",
     "commitment_type",
-    "description",
     "note",
   ],
 };

@@ -149,7 +149,6 @@ describe("workspace table views", () => {
       "scheduled",
       "due",
       "priority",
-      "description",
       "note",
     ]);
     expect(workspaceFilterFieldsForScope("workspace.task")).toContain(

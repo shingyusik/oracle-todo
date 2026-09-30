@@ -294,8 +294,8 @@ export type PlannerCreationAnalysis = {
 };
 
 export type WorkspaceItemPatch = {
+  expected_updated_at?: string;
   title?: string;
-  description?: string;
   note?: string;
   outcome?: string;
   horizon?: string;
@@ -310,7 +310,6 @@ export type WorkspaceItemPatch = {
   priority?: number;
   area?: string;
   project_id?: string;
-  routine_id?: string;
   location?: string;
   participants?: string[];
   commitment_type?: string;

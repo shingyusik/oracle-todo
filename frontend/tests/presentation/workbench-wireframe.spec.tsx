@@ -124,7 +124,7 @@ async function legacyTodoTableResponse(
       },
     };
   }
-  const body = JSON.parse(String(init?.body)) as {
+  const body = todoMutationBody(init) as {
     scope: string; offset: number; filter_mode: PlannerTableSettings["filterMode"];
     filters: Array<{ field: string; operator: string; value: unknown }>;
     sorts: Array<{ field: string; direction: "asc" | "desc" }>;
@@ -549,20 +549,14 @@ function reportLedgerController() {
     updateTransfer: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
-    previewPurge: vi.fn(),
-    purge: vi.fn(),
     createAccount: vi.fn(),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
     restoreAccount: vi.fn(),
-    previewAccountPurge: vi.fn(),
-    purgeAccount: vi.fn(),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
     restoreCategory: vi.fn(),
-    previewCategoryPurge: vi.fn(),
-    purgeCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -2638,7 +2632,7 @@ describe("WorkbenchPageClient", () => {
           resolveSettings = resolve;
         });
       }
-      writes.push(JSON.parse(String(init.body)).value);
+      writes.push(todoMutationBody(init).value);
       return Promise.resolve({ ok: true, json: async () => null });
     }));
     render(<WorkbenchPageClient />);
@@ -3721,7 +3715,7 @@ describe("WorkbenchPageClient", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({
+            body: todoMutationJson({
               title: "Anchored weekly goal",
               horizon: "week",
               scheduled: weekStart,
@@ -3791,7 +3785,7 @@ describe("WorkbenchPageClient", () => {
       [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/goals/propose") {
-        const body = JSON.parse(String(init?.body)) as {
+        const body = todoMutationBody(init) as {
           title: string;
           horizon: string;
           scheduled: string;
@@ -3875,7 +3869,7 @@ describe("WorkbenchPageClient", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({
+            body: todoMutationJson({
               title: "Weekly task",
               scheduled: weekStart,
               actor: "user",
@@ -3898,7 +3892,7 @@ describe("WorkbenchPageClient", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({
+            body: todoMutationJson({
               title: "Daily event",
               scheduled: today,
               actor: "user",
@@ -3957,7 +3951,7 @@ describe("WorkbenchPageClient", () => {
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
         if (url === "/api/v1/todo/tasks/propose") {
-          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          const body = todoMutationBody(init) as Record<string, unknown>;
           taskBodies.push(body);
           return Promise.resolve({
             ok: true,
@@ -4486,7 +4480,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
       if (url === "/api/v1/todo/events/propose") {
-        const body = JSON.parse(String(init?.body));
+        const body = todoMutationBody(init);
         eventBodies.push(body);
         return Promise.resolve({
           ok: true,
@@ -4584,7 +4578,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
       if (url === "/api/v1/todo/tasks/propose") {
-        const body = JSON.parse(String(init?.body));
+        const body = todoMutationBody(init);
         taskBodies.push(body);
         return Promise.resolve({
           ok: true,
@@ -4683,7 +4677,7 @@ describe("WorkbenchPageClient", () => {
         });
       }
       if (url === "/api/v1/todo/tasks/propose") {
-        const body = JSON.parse(String(init?.body));
+        const body = todoMutationBody(init);
         taskBodies.push(body);
         return Promise.resolve({
           ok: true,
@@ -4941,7 +4935,7 @@ describe("WorkbenchPageClient", () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/todo/items/task-active/miss",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({}) }),
+      expect.objectContaining({ method: "POST", body: todoMutationJson({}) }),
     );
 
     await user.click(screen.getByRole("button", { name: "Filter Today" }));
@@ -5093,7 +5087,7 @@ describe("WorkbenchPageClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/postpone"),
       expect.objectContaining({
-        body: JSON.stringify({
+        body: todoMutationJson({
           today: "2026-07-25",
           scheduled: "2026-07-30",
         }),
@@ -6858,7 +6852,7 @@ describe("WorkbenchPageClient", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "PATCH",
-            body: JSON.stringify({ tags: ["deep-work", "planning"] }),
+            body: todoMutationJson({ tags: ["deep-work", "planning"] }),
           }),
         );
         return Promise.resolve({
@@ -6904,7 +6898,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body)) as { tags: string[] };
+        const body = todoMutationBody(init) as { tags: string[] };
 
         return Promise.resolve({
           ok: true,
@@ -6949,7 +6943,7 @@ describe("WorkbenchPageClient", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/todo/items/task-1",
         expect.objectContaining({
-          body: JSON.stringify({ tags: ["deep-work", "planning"] }),
+          body: todoMutationJson({ tags: ["deep-work", "planning"] }),
           method: "PATCH",
         }),
       ),
@@ -6960,7 +6954,7 @@ describe("WorkbenchPageClient", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/todo/items/task-1",
         expect.objectContaining({
-          body: JSON.stringify({ tags: ["deep-work"] }),
+          body: todoMutationJson({ tags: ["deep-work"] }),
           method: "PATCH",
         }),
       ),
@@ -6971,7 +6965,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body)) as { tags: string[] };
+        const body = todoMutationBody(init) as { tags: string[] };
 
         return Promise.resolve({
           ok: true,
@@ -7028,7 +7022,7 @@ describe("WorkbenchPageClient", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/todo/items/task-1",
         expect.objectContaining({
-          body: JSON.stringify({ tags: ["deep-work", "planning"] }),
+          body: todoMutationJson({ tags: ["deep-work", "planning"] }),
           method: "PATCH",
         }),
       ),
@@ -7038,7 +7032,7 @@ describe("WorkbenchPageClient", () => {
   it("waits for IME composition to finish before committing a tag", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
-        const body = JSON.parse(String(init.body)) as { tags: string[] };
+        const body = todoMutationBody(init) as { tags: string[] };
 
         return Promise.resolve({
           ok: true,
@@ -7089,7 +7083,7 @@ describe("WorkbenchPageClient", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/todo/items/task-1",
         expect.objectContaining({
-          body: JSON.stringify({ tags: ["deep-work", "새 태그"] }),
+          body: todoMutationJson({ tags: ["deep-work", "새 태그"] }),
           method: "PATCH",
         }),
       ),
@@ -7253,9 +7247,7 @@ describe("WorkbenchPageClient", () => {
     );
     expect(screen.getByRole("cell", { name: "Health" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Stretch" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("cell", { name: "Call clinic and confirm insurance" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Call clinic and confirm insurance" })).toBeNull();
     expect(screen.getByRole("cell", { name: "Call before noon" })).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "2026-06-20" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("cell", { name: "2026-06-21" }).length).toBeGreaterThan(0);
@@ -7282,7 +7274,7 @@ describe("WorkbenchPageClient", () => {
       ).toBeInTheDocument(),
     );
     expect(screen.getByLabelText("Starts At for Planning review")).toHaveValue(
-      "2026-06-24T10:00",
+      localDateTimeInput("2026-06-24T10:00:00Z"),
     );
     expect(screen.getByRole("cell", { name: "Desk" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Me" })).toBeInTheDocument();
@@ -7503,6 +7495,8 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
 
     await user.tab();
+    expect(screen.getByRole("button", { name: "Tags" })).toHaveFocus();
+    await user.tab();
     expect(screen.getByRole("button", { name: "Period" })).toHaveFocus();
 
     await user.tab();
@@ -7525,14 +7519,12 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/goals/propose" && init?.method === "POST") {
-        expect(init.body).toBe(
-          JSON.stringify({
+        expect(todoMutationBody(init)).toEqual({
             title: "July goal",
             horizon: "month",
             scheduled: "2026-07-01",
             actor: "user",
-          }),
-        );
+          });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -7648,14 +7640,12 @@ describe("WorkbenchPageClient", () => {
           });
         }
 
-        expect(init.body).toBe(
-          JSON.stringify({
+        expect(todoMutationBody(init)).toEqual({
             title: "Career",
             horizon: "month",
             scheduled: "2026-07-01",
             actor: "user",
-          }),
-        );
+          });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -7723,7 +7713,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/task-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ note: "Saved note" }));
+        expect(todoMutationBody(init)).toEqual({ note: "Saved note" });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -8532,9 +8522,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ note: "Draft detail text", area: "area-2" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ note: "Draft detail text", area: "area-2" });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -8733,7 +8721,7 @@ describe("WorkbenchPageClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/todo/projects/propose",
       expect.objectContaining({
-        body: JSON.stringify({
+        body: todoMutationJson({
           title: "Project title",
           actor: "user",
           definition_of_done: "Done when verified",
@@ -8793,7 +8781,7 @@ describe("WorkbenchPageClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/todo/routines/propose",
       expect.objectContaining({
-        body: JSON.stringify({
+        body: todoMutationJson({
           title: "Daily review",
           actor: "user",
           materialization_policy: "single_open",
@@ -8803,7 +8791,7 @@ describe("WorkbenchPageClient", () => {
     );
   });
 
-  it("saves the visible Daily recurrence before resuming a routine without a stored rule", async () => {
+  it("resumes a legacy routine without inventing an unchanged recurrence rule", async () => {
     const user = userEvent.setup();
     const calls: string[] = [];
     const routine = {
@@ -8816,14 +8804,7 @@ describe("WorkbenchPageClient", () => {
     };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
-        calls.push("patch");
-        expect(JSON.parse(String(init.body))).toEqual({
-          recurrence_rule: "RRULE:FREQ=DAILY",
-        });
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ ...routine, recurrence_rule: "RRULE:FREQ=DAILY" }),
-        });
+        throw new Error("Unchanged legacy recurrence must not be patched");
       }
       if (url === "/api/v1/todo/items/routine-1/resume") {
         expect(init?.method).toBe("POST");
@@ -8833,7 +8814,7 @@ describe("WorkbenchPageClient", () => {
           json: async () => ({
             ...routine,
             status: "active",
-            recurrence_rule: "RRULE:FREQ=DAILY",
+            recurrence_rule: null,
           }),
         });
       }
@@ -8852,15 +8833,15 @@ describe("WorkbenchPageClient", () => {
     await user.selectOptions(screen.getByLabelText("Status for Daily routine"), "active");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(calls).toEqual(["patch", "resume"]));
+    await waitFor(() => expect(calls).toEqual(["resume"]));
   });
 
-  it("shows the same task fields in the table while keeping description table-only in detail", async () => {
+  it("shows one Note field while preserving stored legacy description", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/task-1") {
         expect(init).toEqual(expect.objectContaining({ method: "PATCH" }));
-        expect(JSON.parse(String(init?.body))).toEqual({
+        expect(todoMutationBody(init)).toEqual({
           note: "Updated note",
           priority: 2,
         });
@@ -8909,9 +8890,8 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Workspace" }));
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    expect(
-      await screen.findByRole("cell", { name: "Original description" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("cell", { name: "Original note" })).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Original description" })).toBeNull();
     expect(screen.getByRole("cell", { name: "Original note" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Description for Book physio")).toBeNull();
 
@@ -9019,7 +8999,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
-        expect(JSON.parse(String(init.body))).toEqual({ priority: 10 });
+        expect(todoMutationBody(init)).toEqual({ priority: 10 });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -9160,9 +9140,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/goal-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ horizon: "week", scheduled: "2026-07-06" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ horizon: "week", scheduled: "2026-07-06" });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -9311,9 +9289,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ horizon: "month", scheduled: "2027-03-01" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ horizon: "month", scheduled: "2027-03-01" });
 
         return Promise.resolve({
           ok: true,
@@ -9549,9 +9525,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ horizon: "year", scheduled: "2026-01-01" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ horizon: "year", scheduled: "2026-01-01" });
 
         return Promise.resolve({
           ok: true,
@@ -9608,9 +9582,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ horizon: "year", scheduled: "2040-01-01" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ horizon: "year", scheduled: "2040-01-01" });
 
         return Promise.resolve({
           ok: true,
@@ -9709,9 +9681,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ horizon: "year", scheduled: "2026-01-01" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ horizon: "year", scheduled: "2026-01-01" });
 
         return Promise.resolve({
           ok: false,
@@ -9782,9 +9752,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/goal-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ horizon: "month", scheduled: "2026-07-01" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ horizon: "month", scheduled: "2026-07-01" });
 
         return Promise.resolve({
           ok: false,
@@ -9855,7 +9823,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/project-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ definition_of_done: "Ship review fixes" }));
+        expect(todoMutationBody(init)).toEqual({ definition_of_done: "Ship review fixes" });
 
         return Promise.resolve({
           ok: true,
@@ -9909,11 +9877,9 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
+        expect(todoMutationBody(init)).toEqual({
             recurrence_rule: "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR",
-          }),
-        );
+          });
 
         return Promise.resolve({
           ok: true,
@@ -9975,7 +9941,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
-        expect(JSON.parse(String(init.body))).toEqual({
+        expect(todoMutationBody(init)).toEqual({
           project_id: "project-2",
           priority: 3,
         });
@@ -10039,7 +10005,7 @@ describe("WorkbenchPageClient", () => {
     await screen.findByRole("option", { name: "건강" });
     expect(screen.getByLabelText("Project for 물 마시기")).toHaveValue("project-1");
     expect(screen.getByLabelText("Priority for 물 마시기")).toHaveValue("2");
-    expect(screen.getByRole("cell", { name: "500ml를 마신다" })).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "500ml를 마신다" })).toBeNull();
 
     await user.click(screen.getByRole("cell", { name: "물 마시기" }));
 
@@ -10057,7 +10023,7 @@ describe("WorkbenchPageClient", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/todo/items/routine-1",
         expect.objectContaining({ method: "PATCH" }),
-      );
+    );
     });
   });
 
@@ -10065,7 +10031,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/routine-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ note: "Keep this stretch" }));
+        expect(todoMutationBody(init)).toEqual({ note: "Keep this stretch" });
         expect(String(init.body)).not.toContain("description");
 
         return Promise.resolve({
@@ -10204,7 +10170,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/event-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ priority: 2, location: "Office" }));
+        expect(todoMutationBody(init)).toEqual({ priority: 2, location: "Office" });
 
         return Promise.resolve({
           ok: true,
@@ -10889,7 +10855,7 @@ describe("WorkbenchPageClient", () => {
       "/api/v1/todo/items/task-1",
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ title: "Renamed" }),
+        body: todoMutationJson({ title: "Renamed" }),
       }),
     ));
     await waitFor(() => {
@@ -11072,7 +11038,7 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(patchCalls(fetchMock)).toHaveLength(1));
     expect(patchCalls(fetchMock)[0]?.[0]).toBe("/api/v1/todo/items/task-detail");
     expect(patchCalls(fetchMock)[0]?.[1]).toEqual(expect.objectContaining({
-      body: JSON.stringify({ title: "Planner edit" }),
+      body: todoMutationJson({ title: "Planner edit" }),
     }));
   });
 
@@ -12102,6 +12068,9 @@ describe("WorkbenchPageClient", () => {
           }),
         } as Response);
       }
+      if (url === "/api/v1/todo/items/task-1/reopen" && init?.method === "POST") {
+        return Promise.resolve({ ok: true, json: async () => ({ id: "task-1", type: "task", title: "Canonical StrictMode save", status: "active" }) } as Response);
+      }
       if (url === "/api/v1/todo/items/task-1/complete" && init?.method === "POST") {
         transitionAttempts += 1;
         return Promise.resolve({
@@ -12156,6 +12125,10 @@ describe("WorkbenchPageClient", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.queryByRole("alert")).toBeNull();
 
+    expect(screen.getByLabelText("Title")).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: /^Status for / }), "active");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByLabelText("Title")).toBeEnabled());
     await user.clear(screen.getByLabelText("Title"));
     await user.type(screen.getByLabelText("Title"), "Second StrictMode save");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -12301,9 +12274,7 @@ describe("WorkbenchPageClient", () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url) === "/api/v1/todo/routines/rtn-1/materialize") {
         expect(init?.method).toBe("POST");
-        expect(init?.body).toBe(
-          JSON.stringify({ future_occurrences: 3 }),
-        );
+        expect(todoMutationBody(init)).toEqual({ future_occurrences: 3 });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -12401,7 +12372,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/task-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ due: "2026-06-30" }));
+        expect(todoMutationBody(init)).toEqual({ due: "2026-06-30" });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -12453,7 +12424,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/project-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ due: "2026-07-01" }));
+        expect(todoMutationBody(init)).toEqual({ due: "2026-07-01" });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -12502,9 +12473,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (String(url).includes("/items/event-1") && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({ scheduled: "2026-06-25T11:30:00Z" }),
-        );
+        expect(todoMutationBody(init)).toEqual({ scheduled: new Date("2026-06-25T11:30").toISOString() });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -12538,7 +12507,7 @@ describe("WorkbenchPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Events" }));
 
     const scheduled = await screen.findByLabelText("Starts At for Review");
-    expect(scheduled).toHaveValue("2026-06-24T10:00");
+    expect(scheduled).toHaveValue(localDateTimeInput("2026-06-24T10:00:00Z"));
 
     await user.clear(scheduled);
     await user.type(scheduled, "2026-06-25T11:30");
@@ -12555,7 +12524,8 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/items/event-1" && init?.method === "PATCH") {
-        expect(init.body).toBe(JSON.stringify({ priority: 10 }));
+        expect(JSON.parse(String(init.body)).expected_updated_at).toBe("2026-08-22T01:00:00Z");
+        expect(todoMutationBody(init)).toEqual({ priority: 10 });
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -12600,7 +12570,7 @@ describe("WorkbenchPageClient", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({}),
+            body: todoMutationJson({}),
           }),
         );
         return Promise.resolve({
@@ -12654,7 +12624,7 @@ describe("WorkbenchPageClient", () => {
         expect(init).toEqual(
           expect.objectContaining({
             method: "POST",
-            body: JSON.stringify({}),
+            body: todoMutationJson({}),
           }),
         );
         return Promise.resolve({
@@ -12896,7 +12866,7 @@ describe("WorkbenchPageClient", () => {
       "/api/v1/todo/items/task-1",
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ area: "" }),
+        body: todoMutationJson({ area: "" }),
       }),
     );
   });
@@ -12906,7 +12876,7 @@ describe("WorkbenchPageClient", () => {
     const queries: Array<{ scope: string; offset: number }> = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        const body = todoMutationBody(init) as { scope: string; offset: number };
         queries.push(body);
         if (body.scope === "workspace.task") {
           const title = body.offset === 0 ? "First page task" : "Second page task";
@@ -12943,7 +12913,7 @@ describe("WorkbenchPageClient", () => {
     let failed = false;
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        const body = todoMutationBody(init) as { scope: string; offset: number };
         if (body.scope !== "workspace.task") return fixtureJson({ items: [], next_offset: null });
         offsets.push(body.offset);
         if (body.offset === 50 && !failed) {
@@ -12992,7 +12962,7 @@ describe("WorkbenchPageClient", () => {
     const offsets: number[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        const body = todoMutationBody(init) as { scope: string; offset: number };
         if (body.scope === "workspace.area") return fixtureJson({
           items: [{ key: "area", group_key: null, group_label: null, record: fixtureWireRecord(area) }],
           next_offset: null,
@@ -13047,7 +13017,7 @@ describe("WorkbenchPageClient", () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string };
+        const body = todoMutationBody(init) as { scope: string };
         if (body.scope === "workspace.task") return new Response("{}", { status: 500 });
         return fixtureJson({ items: [], next_offset: null });
       }
@@ -13072,7 +13042,7 @@ describe("WorkbenchPageClient", () => {
     const legacy = { id: "legacy-task", type: "task", title: "Legacy leaked task", status: "active", area_id: area.id } as WorkspaceItemModel;
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string };
+        const body = todoMutationBody(init) as { scope: string };
         if (body.scope === "workspace.area") return fixtureJson({
           items: [{ key: "area", group_key: null, group_label: null, record: fixtureWireRecord(area) }],
           next_offset: null,
@@ -13102,7 +13072,7 @@ describe("WorkbenchPageClient", () => {
     const area = { id: "area-loading", type: "area", title: "Loading area", status: "active" } as WorkspaceItemModel;
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string };
+        const body = todoMutationBody(init) as { scope: string };
         if (body.scope === "workspace.area") return Promise.resolve(fixtureJson({
           items: [{ key: "area-loading", group_key: null, group_label: null, record: fixtureWireRecord(area) }],
           next_offset: null,
@@ -13157,7 +13127,7 @@ describe("WorkbenchPageClient", () => {
     } as WorkspaceItemModel));
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string; filters: unknown[] };
+        const body = todoMutationBody(init) as { scope: string; filters: unknown[] };
         const record = body.scope === "workspace.area"
           ? area
           : body.filters.length > 0 ? tasks[50]! : tasks[0]!;
@@ -13228,7 +13198,7 @@ describe("WorkbenchPageClient", () => {
     const scopes = new Set<string>();
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        const body = todoMutationBody(init) as { scope: string; offset: number };
         if (body.scope.startsWith("planner.")) {
           expect(body.offset).toBe(0);
           scopes.add(body.scope);
@@ -13290,7 +13260,7 @@ describe("WorkbenchPageClient", () => {
 
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as {
+        const body = todoMutationBody(init) as {
           scope: string;
           context: { from?: string; to?: string };
         };
@@ -13352,7 +13322,7 @@ describe("WorkbenchPageClient", () => {
     let canonicalTitle = "Opaque page two";
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/todo/table/query") {
-        const body = JSON.parse(String(init?.body)) as { scope: string; offset: number };
+        const body = todoMutationBody(init) as { scope: string; offset: number };
         if (body.scope === "workspace.area") {
           return fixtureJson({ items: [{ key: "area", group_key: null, group_label: null, record: fixtureWireRecord({ id: "area-page", type: "area", title: "Paged area", status: "active" } as WorkspaceItemModel) }], next_offset: null });
         }
@@ -13391,4 +13361,81 @@ describe("WorkbenchPageClient", () => {
     await waitFor(() => expect(linkedOffsets).toEqual([0, 50, 0]));
   });
 
+  it("keeps weekly recurrence editable while clearing and retyping its interval", async () => {
+    const user = userEvent.setup();
+    const routine = { id: "interval-routine", type: "routine", title: "Weekly schedule", status: "active", recurrence_rule: "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE" };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/interval-routine" && init?.method === "PATCH") {
+        const patch = todoMutationBody(init);
+        expect(patch).toEqual({ recurrence_rule: "RRULE:FREQ=WEEKLY;INTERVAL=3;BYDAY=MO,WE" });
+        return Promise.resolve({ ok: true, json: async () => ({ ...routine, ...patch }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => [routine] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Weekly schedule" }));
+    await user.clear(screen.getByLabelText("Every"));
+    expect(screen.getByLabelText("Every")).toHaveValue(null);
+    expect(screen.getByLabelText("Frequency")).toHaveValue("weekly");
+    expect(screen.getByLabelText("Monday")).toBeChecked();
+    expect(screen.getByLabelText("Wednesday")).toBeChecked();
+    await user.type(screen.getByLabelText("Every"), "3");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/todo/items/interval-routine", expect.objectContaining({ method: "PATCH" }),
+    ));
+    expect(screen.getByLabelText("Every")).toHaveValue(3);
+  });
+
+  it.each(["RRULE:FREQ=MONTHLY;BYMONTHDAY=1,15", "RRULE:FREQ=DAILY;INTERVAL=366", "RRULE:FREQ=DAILY;UNKNOWN=value"])("preserves unsupported stored recurrence %s during unrelated edits", async (rule) => {
+    const user = userEvent.setup();
+    const routine = { id: "legacy-routine", type: "routine", title: "Legacy schedule", status: "active", recurrence_rule: rule };
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/items/legacy-routine" && init?.method === "PATCH") {
+        expect(todoMutationBody(init)).toEqual({ title: "Renamed schedule" });
+        return Promise.resolve({ ok: true, json: async () => ({ ...routine, title: "Renamed schedule" }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => [routine] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Routines" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Legacy schedule" }));
+    expect(screen.getByText("Legacy recurrence rule (read only)")).toBeInTheDocument();
+    expect(screen.getByText(rule)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Frequency")).toBeNull();
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Renamed schedule");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("heading", { name: "Renamed schedule" })).toBeInTheDocument();
+    expect(screen.getByText(rule)).toBeInTheDocument();
+  });
+
 });
+
+function todoMutationBody(init?: RequestInit): Record<string, unknown> {
+  const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+  const { expected_updated_at: _version, ...fields } = body;
+  return fields;
+}
+function localDateTimeInput(value: string): string {
+  const date = new Date(value);
+  const pad = (v: number) => String(v).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function todoMutationJson(expected: unknown) {
+  return { asymmetricMatch(value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    try {
+      const { expected_updated_at: _version, ...body } = JSON.parse(value) as Record<string, unknown>;
+      return JSON.stringify(body) === JSON.stringify(expected);
+    } catch { return false; }
+  }, toString: () => "Todo mutation JSON" };
+}

@@ -23,6 +23,16 @@ function response(body: string | null, status = 200, contentType = "application/
 }
 
 describe("Raven API transport", () => {
+  it("preserves committed cleanup outcomes for UI reconciliation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(JSON.stringify({
+      code: "cleanup_pending", message: "Saved; media cleanup remains pending.", fields: {},
+      request_id: "00000000-0000-4000-8000-000000000001", committed: true,
+      record_id: "00000000-0000-4000-8000-000000000002",
+    }), 500)));
+    const error = await requestJson("/api/v1/health/diet", { method: "POST" }).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(RavenApiError);
+    expect(error).toMatchObject({ committed: true, recordId: "00000000-0000-4000-8000-000000000002" });
+  });
   it("preserves a valid Raven error envelope and status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(JSON.stringify({
       code: "validation_error",
@@ -159,7 +169,7 @@ describe("ToDo table API", () => {
       due: null, scheduled: "2026-08-22", horizon: null, completed_at: null,
       last_materialized_at: null, created_at: "2026-08-22T01:00:00Z",
       updated_at: "2026-08-22T01:00:00Z",
-      metadata_: { location: null, participants: [], commitment_type: null },
+      metadata_: {},
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(JSON.stringify({ items: [{ key: "5:focus:task-1", group_key: "focus", group_label: "Focus", record: item }], next_offset: 50 })))
@@ -244,7 +254,7 @@ describe("Health table API", () => {
       "health.diet",
       settings,
       0,
-      { getFullYear: () => 2026, getMonth: () => 7, getDate: () => 21 },
+      new Date("2026-08-21T12:00:00+09:00"),
     );
 
     expect(fetchMock).toHaveBeenCalledOnce();

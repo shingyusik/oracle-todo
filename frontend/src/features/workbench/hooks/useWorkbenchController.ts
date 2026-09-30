@@ -847,6 +847,7 @@ export function useWorkbenchController(): WorkbenchController {
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
   const detailOpenGeneration = useRef(0);
   const setDetailPage = (item: WorkspaceItemModel | null) => {
+    if (item) todoItemSnapshots.current.set(item.id, item);
     detailOpenGeneration.current += 1;
     setDetailItem(item);
   };
@@ -1736,7 +1737,7 @@ export function useWorkbenchController(): WorkbenchController {
     openDetailView: (item) => setDetailPage(item),
     patchWorkspaceItem: (itemId, patch) =>
       enqueueItemMutation(itemId, async () => {
-        const updated = await patchItem(itemId, patch);
+        const updated = await patchItem(itemId, { ...patch, expected_updated_at: todoItemSnapshots.current.get(itemId)?.updated_at ?? undefined });
         setDetailItem((current) => (current?.id === updated.id ? updated : current));
         applySharedItem(updated);
       }),
@@ -2111,7 +2112,7 @@ export function useWorkbenchController(): WorkbenchController {
       const itemId = detailItem.id;
       const originatingGeneration = detailOpenGeneration.current;
       await enqueueItemMutation(itemId, async () => {
-        const updated = await patchItem(itemId, patch);
+        const updated = await patchItem(itemId, { ...patch, expected_updated_at: todoItemSnapshots.current.get(itemId)?.updated_at ?? undefined });
         setDetailItem((current) =>
           detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
             ? updated
@@ -2243,21 +2244,23 @@ function createItemRequest(
   const plannerType = plannerCreationType(panelId, form);
 
   if (panelId === "areas") {
-    return postJson("/api/v1/todo/areas", { title });
+    return postJson("/api/v1/todo/areas", { title, tags: form.tags });
   }
   if (panelId === "projects") {
     return postJson("/api/v1/todo/projects/propose", {
       title,
+      tags: form.tags,
       actor: "user",
       definition_of_done: form.definition_of_done,
     });
   }
   if (panelId === "tasks") {
-    return postJson("/api/v1/todo/tasks/propose", { title, actor: "user" });
+    return postJson("/api/v1/todo/tasks/propose", { title, tags: form.tags, actor: "user" });
   }
   if (panelId === "routines") {
     return postJson("/api/v1/todo/routines/propose", {
       title,
+      tags: form.tags,
       actor: "user",
       materialization_policy: "single_open",
       recurrence_rule: form.recurrence_rule,
@@ -2267,6 +2270,7 @@ function createItemRequest(
     return postJson("/api/v1/todo/events/propose", {
       title,
       scheduled: form.scheduled,
+      tags: form.tags,
       actor: "user",
     });
   }
@@ -2275,6 +2279,7 @@ function createItemRequest(
       title,
       horizon: goalDefaults.horizon,
       scheduled: goalDefaults.scheduled,
+      tags: form.tags,
       actor: "user",
     });
   }
@@ -2299,7 +2304,7 @@ function createItemRequest(
         project_id: form.project_id,
         priority: form.priority,
         tags: form.tags,
-        actor: "user",
+      actor: "user",
       });
     }
     if (plannerType === "event") {
@@ -2310,7 +2315,7 @@ function createItemRequest(
         project_id: form.project_id,
         priority: form.priority,
         tags: form.tags,
-        actor: "user",
+      actor: "user",
       });
     }
   }

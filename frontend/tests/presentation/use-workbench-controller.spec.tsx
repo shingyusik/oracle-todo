@@ -2121,7 +2121,6 @@ describe("useWorkbenchController", () => {
           expect.objectContaining({
             method: "PATCH",
             body: JSON.stringify({
-              description: "Bring agenda",
               note: "Confirm room",
               location: "Desk",
               participants: ["Me", "Team"],
@@ -2172,7 +2171,6 @@ describe("useWorkbenchController", () => {
 
     await act(async () => {
       await result.current.saveDetailItem({
-        description: "Bring agenda",
         note: "Confirm room",
         location: "Desk",
         participants: ["Me", "Team"],

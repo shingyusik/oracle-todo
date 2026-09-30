@@ -228,7 +228,6 @@ const plannerDateWorkFilterFields = [
   "location",
   "participants",
   "commitment_type",
-  "description",
   "note",
 ] as const satisfies readonly PlannerFilterField[];
 
@@ -949,7 +948,7 @@ function plannerFilterValue(
   if (field === "participants") return item.metadata_?.participants ?? [];
   if (field === "commitment_type") return item.metadata_?.commitment_type;
   if (field === "description") return item.description;
-  return item.note;
+  return item.note ?? item.description;
 }
 
 function relationValues(
@@ -1139,7 +1138,7 @@ function sortValue(
   if (field === "participants") return item.metadata_?.participants?.join(", ");
   if (field === "commitment_type") return item.metadata_?.commitment_type;
   if (field === "description") return item.description;
-  if (field === "note") return item.note;
+  if (field === "note") return item.note ?? item.description;
   if (field === "updated") return item.updated_at;
   if (field === "tags") return item.tags?.join(", ");
   if (field === "area") return item.area_id;
