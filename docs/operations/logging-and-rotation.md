@@ -6,6 +6,10 @@ Raven separates user output from operational diagnostics:
 - stderr — console tracing and user-facing errors
 - `<raven-home>/logs/raven.log.jsonl` — structured Raven CLI events
 
+`--error-format json` suppresses console tracing to keep stderr machine-readable.
+In this mode command tracing is disabled; domain audit history still records mutations.
+Request-key receipt storage is independent of operational logs.
+
 ## Configuration
 
 | Variable | Default | Accepted values |

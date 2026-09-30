@@ -3,14 +3,21 @@
 The native command is `raven`. Inputs are structured flags or schema-validated JSON; Raven
 does not parse natural-language journal text.
 
-## Global option
+## Global options
 
 ```text
-raven [--home <path>] <command>
+raven [--home <path>] [--error-format text|json] [--request-key <key>] <command>
 ```
 
 `--home` overrides `RAVEN_HOME` and the default `$HOME/.raven`. It may precede any native
 command.
+
+`--error-format json` emits one structured error document on stderr and suppresses
+console tracing. Successful command output still follows that command's output contract.
+Place global options before the domain command, especially for delegated ToDo commands.
+`raven --version` prints the native executable version.
+
+See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry workflow.
 
 ## System commands
 
@@ -48,26 +55,28 @@ assertions, and cookies must not be logged.
 `raven todo` delegates domain commands to the reusable ToDo CLI:
 
 ```text
-init, health, list,
+init, health, list, show,
 area create,
-project propose,
-goal propose,
-task propose,
-routine propose|materialize,
-event propose,
-pause, miss, postpone, resume, complete,
-archive, drop, cancel, update,
-archive-list, pending, today, agenda, date-range, period
+project create,
+goal create,
+task create,
+routine create|materialize,
+event create,
+pause, miss, postpone, resume, complete, reopen,
+archive, update,
+archive-list, pending, today
 ```
 
 Examples:
 
 ```bash
-raven todo project propose "Monthly close" \
+raven todo project create "Monthly close" \
   --definition-of-done "Statements reconciled"
-raven todo routine propose "Morning review" \
+raven todo routine create "Morning review" \
   --recurrence-rule "RRULE:FREQ=DAILY"
-raven todo task propose "Call dentist" --scheduled today
+raven todo task create "Call dentist" --scheduled today
+raven todo list --format json --limit 100
+raven todo show <item-id>
 raven todo complete <item-id>
 ```
 
@@ -75,8 +84,17 @@ Projects require a non-blank `definition_of_done`; routines require a non-blank 
 events require `scheduled`. ToDo uses its status lifecycle and does not expose purge.
 `postpone --scheduled <date>` accepts today only for work scheduled before today; other
 postpone targets must be later than today.
-`raven todo api` is explicitly unsupported; use authenticated `raven api` or `raven ui`.
-Reopening a completed task or event is available through the ToDo HTTP API, not the CLI.
+Use authenticated `raven api` or `raven ui` for HTTP access.
+`create` creates an active item; `propose` remains a compatibility alias.
+`list`, `pending`, `today`, and `archive-list` support `--format json`, `--offset`, and
+`--limit`. Their JSON result is `{items,next}`; `next` is the next offset or null.
+Markdown output includes item IDs. `show` returns the complete item as JSON.
+`update --expected-updated-at <updated_at>` rejects stale records atomically. Use the
+timestamp from `show`; omitting it keeps unconditional update behavior.
+`today` only reads existing tasks; run `routine materialize` explicitly to generate
+routine occurrences. Materialization returns one JSON array, including `[]` when empty.
+ToDo, Ledger, and Health read commands do not create or migrate databases. Run `raven init`
+before querying an uninitialized home.
 Run `raven todo --help` and `raven todo <command> --help` for the complete existing flags.
 
 ## Ledger
@@ -85,17 +103,17 @@ Top-level groups:
 
 | Command | Operations |
 | --- | --- |
-| `ledger entry` | `add`, `update`, `list`, `show`, `archive`, `restore`, `purge` |
+| `ledger entry` | `add`, `update`, `list`, `show`, `archive`, `restore` |
 | `ledger transfer` | Create an atomic idempotent paired transfer |
 | `ledger transfer-show` | Show a transfer pair |
-| `ledger currency` | `create`, `update`, `list`, `purge` |
+| `ledger transfer-update` | Update both sides through the atomic transfer service |
+| `ledger currency` | `create`, `update`, `list` |
 | `ledger account-category` | `create`, `update`, `list`, `purge` |
-| `ledger account` | `create`, `update`, `list`, `purge` |
-| `ledger category` | `create`, `update`, `list`, `purge` |
-| `ledger reports` | Summary, account, or category report for an inclusive range |
+| `ledger account` | `create`, `update`, `list` |
+| `ledger category` | `create`, `update`, `list` |
+| `ledger reports` | Summary or category report for an inclusive range |
 | `ledger balances` | Current account balances |
-| `ledger briefing` | Concise inclusive-range briefing |
-| `ledger compare` | Compare two explicit inclusive ranges |
+| `ledger compare` | Compare an inclusive range with the preceding equal-length range |
 | `ledger audit` | Audit page for one record; alias `history` |
 | `ledger doctor` | Bounded read-only consistency diagnostics |
 | `ledger export` | Deterministic schema-v3 JSON export |
@@ -124,32 +142,35 @@ raven ledger transfer \
 
 The operation key is a canonical UUID v4. Retrying the same operation is idempotent.
 
-### Ledger archive, restore, and purge
+`transfer-update <group-id> --json <object>` replaces the paired transfer's date,
+content, accounts, amount, currency, and notes through the transfer service. The strict
+object requires `date`, `content`, `from_account`, `to_account`, `amount` (a decimal
+string), and `currency`. Optional field is `notes`; omitting
+`notes` clears it. Both entry amounts change atomically.
 
 ```bash
-raven ledger entry archive <id>
-raven ledger entry restore <id>
-raven ledger entry purge <id>
-# inspect confirmation_id, then:
-raven ledger entry purge <id> --confirm <confirmation-id>
+raven ledger transfer-update <group-id> --json \
+  '{"date":"2026-09-30","content":"Savings","from_account":"Checking","to_account":"Savings","amount":"10000","currency":"KRW"}'
 ```
 
-The first purge invocation prints a preview and exits `2`. Master-data purge follows the
-same preview/confirm contract. Confirmation must match exactly. Purge removes the record but
-not its audit events; transfer entry preview/purge covers the linked pair. Archive and
-restore apply only to entries. Ledger master data uses `update --active <true|false>` and
-preview/confirmed purge.
+### Ledger lifecycle
+
+Entries support `archive <id>` and `restore <id>`. Master data uses
+`update --active <true|false>`. Only account-category purge is exposed; preview first,
+then repeat with `--confirm <confirmation-id>`. Audit history remains available.
+Entry source, actor, and written timestamp are assigned by the adapter. Adjustment
+records remain readable; creation and conversion to adjustment types are rejected.
 
 ## Health Journal
 
 | Command | Operations |
 | --- | --- |
-| `health diet` | `add`, `update`, `list`, `show`, `archive`, `restore`, `purge` |
+| `health diet` | `add`, `update`, `list`, `show`, `archive`, `restore` |
 | `health bowel` | same lifecycle |
 | `health medication` | same lifecycle |
-| `health metric` | `add`, `daily-upsert`, `update`, `list`, `show`, lifecycle commands |
-| `health timeline` | Combined paginated diet/event timeline |
-| `health trends` | Bounded trends; default `--days 30` |
+| `health metric` | `daily-upsert`, `list`, `show`, `archive`, `restore` |
+| `health reports` | Report for explicit inclusive `--from` and `--to` dates |
+| `health audit` | Paginated audit history for a record; alias `history` |
 
 Create/update commands accept strict `--json` or typed flags. Timestamps use RFC 3339.
 Mutation JSON rejects unknown fields.
@@ -161,18 +182,20 @@ raven health diet add \
 raven health medication add \
   --at 2026-07-31T08:00:00+09:00 --name Vitamin-D --dose 1 --unit tablet
 raven health metric daily-upsert \
-  --json '[{"at":"2026-07-31T07:00:00+09:00","category":"weight","key":"body_weight","name":"Weight","value":70.2,"unit":"kg"}]'
-raven health timeline --limit 50 --format json
+  --json '[{"at":"2026-07-31T07:00:00+09:00","category":"weight","key":"body_weight","name":"Body weight","value":70.2,"unit":"kg"}]'
+raven health reports --from 2026-07-01 --to 2026-07-31 --format json
+raven health audit health_event <id> --limit 100 --format json
 ```
+
+Daily metrics use fixed UTC+09:00 dates and canonical weight, sleep, CRP, fecal calprotectin, and overall-condition identities. Existing daily values require `expected_updated_at` when replaced. Per-metric notes are absent; overall condition uses `condition_note`.
+
+Health audit record types are `diet_entry`, `health_event`, and `media_file`. Audit JSON has
+`items` with RFC 3339 occurrence timestamps, before/after snapshots, and reasons. Reports
+JSON returns the complete report projection; the table view summarizes record counts.
 
 Health archive/restore accept optional `--expected-updated-at <RFC3339>` for optimistic
-concurrency. Health CLI purge prints `{"confirmation_id":"<id>"}` without `--confirm`, exits
-`2`, and succeeds only when the same ID is repeated:
-
-```bash
-raven health diet purge <id>
-raven health diet purge <id> --confirm <confirmation-id>
-```
+concurrency. The public Health CLI does not expose purge. Archived and legacy records remain
+available for inspection and supported restore operations in the UI.
 
 ## Output and exit codes
 
@@ -180,9 +203,53 @@ raven health diet purge <id> --confirm <confirmation-id>
 - Reads default to tabular output where supported; use `--format json`.
 - User results go to stdout. Errors and console logs go to stderr.
 
+Paginated CLI lists and audit history return `{items,next}` in JSON mode. `next` is the
+next numeric offset or null; reuse the same filters and limit. This includes Health diet,
+bowel, medication, metric, and audit lists, and Ledger lists and audit history.
+Reports and single-record reads retain their own object shapes. Offset pages are not a
+snapshot: concurrent inserts or removals can move records between pages.
+
+With `--error-format json`, stderr contains a single object with `code`, `message`,
+`fields`, `committed`, and `retryable`; committed cleanup failures also include
+`record_id`. `committed` is true after a committed mutation, false for a known rejected
+request, and null when the outcome is unknown. Do not automatically repeat a mutation
+when `committed` is true or null. Help and version remain successful text output.
+
 | Exit | Meaning |
 | --- | --- |
 | `0` | Success, including clap help/version output |
 | `2` | Validation, policy, conflict, unsafe configuration, or confirmation mismatch |
 | `4` | Record not found |
 | `1` | Storage, migration, cleanup, import integrity, or internal failure |
+
+## Safe creation retries
+
+Use a stable `--request-key` before the domain command when creating a record:
+
+```bash
+raven --error-format json --request-key dentist-2026-09-30 \
+  todo task create "Call dentist" --scheduled today
+raven --error-format json --request-key lunch-2026-09-30 \
+  health diet add --at 2026-09-30T12:00:00+09:00 --meal lunch --food Rice
+```
+
+The same key and exact argument payload replay the original stdout without creating
+another record. Reusing a key with different arguments fails with `request_key_conflict`.
+Keys contain 1–128 ASCII letters, digits, `-`, `_`, `.`, or `:`. Receipts belong to one
+data home and are stored in `retry.sqlite`; argument order and creation aliases are part
+of the payload. Omit the key only when a duplicate creation is intentional or the caller
+can reconcile an uncertain result itself.
+
+Keyed child execution defaults to 120 seconds; `--request-timeout-seconds <1..3600>`
+overrides the limit and requires a request key. Timeout returns `request_timeout` with
+`committed: null` and preserves the pending receipt. The timeout is not part of payload identity.
+
+Supported operations are ToDo area/item creation, Ledger entry/master-data creation,
+and Health diet/bowel/medication add. Reads, updates, lifecycle commands, and
+daily metric upsert do not accept request keys. Ledger transfers use their existing
+`--operation-key` instead.
+
+A pending receipt after interruption returns `request_outcome_unknown` and does not run
+the mutation again. Inspect domain records before using a new key. Keep `retry.sqlite`
+with backups that will be used to resume keyed requests; deleting the receipt history
+removes duplicate protection. The receipt and domain databases do not share a transaction.

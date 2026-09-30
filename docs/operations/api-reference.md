@@ -90,9 +90,7 @@ contents, tokens, sessions, or arbitrary metadata.
 | `GET` | `/api/v1/preferences/:key` | Read namespaced presentation state |
 | `PUT` | `/api/v1/preferences/:key` | Store an object-valued preference |
 
-Preference keys must start with `planner.`, `workspace.`, `ledger.`, or `health.` and use
-bounded lowercase segments. Preferences live in `todo.sqlite` and cannot mutate domain
-tables.
+Preference keys are `planner.v1`, `workspace.views.v1`, `ledger.views.v1`, and `health.views.v1`. Preferences live in `todo.sqlite` and cannot mutate domain tables.
 
 Dashboard returns HTTP `200` even when one domain cannot load. Each `todo`, `ledger`, and
 `health` member is independently:
@@ -118,13 +116,13 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 
 | Method | Relative route |
 | --- | --- |
-| `GET` | `/health`, `/items`, `/items/archive`, `/views/agenda`, `/views/date-range`, `/views/period` |
+| `GET` | `/health`, `/items`, `/items/archive` (bounded `{items,next}` archive pages) |
 | Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
 | `PATCH` | `/items/:id` |
-| `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive`, `/drop`, `/cancel` |
+| `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive` |
 
-Example full route: `GET /api/v1/todo/items`.
+Example full route: `GET /api/v1/todo/items`. Item history uses `GET /items/:id/history?offset=0&limit=50` and returns `{items,next}`.
 
 `POST /items/:id/postpone` requires caller-local `today` and a target `scheduled` date.
 The target may be today only when the source schedule is earlier than today; otherwise it
@@ -155,7 +153,7 @@ tokens, sessions, or arbitrary metadata.
 
 `POST /table/query` filters, groups, and sorts the complete active scope before returning a
 page. `offset` defaults to `0`; `limit` defaults to and cannot exceed `50`. JSON bodies are
-limited to 128 KiB and recursively deny unknown fields. Existing `/items` and `/views/*`
+limited to 128 KiB and recursively deny unknown fields. Existing `/items`
 routes keep their array response shapes.
 
 Scopes and contexts use these exact lowercase values:
@@ -248,20 +246,19 @@ All routes below use prefix `/api/v1/ledger`.
 
 | Resource | Routes |
 | --- | --- |
-| Entries | `GET/POST /entries`, `GET/PATCH /entries/:id`, `POST /entries/:id/archive`, `POST /entries/:id/restore`, `GET/DELETE /entries/:id/purge` |
+| Entries | `GET/POST /entries`, `GET/PATCH /entries/:id`, `POST /entries/:id/archive`, `POST /entries/:id/restore` |
 | Transfers | `POST /transfers`, `GET/PATCH /transfers/:id` |
-| Currencies | `GET/POST /currencies`, `PATCH/DELETE /currencies/:id`, `GET /currencies/:id/purge` |
+| Currencies | `GET/POST /currencies`, `PATCH /currencies/:id` |
 | Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
-| Accounts | `GET/POST /accounts`, `PATCH/DELETE /accounts/:id`, `GET /accounts/:id/purge` |
-| Transaction categories | `GET/POST /transaction-categories`, `PATCH/DELETE /transaction-categories/:id`, `GET /transaction-categories/:id/purge` |
+| Accounts | `GET/POST /accounts`, `PATCH /accounts/:id` |
+| Transaction categories | `GET/POST /transaction-categories`, `PATCH /transaction-categories/:id` |
 | Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
-| Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/accounts`, `/reports/categories`, `/reports/compare`, `/reports/trend`, `/reports/briefing` |
+| Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/categories`, `/reports/compare`, `/reports/trend` |
 
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
-offset `0`, limit `100`; limits are bounded. Report queries accept either `from`+`to` or
-`year`+`month` where supported.
+offset `0`, limit `100`; limits are bounded. Reports accept `from`+`to`; comparison and trend reads use the UI period contract. Comparison derives the preceding equal-length period; trend granularity is chosen by the service.
 
-Entry and master-data purge `GET` routes return confirmation previews. Purge `DELETE`
+Only account-category purge `GET` returns a confirmation preview. Its `DELETE`
 requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
 Only entries expose archive/restore. Currency, account-category, account, and transaction
 category lifecycle uses the `active` field on update.
@@ -363,12 +360,14 @@ All routes below use prefix `/api/v1/health`.
 
 | Resource | Routes |
 | --- | --- |
-| Diet | `GET/POST /diet`, `GET/PATCH /diet/:id`, lifecycle `POST /diet/:id/archive|restore`, `DELETE /diet/:id/purge` |
+| Diet | `GET/POST /diet`, `GET/PATCH /diet/:id`, lifecycle `POST /diet/:id/archive|restore` |
+| Saved diet image | `GET /diet/:id/image` (authenticated, `Cache-Control: no-store`) |
+| Record inspector | `GET /records?offset=0&limit=100` returns `{items}` including archived and legacy records |
 | Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
-| Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore`, `DELETE /events/:id/purge` |
+| Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore` |
 | Metrics | `POST /metrics/daily` |
 | Table pages | `POST /table/query`, `GET /table/lookups?scope=...` |
-| Reads | `GET /timeline`, `/trends`, `/reports`, `/audit/:record_type/:record_id` |
+| Reads | `GET /reports`, `/audit/:record_type/:record_id` |
 
 `GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and
 `daily_only=true|false`. `daily_only=true` returns only active events created through the
@@ -393,7 +392,7 @@ optimistic concurrency:
 }
 ```
 
-All operations must target the same local date. The service rejects stale versions,
+All operations must target the same UTC+09:00 calendar date. Existing values require `expected_updated_at`. The service rejects stale versions,
 ordinary or inactive archive targets, duplicate identities, and an identity present in both
 arrays. Any validation, conflict, audit, or storage failure rolls back the entire request.
 The response `items` contains the created or updated active events; archived events are not
@@ -515,16 +514,15 @@ The metadata object is:
   "meal_type": "lunch",
   "food_name": "Rice bowl",
   "note": null,
-  "tags": ["rice", "vegetables"],
-  "actor": "raven-api"
+  "tags": ["rice", "vegetables"]
 }
 ```
 
-`note` is optional, `tags` defaults to `[]`, and `actor` defaults to `raven-api`. Unknown
+`note` is optional, `tags` defaults to `[]`, and actor is assigned by the adapter. Unknown
 metadata fields are rejected. Declared content type must agree with detected image bytes.
 The same limits, MIME validation, and safe API errors apply to
 `PATCH /diet/:id/with-image`. Its metadata accepts the optional Diet update fields plus
-`expected_updated_at` for optimistic concurrency and `reason` for audit history. The new
+`expected_updated_at` for optimistic concurrency. The new
 image and record fields are committed by one service mutation. `remove_image:true` is
 rejected because this route replaces the image.
 
@@ -540,14 +538,16 @@ curl -X POST http://127.0.0.1:3002/api/v1/health/diet/with-image \
   --data-binary @meal.jpg
 ```
 
-Event category plus attributes determine bowel, medication, weight, sleep, lab, or symptom
-validation. Daily metric mutations contain 1 through 366 combined metric and archive operations. Timeline supports range,
-category, archive, and page filters; trends defaults to 30 days and has a bounded window.
+Generic event creation accepts bowel and medication only. Daily metrics use canonical
+weight, sleep, CRP, fecal calprotectin, and overall-condition keys. Names and units are
+service policy. Generic updates cannot change metric identity or date. Archive and
+restore accept optimistic timestamps. Public Health purge routes are absent.
 
-Archive and restore support optimistic timestamps. Health API has no purge-preview route.
-`DELETE /diet/:id/purge` and `DELETE /events/:id/purge` require
-`{"confirmation":"<record-id>"}`. Purge removes the confirmed record and associated
-unreferenced media and preserves audit events.
+A committed media cleanup failure returns `cleanup_pending`, `committed: true`, and a
+safe UUID `record_id` when available. Refresh the saved record; do not repeat creation.
+Domain reads open existing stores read-only and do not create or migrate data homes.
+
+Legacy stored workspace preferences remain readable through the canonical key.
 
 ## UI static boundary
 

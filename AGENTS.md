@@ -26,7 +26,7 @@ do no I/O and never depend on another engine.
 | `raven-api` | Auth, `/api/v1` composition, safe errors, Dashboard, UI session/static serving |
 | `todo-engine` | ToDo item graph, recurrence, lifecycle, SQLite, reusable adapters |
 | `ledger-engine` | Money/master data, entries, transfers, reports, audit, SQLite |
-| `health-engine` | Diet/media, health events, timeline/trends/reports, audit, SQLite |
+| `health-engine` | Diet/media, health events, reports, record inspection, audit, SQLite |
 | `frontend` | Static ToDo Dashboard and ToDo/Ledger/Health workspaces |
 | `backend` | Namespaced presentation preferences stored in `todo.sqlite` |
 
@@ -73,7 +73,7 @@ npm --prefix npm/raven test
 
 - Never run destructive smoke, import, migration, or purge probes against a live home.
 - ToDo uses status lifecycle and no hard delete. Ledger entries and Health records use
-  archive/restore; Ledger master data uses activation. Ledger/Health purge is confirmed.
+  archive/restore; Ledger master data uses activation. Only Ledger account-category purge is exposed and confirmed.
 - `raven todo api` is unsupported; all HTTP access uses authenticated Raven API/UI routes.
 - Health database and `media/health` must be backed up together.
 - Dashboard reads must not create or migrate missing stores; domain failures stay isolated.

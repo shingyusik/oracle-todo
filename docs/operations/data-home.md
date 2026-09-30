@@ -45,6 +45,9 @@ default home.
 - `health.sqlite` — diet, media metadata, health events, tags, and audit events.
 - `media/health` — generated Health image files; never SQLite blobs.
 - `logs` — best-effort Raven CLI JSONL logs and rotated backups.
+- `retry.sqlite` — optional CLI request receipts, created by keyed creation commands.
+  Preserve it when resuming requests after a backup restore; removing receipts removes
+  protection against replaying a previously committed request.
 
 The databases are intentionally independent. Back up `health.sqlite` and `media/health`
 together to preserve diet-image references.
@@ -72,5 +75,6 @@ snapshot contains:
 
 - all three `*.sqlite` files
 - `media/health`
+- `retry.sqlite` when keyed CLI requests must retain their replay history
 
 Logs and the npm release cache are operational artifacts, not canonical records.

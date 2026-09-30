@@ -14,17 +14,17 @@ audit event in the same service operation.
 | `project` | Finite outcome; non-blank `definition_of_done` required |
 | `goal` | `year`, `month`, or `week`; explicit canonical period start; parent must be coarser |
 | `routine` | RRULE required; materializes de-duplicated task occurrences |
-| `task` | Concrete work linked optionally to area, project, or routine |
+| `task` | Concrete work linked to area, project, or goal; routine links are generated |
 | `event` | External commitment with required `scheduled` value |
 | `review`, `archive_item` | Reserved persisted types |
 
 Statuses are `active`, `waiting`, `paused`, `completed`, `cancelled`, `dropped`,
 `archived`, `missed`, and `rejected`. Terminal statuses remain persisted. Normal lists hide
 `archived`, `dropped`, and `cancelled` unless explicitly requested; `missed` remains
-queryable but is not active work.
+queryable but is not active work. Public mutations do not create dropped/cancelled states; tasks cannot pause.
 
 Routines support RRULE frequency `DAILY`, `WEEKLY`, `MONTHLY`, or `YEARLY` with the
-validated subset of `INTERVAL`, `BYDAY`, `BYMONTHDAY`, and `BYMONTH`.
+UI-supported subset of `INTERVAL` (1..365), `BYDAY`, and single `BYMONTHDAY`/`BYMONTH` values. Creation and updates share validation; unsupported stored rules remain readable.
 `single_open` maintains one open generated task; `per_occurrence` maintains the configured
 `future_occurrences` target.
 
@@ -54,8 +54,7 @@ operation key makes retries idempotent, and all transfer rows/audit state commit
 
 Ledger entry archive sets `deleted_at`; entry restore clears it. Currency, account-category,
 account, and transaction-category records use an `active` flag rather than archive/restore.
-Entry and master-data purge physically remove confirmed records while preserving audit
-history. A transfer-pair purge covers the pair.
+Only account-category purge is exposed. Other entries and master data retain archive/restore or activation. Adjustment records remain readable, but creation and conversion are prohibited. Adapters assign entry source, actor, and written timestamp; updates preserve source and written timestamp.
 
 ## Health database and media
 
@@ -80,8 +79,7 @@ Images are JPEG, PNG, or WebP, at most 10 MiB. Bytes live below `media/health`; 
 generated relative paths, never caller file paths. Media lifecycle is constrained by
 SQLite triggers and coordinated by `HealthService`.
 
-Archive/restore use `deleted_at`. Purge requires exact confirmation and leaves audit
-history. Optimistic `expected_updated_at` checks are available for mutable Health records.
+Archive/restore use `deleted_at`; public purge is absent. Optimistic `expected_updated_at` checks protect mutable Health records. Daily metrics use fixed UTC+09:00 dates and canonical weight, sleep, CRP, fecal calprotectin, and overall-condition identities. Generic event creation accepts bowel and medication. Legacy metrics remain visible in the record inspector.
 
 ## Dashboard projection
 

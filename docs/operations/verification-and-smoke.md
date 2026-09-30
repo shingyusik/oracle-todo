@@ -79,7 +79,9 @@ cargo run -q -p raven-cli -- --home $mockHome ledger balances
 ## Domain smoke
 
 ```bash
-"$raven_bin" --home "$smoke_home" todo task propose "Smoke task"
+"$raven_bin" --home "$smoke_home" todo task create "Smoke task"
+"$raven_bin" --home "$smoke_home" --error-format json todo list --format json
+"$raven_bin" --home "$smoke_home" todo routine materialize
 
 "$raven_bin" --home "$smoke_home" ledger currency create \
   --code KRW --name "Korean Won" --symbol ₩ --decimal-places 0
@@ -93,7 +95,7 @@ cargo run -q -p raven-cli -- --home $mockHome ledger balances
 
 "$raven_bin" --home "$smoke_home" health diet add \
   --at 2026-07-31T12:00:00+09:00 --meal lunch --food "Smoke meal" --tags smoke
-"$raven_bin" --home "$smoke_home" health timeline --format json
+"$raven_bin" --home "$smoke_home" health diet list --format json
 ```
 
 Confirm `todo.sqlite`, `ledger.sqlite`, `health.sqlite`, `media/health`, and

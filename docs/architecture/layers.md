@@ -18,7 +18,7 @@ translate transport input and output only.
 | `raven-api` | `auth`, `routes`, `dto`, `state`, `server` | Authenticated `/api/v1`, error contract, Dashboard composition, static UI session |
 | `todo-engine` | `domain`, `application`, `infrastructure`, `interfaces` | ToDo item graph, recurrence, status policy, SQLite, reusable CLI/API adapters |
 | `ledger-engine` | `domain`, `application`, `infrastructure` | Money and master data, entries, transfers, reports, audit, SQLite |
-| `health-engine` | `domain`, `application`, `infrastructure` | Diet, media, health events, timeline/trends, audit, SQLite |
+| `health-engine` | `domain`, `application`, `infrastructure` | Diet, media, health events, Reports, record inspection, audit, SQLite |
 | `backend` | `api` | Namespaced UI preferences stored in `todo.sqlite` |
 | `frontend` | `app`, `domain`, `features` | Static ToDo Dashboard and domain workspaces |
 
@@ -34,7 +34,7 @@ ToDo router is mounted by `raven-api` below `/api/v1/todo`.
 ### Ledger
 
 `LedgerService` owns master-data references and activation, integer-minor-unit money policy,
-atomic transfer pairs, entry archive/restore, confirmation-gated purge, audit, reports,
+atomic transfer pairs, entry archive/restore, account-category confirmation-gated purge, audit, reports,
 doctor checks, and export.
 
 ### Health Journal

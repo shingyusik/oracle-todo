@@ -19,9 +19,9 @@ adapters call those services; they do not write domain tables directly.
 - **ToDo** — areas, projects, goals, routines, tasks, events, recurrence, lifecycle
   transitions, and immutable audit events.
 - **Ledger** — currencies, account categories, accounts, transaction categories, entries,
-  atomic transfers, balances, reports, briefing, diagnostics, and deterministic export.
+  atomic transfers, balances, reports, diagnostics, and deterministic export.
 - **Health Journal** — diet and images, bowel and medication events, health metrics, daily
-  metric upsert, Reports, a combined timeline, and bounded trends.
+  metric upsert, Reports, record recovery, and audit history.
 - **Dashboard** — a read-only ToDo analytics screen for today's work, completion history,
   Area status, and Project status, followed by Ledger and Health Journal highlights.
   Health highlights show weight and daily average Bristol trends alongside the
@@ -109,12 +109,17 @@ ToDo commands are namespaced below `raven todo`:
 
 ```bash
 raven todo area create "Finance"
-raven todo project propose "Monthly close" \
+raven todo project create "Monthly close" \
   --area "Finance" \
   --definition-of-done "Statements reconciled"
-raven todo task propose "Reconcile card statement" --area "Finance" --scheduled today
+raven todo task create "Reconcile card statement" --area "Finance" --scheduled today
 raven todo pending
 ```
+
+For AI and scripts, use `raven --error-format json todo list --format json`.
+ToDo list views return bounded `{items,next}` pages; `raven todo show <id>` returns
+the full record. `today` reads existing tasks; `raven todo routine materialize`
+explicitly generates routine tasks. The `propose` spelling remains a creation alias.
 
 Ledger mutations use typed flags or strict JSON. Create required master data first; names or
 IDs resolve through the service layer:
@@ -137,10 +142,7 @@ raven health diet add \
   --at 2026-07-31T12:00:00+09:00 --meal lunch --food "Rice bowl" --tags rice,vegetables
 raven health bowel add \
   --at 2026-07-31T13:00:00+09:00 --bristol 4
-raven health metric add \
-  --at 2026-07-31T07:00:00+09:00 --category weight \
-  --key body_weight --name Weight --value 70.2 --unit kg
-raven health timeline
+raven health reports --from 2026-07-01 --to 2026-07-31
 ```
 
 Run `raven <domain> <command> --help` for authoritative field flags and
@@ -156,7 +158,7 @@ ToDo stores an item graph in `todo.sqlite`:
 - `project` — finite outcome; creation requires `definition_of_done`.
 - `goal` — year, month, or week goal anchored to the canonical period start.
 - `routine` — recurring task template; creation requires an RRULE.
-- `task` — concrete action, optionally linked to an area, project, or routine.
+- `task` — concrete action, linked to an area, project, or goal; routine links come from materialization.
 - `event` — external commitment with a required schedule.
 
 Creation is direct-active. Normal mutations pass through `TodoService`, and each mutation
@@ -182,7 +184,7 @@ and `late_night`. Accepted images are JPEG, PNG, or WebP and are limited to 10 M
 
 Health events cover weight, bowel, sleep, lab, symptom, and medication categories. Numeric
 metrics use stable keys; daily upsert gives one active value per local day, category, and
-metric key. Timeline and trend reads combine records without mutating them.
+metric key. Reports combine canonical daily metrics without mutating records. Archived and legacy records remain inspectable.
 
 More detail is in [the data-model reference](docs/architecture/data-model.md).
 
@@ -192,10 +194,8 @@ More detail is in [the data-model reference](docs/architecture/data-model.md).
   hard-delete command.
 - **Ledger entries and Health records:** archive sets `deleted_at`; restore clears it.
   Normal lists omit archived rows. Ledger master data uses an `active` flag instead.
-- **CLI purge:** Ledger and Health CLI commands print a preview first and require its exact
-  confirmation ID on the second invocation.
-- **API purge:** Ledger exposes preview routes before confirmed deletion. Health has no
-  preview route; its `DELETE` body confirms the record ID directly. Audit events remain.
+- **Purge:** only Ledger account categories expose preview and confirmed purge through
+  CLI/API. Other Ledger and Health records use archive/restore or activation.
 - **Health media:** image metadata and files follow the owning diet record lifecycle.
   Cleanup failures are surfaced; committed mutations are never reported as rolled back.
 
@@ -268,6 +268,9 @@ Raven keeps user results on stdout, diagnostics on stderr, and structured JSONL 
 CLI validation/conflict/confirmation failures exit `2`, missing records exit `4`, and
 storage/migration/internal failures exit `1`. Success exits `0`.
 
+`--error-format json` suppresses console tracing and emits structured errors on stderr
+so automation can distinguish validation, conflicts, and committed cleanup failures.
+
 ## Verification
 
 Frontend development and verification require Node.js 22.13 or newer. The npm release
@@ -295,6 +298,7 @@ source ToDo data.
 - [Setup](docs/operations/setup.md)
 - [Data-home safety](docs/operations/data-home.md)
 - [CLI reference](docs/operations/cli-reference.md)
+- [AI CLI usage](docs/operations/ai-cli-usage.md)
 - [API reference](docs/operations/api-reference.md)
 - [Verification and smoke](docs/operations/verification-and-smoke.md)
 - [Logging and rotation](docs/operations/logging-and-rotation.md)
