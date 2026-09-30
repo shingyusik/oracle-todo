@@ -152,24 +152,14 @@ function controller(state: LedgerState = loadedState): LedgerController {
     updateTransfer: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
-    previewPurge: vi.fn().mockResolvedValue({
-      confirmationId: "confirm-entry",
-      transferGroupId: null,
-      entryIds: ["entry-1"],
-    }),
-    purge: vi.fn(),
     createAccount: vi.fn(),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
     restoreAccount: vi.fn(),
-    previewAccountPurge: vi.fn(),
-    purgeAccount: vi.fn(),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
     restoreCategory: vi.fn(),
-    previewCategoryPurge: vi.fn(),
-    purgeCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -1044,8 +1034,6 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Deactivate Cash" }));
     await user.click(screen.getByRole("button", { name: "Deactivate" }));
     expect(ledger.deactivateAccountCategory).toHaveBeenCalledWith("account-category-cash");
-    expect(ledger.previewAccountPurge).not.toHaveBeenCalled();
-    expect(ledger.purgeAccount).not.toHaveBeenCalled();
   });
 
   it("keeps an account type draft and only shows a safe save failure", async () => {
@@ -1233,8 +1221,6 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Deactivate KRW" }));
     await user.click(screen.getByRole("button", { name: "Deactivate" }));
     expect(ledger.deactivateCurrency).toHaveBeenCalledWith("currency-krw");
-    expect(ledger.previewAccountPurge).not.toHaveBeenCalled();
-    expect(ledger.purgeAccount).not.toHaveBeenCalled();
   });
 
   it("keeps currency drafts after safe failures and blocks closing while pending", async () => {
@@ -1631,7 +1617,7 @@ describe("LedgerPanel", () => {
     }));
     const detail = screen.getByRole("region", { name: "Lunch details" });
     expect(screen.queryByRole("table", { name: "Transactions" })).toBeNull();
-    expect(within(detail).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+    expect(within(detail).getAllByRole("button").map((button) => button.getAttribute("aria-label")).filter(Boolean))
       .toEqual(["< Back", "Undo", "Redo", "Save", "Archive"]);
     for (const label of ["Content", "Date", "Type", "Account", "Category", "Amount", "Currency", "Note"]) {
       expect(within(detail).getByLabelText(label)).toBeInTheDocument();
@@ -2527,7 +2513,6 @@ describe("LedgerPanel", () => {
     })).toBeNull();
     await waitFor(() => expect(addButton).toHaveFocus());
     expect(ledger.restore).not.toHaveBeenCalled();
-    expect(ledger.purge).not.toHaveBeenCalled();
   });
 
   it("removes archived rows from stale transaction group candidates", async () => {
@@ -3639,7 +3624,6 @@ describe("LedgerPanel", () => {
     const compare = vi.spyOn(ledgerApi, "compare").mockResolvedValue(
       comparison("2026-08-01", "2026-08-31"),
     );
-    const accounts = vi.spyOn(ledgerApi, "accountReport").mockResolvedValue([]);
     const categories = vi.spyOn(ledgerApi, "categoryReport").mockResolvedValue([]);
     const reportTrend = vi.spyOn(ledgerApi, "trend").mockResolvedValue(
       trend("2026-08-01", "2026-08-31"),
@@ -3656,7 +3640,6 @@ describe("LedgerPanel", () => {
     });
 
     expect(compare).toHaveBeenCalledWith({ period: "current_month" });
-    expect(accounts).not.toHaveBeenCalled();
     expect(categories).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(reportTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(
@@ -4433,7 +4416,6 @@ describe("LedgerPanel", () => {
     vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "purgeEntry").mockResolvedValue(undefined);
     vi.spyOn(ledgerApi, "createAccount").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "createTransactionCategory").mockResolvedValue({} as never);
@@ -4448,17 +4430,14 @@ describe("LedgerPanel", () => {
       () => result.current.updateEntry("entry", {} as never),
       () => result.current.archive("entry"),
       () => result.current.restore("entry"),
-      () => result.current.purge("entry", "confirm"),
       () => result.current.createAccount({} as never),
       () => result.current.updateAccount("account", {}),
       () => result.current.archiveAccount("account"),
       () => result.current.restoreAccount("account"),
-      () => result.current.purgeAccount("account", "confirm"),
       () => result.current.createCategory({} as never),
       () => result.current.updateCategory("category", {}),
       () => result.current.archiveCategory("category"),
       () => result.current.restoreCategory("category"),
-      () => result.current.purgeCategory("category", "confirm"),
     ];
     for (const mutation of ordinaryMutations) {
       await act(async () => {

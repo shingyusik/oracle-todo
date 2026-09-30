@@ -78,20 +78,14 @@ function controller(): LedgerController {
     updateTransfer: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
-    previewPurge: vi.fn(),
-    purge: vi.fn(),
     createAccount: vi.fn(),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
     restoreAccount: vi.fn(),
-    previewAccountPurge: vi.fn(),
-    purgeAccount: vi.fn(),
     createCategory: vi.fn().mockResolvedValue(undefined),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
     restoreCategory: vi.fn(),
-    previewCategoryPurge: vi.fn(),
-    purgeCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -442,7 +436,7 @@ describe("CategoryDetail", () => {
     const ledger = categoriesController(detailState());
     render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
 
-    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label")))
+    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label")).filter(Boolean))
       .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
     expect(Array.from(screen.getByRole("region", { name: "Edit category properties" })
       .querySelectorAll("input, select"))).toEqual([

@@ -1,4 +1,5 @@
 "use client";
+import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -244,6 +245,7 @@ function TransactionsPanel({
 
   return (
     <section aria-labelledby="ledger-transactions-heading">
+      <LedgerRecovery controller={controller} kind="entries" />
       <LedgerTableViewHeader
         controller={controller}
         scope="ledger.transactions"

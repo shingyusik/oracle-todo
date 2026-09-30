@@ -87,20 +87,14 @@ function controller(): LedgerController {
     updateTransfer: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
-    previewPurge: vi.fn(),
-    purge: vi.fn(),
     createAccount: vi.fn().mockResolvedValue(undefined),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
     restoreAccount: vi.fn(),
-    previewAccountPurge: vi.fn(),
-    purgeAccount: vi.fn(),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
     restoreCategory: vi.fn(),
-    previewCategoryPurge: vi.fn(),
-    purgeCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -725,7 +719,6 @@ describe("AccountDetail", () => {
 
     await waitFor(() => expect(ledger.archiveAccount).toHaveBeenCalledWith("account-wallet"));
     expect(onDeleted).toHaveBeenCalledOnce();
-    expect(ledger.purgeAccount).not.toHaveBeenCalled();
   });
 
   it("retains detail and a safe error while delete is pending or fails", async () => {

@@ -49,39 +49,31 @@ export type LedgerEntryView = {
 
 export type LedgerEntryInput = {
   date: string;
-  writtenAt: string;
   content: string;
   category?: string | null;
   account: string;
   entryType: PublicLedgerEntryType;
   amount: string;
   currency: string;
-  source?: string;
   notes?: string | null;
-  actor?: string;
 };
 
 export type LedgerEntryUpdate = Partial<Omit<LedgerEntryInput, "category" | "notes">> & {
   category?: string | null;
   notes?: string | null;
-  reason?: string | null;
 };
 
 export type TransferInput = {
   date: string;
-  writtenAt: string;
   content: string;
   fromAccount: string;
   toAccount: string;
   amount: string;
   currency: string;
-  source?: string;
   notes?: string | null;
-  actor?: string;
 };
 
-export type TransferUpdate = Omit<TransferInput, "writtenAt" | "source"> & {
-  reason?: string | null;
+export type TransferUpdate = TransferInput & {
 };
 
 export type Currency = {
@@ -232,12 +224,6 @@ export type LedgerTrend = {
   range: ReportRange;
   granularity: TrendGranularity;
   currencies: CurrencyTrend[];
-};
-export type LedgerBriefing = { summary: LedgerSummary; markdown: string };
-export type PurgePreview = {
-  confirmationId: string;
-  transferGroupId: string | null;
-  entryIds: string[];
 };
 export type MasterPurgePreview = { confirmationId: string; recordType: string };
 
@@ -467,15 +453,6 @@ function mapCategoryTableRecord(value: unknown): LedgerCategoryTableRecord {
   };
 }
 
-export function mapPurgePreview(value: unknown): PurgePreview {
-  const wire = record(value, "purge preview");
-  return {
-    confirmationId: id(wire.confirmation_id, "purge preview.confirmation_id"),
-    transferGroupId: nullableString(wire.transfer_group_id, "purge preview.transfer_group_id"),
-    entryIds: array(wire.entry_ids, "purge preview.entry_ids")
-      .map((item) => id(item, "purge preview.entry_ids[]")),
-  };
-}
 
 export function mapMasterPurgePreview(value: unknown): MasterPurgePreview {
   const wire = record(value, "master purge preview");
@@ -560,13 +537,6 @@ export function mapLedgerTrend(value: unknown): LedgerTrend {
   };
 }
 
-export function mapLedgerBriefing(value: unknown): LedgerBriefing {
-  const wire = record(value, "ledger briefing");
-  return {
-    summary: mapLedgerSummary(wire.summary),
-    markdown: string(wire.markdown, "ledger briefing.markdown"),
-  };
-}
 
 export function mapPage<T>(
   value: unknown,

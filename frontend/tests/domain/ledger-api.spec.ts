@@ -44,7 +44,7 @@ describe("ledger report API", () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/v1/ledger/reports/compare?period=current_month",
       "/api/v1/ledger/reports/compare?period=custom&from=2026-08-01&to=2026-08-31",
-      "/api/v1/ledger/reports/trend?from=2026-08-01&to=2026-08-31&granularity=auto",
+      "/api/v1/ledger/reports/trend?from=2026-08-01&to=2026-08-31",
     ]);
   });
 });

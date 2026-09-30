@@ -1,4 +1,5 @@
 "use client";
+import { LedgerHistory } from "./LedgerHistory";
 
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import {
@@ -144,6 +145,7 @@ export function TransactionDetail({ controller, row, onBack, onArchived }: Trans
 
   return (
     <section className="detail-view" aria-label={`${row.content} details`}>
+      <LedgerHistory key={row.detailEntry.entry.id} recordType={transfer ? "transfer" : "ledger_entry"} recordId={transfer ? row.id : row.detailEntry.entry.id} />
       <header className="detail-header">
         <button ref={backButtonRef} type="button" className="detail-back" aria-label="< Back" onClick={back}>
           <ArrowLeft size={16} aria-hidden="true" />
@@ -187,7 +189,7 @@ export function TransactionDetail({ controller, row, onBack, onArchived }: Trans
                 <>
                   <label className="field-label">
                     Type
-                    <select value={draft.entryType} onChange={(event) => field("entryType", event.target.value)}>
+                    <select disabled={draft.entryType.startsWith("adjustment_")} value={draft.entryType} onChange={(event) => field("entryType", event.target.value)}>
                       <option value="expense">Expense</option>
                       <option value="income">Income</option>
                       {draft.entryType.startsWith("adjustment_") ? (

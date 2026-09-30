@@ -8,21 +8,13 @@ import {
   type LedgerController,
 } from "@/features/ledger/hooks/useLedgerController";
 import type {
-  Currency,
   LedgerEntryInput,
-  LedgerEntryView,
-  PublicLedgerEntryType,
   TransferInput,
 } from "@/features/ledger/model/ledger-model";
-import {
-  formatMinorUnits,
-  localDateTime,
-  utcDateTime,
-} from "@/features/ledger/ui/ledger-ui";
+
 
 type TransactionFormProps = {
   controller: LedgerController;
-  entry?: LedgerEntryView | null;
   onClose?: () => void;
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
@@ -34,13 +26,12 @@ const creationModes: CreationMode[] = ["expense", "income", "transfer"];
 
 export function TransactionForm({
   controller,
-  entry = null,
   onClose,
   onSaved,
   onPendingChange,
   onDirtyChange,
 }: TransactionFormProps) {
-  const initial = transactionDraft(entry, controller.state.currencies);
+  const initial = transactionDraft();
   const [mode, setMode] = useState<CreationMode>("expense");
   const [focusedMode, setFocusedMode] = useState<CreationMode>("expense");
   const [draft, setDraft] = useState(initial);
@@ -94,41 +85,34 @@ export function TransactionForm({
         )?.currencyId ?? "";
         const input: TransferInput = {
           date: draft.date,
-          writtenAt: new Date().toISOString(),
           content: draft.content,
           fromAccount: draft.fromAccount,
           toAccount: draft.toAccount,
           amount: draft.amount,
           currency,
-          source: "ui",
           notes: draft.notes || null,
         };
         await controller.transfer(input);
       } else {
-        const currency = entry
-          ? draft.currency
-          : controller.state.accounts.find(
-              (account) => account.active && account.id === draft.account,
-            )?.currencyId ?? "";
+        const currency = controller.state.accounts.find(
+          (account) => account.active && account.id === draft.account,
+        )?.currencyId ?? "";
         const input: LedgerEntryInput = {
           date: draft.date,
-          writtenAt: entry ? utcDateTime(draft.writtenAt) : new Date().toISOString(),
           content: draft.content,
           category: draft.category || null,
           account: draft.account,
-          entryType: entry ? draft.entryType : mode,
+          entryType: mode,
           amount: draft.amount,
           currency,
-          source: "ui",
           notes: draft.notes || null,
         };
-        if (entry) await controller.updateEntry(entry.entry.id, input);
-        else await controller.createEntry(input);
+        await controller.createEntry(input);
       }
       saved = true;
     } catch (cause) {
       if (mounted.current) {
-        if (!entry && cause instanceof LedgerMutationRefreshError) {
+        if (cause instanceof LedgerMutationRefreshError) {
           persistedWithoutRefresh = true;
           setRefreshRecovery(true);
           setError("Transaction saved, but the list could not refresh.");
@@ -138,7 +122,7 @@ export function TransactionForm({
       }
     } finally {
       if (mounted.current) {
-        if (saved) setDraft(transactionDraft(null, controller.state.currencies));
+        if (saved) setDraft(transactionDraft());
         setPending(false);
         if (!persistedWithoutRefresh) {
           onPendingChange?.(false);
@@ -159,25 +143,23 @@ export function TransactionForm({
       return;
     }
     setRefreshRecovery(false);
-    setDraft(transactionDraft(null, controller.state.currencies));
+    setDraft(transactionDraft());
     onPendingChange?.(false);
     onSaved?.();
   }
 
   const activeAccounts = controller.state.accounts.filter((account) => account.active);
-  const activeCurrencies = controller.state.currencies.filter((currency) => currency.active);
   const activeCategories = controller.state.categories.filter(
     (category) =>
       category.active &&
       category.kind ===
-        categoryKind(entry ? draft.entryType : mode === "income" ? "income" : "expense"),
+        (mode === "income" ? "income" : "expense"),
   );
   const selectedSource = activeAccounts.find((account) => account.id === draft.fromAccount);
 
   return (
-    <form aria-label={entry ? "Edit transaction" : "New transaction"} onSubmit={submit}>
-      {!entry && (
-        <div role="tablist" aria-label="Transaction type" className="transaction-type-tabs">
+    <form aria-label="New transaction" onSubmit={submit}>
+      <div role="tablist" aria-label="Transaction type" className="transaction-type-tabs">
           {creationModes.map((type, index) => (
             <button
               key={type}
@@ -199,11 +181,10 @@ export function TransactionForm({
             </button>
           ))}
         </div>
-      )}
       <div
-        id={!entry ? tabPanelId : undefined}
-        role={!entry ? "tabpanel" : undefined}
-        aria-labelledby={!entry ? `${tabPanelId}-${mode}` : undefined}
+        id={tabPanelId}
+        role="tabpanel"
+        aria-labelledby={`${tabPanelId}-${mode}`}
       >
       <label className="field-label">
         Date
@@ -214,19 +195,8 @@ export function TransactionForm({
           onChange={(event) => field("date", event.target.value)}
         />
       </label>
-      {entry && (
-        <label className="field-label">
-          Written at
-          <input
-            type="datetime-local"
-            required
-            value={draft.writtenAt}
-            onChange={(event) => field("writtenAt", event.target.value)}
-          />
-        </label>
-      )}
-      {!entry && (
-        <label className="field-label">
+
+      <label className="field-label">
           Content
           <input
             required
@@ -234,100 +204,33 @@ export function TransactionForm({
             onChange={(event) => field("content", event.target.value)}
           />
         </label>
-      )}
       {mode !== "transfer" ? (
         <>
-          {entry && (
-            <label className="field-label">
-              Type
-              <select
-                value={draft.entryType}
-                onChange={(event) =>
-                  field("entryType", event.target.value as PublicLedgerEntryType)}
-              >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-                <option value="adjustment_out">Adjustment out</option>
-                <option value="adjustment_in">Adjustment in</option>
-              </select>
-            </label>
-          )}
-          <label className="field-label">
-            Account
-            <select
-              required
-              value={draft.account}
-              onChange={(event) => field("account", event.target.value)}
-            >
+          <label className="field-label">Account
+            <select required value={draft.account} onChange={(event) => field("account", event.target.value)}>
               <option value="">Select account</option>
-              {activeAccounts.map((account) => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
+              {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select>
           </label>
-          <label className="field-label">
-            Category
-            <select
-              value={draft.category}
-              onChange={(event) => field("category", event.target.value)}
-            >
+          <label className="field-label">Category
+            <select value={draft.category} onChange={(event) => field("category", event.target.value)}>
               <option value="">No category</option>
-              {activeCategories.map((category) => (
-                <option key={category.id} value={category.id}>{category.name}</option>
-              ))}
+              {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
           </label>
         </>
       ) : (
         <>
-          <label className="field-label">
-            Source account
-            <select
-              required
-              value={draft.fromAccount}
-              onChange={(event) => {
-                const fromAccount = event.target.value;
-                const sourceAccount = activeAccounts.find(
-                  (account) => account.id === fromAccount,
-                );
-                setDraft((current) => ({
-                  ...current,
-                  fromAccount,
-                  toAccount: activeAccounts.some(
-                    (account) =>
-                      account.id === current.toAccount &&
-                      account.id !== fromAccount &&
-                      account.currencyId === sourceAccount?.currencyId,
-                  )
-                    ? current.toAccount
-                    : "",
-                }));
-              }}
-            >
+          <label className="field-label">Source account
+            <select required value={draft.fromAccount} onChange={(event) => setDraft((current) => ({ ...current, fromAccount: event.target.value, toAccount: "" }))}>
               <option value="">Select account</option>
-              {activeAccounts.map((account) => (
-                <option key={account.id} value={account.id}>{account.name}</option>
-              ))}
+              {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select>
           </label>
-          <label className="field-label">
-            Destination account
-            <select
-              required
-              value={draft.toAccount}
-              onChange={(event) => field("toAccount", event.target.value)}
-            >
+          <label className="field-label">Destination account
+            <select required value={draft.toAccount} onChange={(event) => field("toAccount", event.target.value)}>
               <option value="">Select account</option>
-              {activeAccounts
-                .filter(
-                  (account) =>
-                    !selectedSource ||
-                    (account.id !== selectedSource.id &&
-                      account.currencyId === selectedSource.currencyId),
-                )
-                .map((account) => (
-                  <option key={account.id} value={account.id}>{account.name}</option>
-                ))}
+              {activeAccounts.filter((account) => !selectedSource || (account.id !== selectedSource.id && account.currencyId === selectedSource.currencyId)).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select>
           </label>
         </>
@@ -341,33 +244,8 @@ export function TransactionForm({
           onChange={(event) => field("amount", event.target.value)}
         />
       </label>
-      {entry && (
-        <label className="field-label">
-          Currency
-          <select
-            required
-            value={draft.currency}
-            onChange={(event) => field("currency", event.target.value)}
-          >
-            <option value="">Select currency</option>
-            {activeCurrencies.map((currency) => (
-              <option key={currency.id} value={currency.id}>
-                {currency.code} — {currency.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {entry && (
-        <label className="field-label">
-          Content
-          <input
-            required
-            value={draft.content}
-            onChange={(event) => field("content", event.target.value)}
-          />
-        </label>
-      )}
+
+
       <label className="field-label">
         Note
         <textarea
@@ -398,9 +276,7 @@ export function TransactionForm({
             ? "Saved"
             : pending
               ? "Saving…"
-              : entry
-                ? "Save transaction"
-                : onClose
+              : onClose
                   ? "Save"
                   : mode === "transfer"
                     ? "Save transfer"
@@ -421,35 +297,20 @@ export function TransactionForm({
   );
 }
 
-function transactionDraft(entry: LedgerEntryView | null, currencies: Currency[]) {
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const currency = currencies.find((item) => item.id === entry?.entry.currencyId);
+function transactionDraft() {
   return {
-    date: entry?.entry.date ?? localCalendarDate(now),
-    writtenAt: localDateTime(entry?.entry.writtenAt ?? nowIso),
-    entryType: (entry?.entry.entryType === "transfer_in" ||
-      entry?.entry.entryType === "transfer_out"
-      ? "expense"
-      : entry?.entry.entryType ?? "expense") as PublicLedgerEntryType,
-    account: entry?.entry.accountId ?? "",
-    category: entry?.entry.transactionCategoryId ?? "",
+    date: localCalendarDate(new Date()),
+    account: "",
+    category: "",
     fromAccount: "",
     toAccount: "",
-    amount: entry
-      ? formatMinorUnits(entry.entry.amountMinor, currency?.decimalPlaces ?? 0)
-      : "",
-    currency: entry?.entry.currencyId ?? "",
-    content: entry?.entry.content ?? "",
-    notes: entry?.entry.notes ?? "",
+    amount: "",
+    content: "",
+    notes: "",
   };
 }
 
 function localCalendarDate(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function categoryKind(type: PublicLedgerEntryType): "expense" | "income" {
-  return type === "income" || type === "adjustment_in" ? "income" : "expense";
 }

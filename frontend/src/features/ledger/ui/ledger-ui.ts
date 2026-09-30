@@ -28,22 +28,6 @@ export function formatMoney(
   return code ? `${amount} ${code}` : amount;
 }
 
-export function localDateTime(rfc3339: string): string {
-  const date = new Date(rfc3339);
-  const parts = [
-    date.getFullYear(),
-    date.getMonth() + 1,
-    date.getDate(),
-    date.getHours(),
-    date.getMinutes(),
-  ].map((part) => part.toString().padStart(2, "0"));
-  return `${parts[0]}-${parts[1]}-${parts[2]}T${parts[3]}:${parts[4]}`;
-}
-
-export function utcDateTime(local: string): string {
-  return new Date(local).toISOString();
-}
-
 export function useLifecycleAction() {
   const active = useRef(new Set<string>());
   const [pending, setPending] = useState<Set<string>>(() => new Set());

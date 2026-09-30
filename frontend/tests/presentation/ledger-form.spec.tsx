@@ -105,20 +105,14 @@ function controller(
     updateTransfer: vi.fn(),
     archive: vi.fn(),
     restore: vi.fn(),
-    previewPurge: vi.fn(),
-    purge: vi.fn(),
     createAccount: vi.fn(),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
     restoreAccount: vi.fn(),
-    previewAccountPurge: vi.fn(),
-    purgeAccount: vi.fn(),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
     restoreCategory: vi.fn(),
-    previewCategoryPurge: vi.fn(),
-    purgeCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -319,7 +313,6 @@ describe("TransactionForm", () => {
       content: "Lunch",
       account,
       currency,
-      writtenAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     }));
     expect(ledger.transfer).not.toHaveBeenCalled();
   });
@@ -359,29 +352,18 @@ describe("TransactionForm", () => {
       .toBeInTheDocument();
   });
 
-  it("generates writtenAt at submission time", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-08-14T00:00:00.000Z"));
-      const ledger = controller();
-      render(<TransactionForm controller={ledger} />);
-
-      fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "1000" } });
-      fireEvent.change(screen.getByLabelText("Content"), { target: { value: "Lunch" } });
-      fireEvent.change(screen.getByLabelText("Account"), {
-        target: { value: "account-cash" },
-      });
-      vi.setSystemTime(new Date("2026-08-14T00:05:00.000Z"));
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Save transaction" }));
-      });
-
-      expect(ledger.createEntry).toHaveBeenCalledWith(expect.objectContaining({
-        writtenAt: "2026-08-14T00:05:00.000Z",
-      }));
-    } finally {
-      vi.useRealTimers();
-    }
+  it("leaves audit metadata to the adapter", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<TransactionForm controller={ledger} />);
+    await user.type(screen.getByLabelText("Amount"), "1");
+    await user.type(screen.getByLabelText("Content"), "Lunch");
+    await user.selectOptions(screen.getByLabelText("Account"), "account-cash");
+    await user.click(screen.getByRole("button", { name: "Save transaction" }));
+    const input = vi.mocked(ledger.createEntry).mock.calls[0][0];
+    expect(input).not.toHaveProperty("writtenAt");
+    expect(input).not.toHaveProperty("source");
+    expect(input).not.toHaveProperty("actor");
   });
 
   it("submits a paired transfer with separate source and destination accounts", async () => {
@@ -402,7 +384,6 @@ describe("TransactionForm", () => {
       fromAccount: "account-cash",
       toAccount: "account-savings",
       currency: "currency-krw",
-      writtenAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     }));
     expect(ledger.createEntry).not.toHaveBeenCalled();
   });
@@ -442,107 +423,7 @@ describe("TransactionForm", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Amount is invalid");
   });
 
-  it("keeps edits retryable when an update reports a refresh failure", async () => {
-    const user = userEvent.setup();
-    const ledger = controller();
-    vi.mocked(ledger.updateEntry).mockRejectedValue(new LedgerMutationRefreshError());
-    render(
-      <TransactionForm
-        controller={ledger}
-        entry={{
-          accountName: "Cash",
-          categoryName: "Food",
-          currencyCode: "USD",
-          entry: {
-            id: "entry-usd",
-            date: "2026-07-30",
-            writtenAt: "2026-07-30T00:00:00Z",
-            content: "Coffee",
-            transactionCategoryId: "category-food",
-            accountId: "account-cash",
-            entryType: "expense",
-            amountMinor: 1234,
-            currencyId: "currency-usd",
-            transferGroupId: null,
-            source: "ui",
-            notes: null,
-            createdAt: "2026-07-30T00:00:00Z",
-            updatedAt: "2026-07-30T00:00:00Z",
-            deletedAt: null,
-          },
-        }}
-      />,
-    );
 
-    expect(visibleFieldLabels()).toEqual([
-      "Date",
-      "Written at",
-      "Type",
-      "Account",
-      "Category",
-      "Amount",
-      "Currency",
-      "Content",
-      "Note",
-    ]);
-    expect(screen.getByLabelText("Amount")).toHaveValue("12.34");
-    await user.click(screen.getByRole("button", { name: "Save transaction" }));
-    expect(ledger.updateEntry).toHaveBeenCalledWith(
-      "entry-usd",
-      expect.objectContaining({ amount: "12.34" }),
-    );
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Changes were saved, but Ledger could not refresh.",
-    );
-    expect(screen.getByRole("button", { name: "Save transaction" })).not.toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Retry refresh" })).toBeNull();
-  });
-
-  it("round-trips RFC3339 through a non-UTC browser-local datetime", async () => {
-    const previousTimezone = process.env.TZ;
-    process.env.TZ = "Asia/Seoul";
-    try {
-      const user = userEvent.setup();
-      const ledger = controller();
-      render(
-        <TransactionForm
-          controller={ledger}
-          entry={{
-            accountName: "Cash",
-            categoryName: "Food",
-            currencyCode: "KRW",
-            entry: {
-              id: "entry-time",
-              date: "2026-07-30",
-              writtenAt: "2026-07-30T00:00:00Z",
-              content: "Breakfast",
-              transactionCategoryId: "category-food",
-              accountId: "account-cash",
-              entryType: "expense",
-              amountMinor: 12000,
-              currencyId: "currency-krw",
-              transferGroupId: null,
-              source: "ui",
-              notes: null,
-              createdAt: "2026-07-30T00:00:00Z",
-              updatedAt: "2026-07-30T00:00:00Z",
-              deletedAt: null,
-            },
-          }}
-        />,
-      );
-
-      expect(screen.getByLabelText("Written at")).toHaveValue("2026-07-30T09:00");
-      await user.click(screen.getByRole("button", { name: "Save transaction" }));
-      expect(ledger.updateEntry).toHaveBeenCalledWith(
-        "entry-time",
-        expect.objectContaining({ writtenAt: "2026-07-30T00:00:00.000Z" }),
-      );
-    } finally {
-      if (previousTimezone === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTimezone;
-    }
-  });
 });
 
 function visibleFieldLabels() {

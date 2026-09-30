@@ -1,4 +1,5 @@
 "use client";
+import { LedgerRecovery } from "./LedgerRecovery";
 
 import React from "react";
 import { createPortal } from "react-dom";
@@ -353,6 +354,8 @@ function AccountSettingsDialogContent({
             </button>
           ))}
         </div>
+        <LedgerRecovery controller={controller} kind="currencies" />
+        <LedgerRecovery controller={controller} kind="account-types" />
         <section
           id={`${currentTab.id}-panel`}
           role="tabpanel"

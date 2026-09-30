@@ -393,7 +393,6 @@ describe("Ledger wire boundary", () => {
       amount: "2500",
       currency: "KRW",
       notes: null,
-      reason: "correct transfer",
     });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -407,7 +406,6 @@ describe("Ledger wire boundary", () => {
       amount: "2500",
       currency: "KRW",
       notes: null,
-      reason: "correct transfer",
     });
   });
 

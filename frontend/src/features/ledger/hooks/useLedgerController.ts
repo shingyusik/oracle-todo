@@ -27,7 +27,6 @@ import type {
   LedgerTableLookups,
   LedgerTrend,
   MasterPurgePreview,
-  PurgePreview,
   TransactionCategory,
   TransferInput,
   TransferUpdate,
@@ -134,25 +133,19 @@ export type LedgerController = {
   updateTransfer(id: string, input: TransferUpdate): Promise<void>;
   archive(id: string): Promise<void>;
   restore(id: string): Promise<void>;
-  previewPurge(id: string): Promise<PurgePreview>;
-  purge(id: string, confirmation: string): Promise<void>;
   createAccount(input: AccountInput): Promise<void>;
   updateAccount(id: string, input: Partial<AccountInput>): Promise<void>;
   archiveAccount(id: string): Promise<void>;
   restoreAccount(id: string): Promise<void>;
-  previewAccountPurge(id: string): Promise<MasterPurgePreview>;
-  purgeAccount(id: string, confirmation: string): Promise<void>;
   createCategory(input: TransactionCategoryInput): Promise<void>;
   updateCategory(id: string, input: Partial<TransactionCategoryInput>): Promise<void>;
   archiveCategory(id: string): Promise<void>;
   restoreCategory(id: string): Promise<void>;
-  previewCategoryPurge(id: string): Promise<MasterPurgePreview>;
-  purgeCategory(id: string, confirmation: string): Promise<void>;
   createCurrency(input: CurrencyInput): Promise<void>;
-  updateCurrency(id: string, input: Partial<CurrencyInput>): Promise<void>;
+  updateCurrency(id: string, input: Partial<CurrencyInput> & { active?: boolean }): Promise<void>;
   deactivateCurrency(id: string): Promise<void>;
   createAccountCategory(input: AccountCategoryInput): Promise<void>;
-  updateAccountCategory(id: string, input: Partial<AccountCategoryInput>): Promise<void>;
+  updateAccountCategory(id: string, input: Partial<AccountCategoryInput> & { active?: boolean }): Promise<void>;
   deactivateAccountCategory(id: string): Promise<void>;
   previewAccountCategoryPurge(id: string): Promise<MasterPurgePreview>;
   purgeAccountCategory(id: string, confirmation: string): Promise<void>;
@@ -746,9 +739,6 @@ export function useLedgerController(): LedgerController {
     updateTransfer: (id, input) => mutate(() => ledgerApi.updateTransfer(id, input)),
     archive: (id) => mutate(() => ledgerApi.archiveEntry(id)),
     restore: (id) => mutate(() => ledgerApi.restoreEntry(id)),
-    previewPurge: ledgerApi.previewEntryPurge,
-    purge: (id, confirmation) =>
-      mutate(() => ledgerApi.purgeEntry(id, confirmation)),
     createAccount: (input) => mutate(() => ledgerApi.createAccount(input)),
     updateAccount: (id, input) =>
       mutate(() => ledgerApi.updateAccount(id, input)),
@@ -756,9 +746,6 @@ export function useLedgerController(): LedgerController {
       mutate(() => ledgerApi.updateAccount(id, { active: false })),
     restoreAccount: (id) =>
       mutate(() => ledgerApi.updateAccount(id, { active: true })),
-    previewAccountPurge: (id) => ledgerApi.previewMasterPurge("accounts", id),
-    purgeAccount: (id, confirmation) =>
-      mutate(() => ledgerApi.purgeMaster("accounts", id, confirmation)),
     createCategory: (input) =>
       mutate(() => ledgerApi.createTransactionCategory(input)),
     updateCategory: (id, input) =>
@@ -767,11 +754,6 @@ export function useLedgerController(): LedgerController {
       mutate(() => ledgerApi.updateTransactionCategory(id, { active: false })),
     restoreCategory: (id) =>
       mutate(() => ledgerApi.updateTransactionCategory(id, { active: true })),
-    previewCategoryPurge: (id) =>
-      ledgerApi.previewMasterPurge("transaction-categories", id),
-    purgeCategory: (id, confirmation) =>
-      mutate(() =>
-        ledgerApi.purgeMaster("transaction-categories", id, confirmation)),
     createCurrency: (input) => mutate(() => ledgerApi.createCurrency(input)),
     updateCurrency: (id, input) => mutate(() => ledgerApi.updateCurrency(id, input)),
     deactivateCurrency: (id) => mutate(() => ledgerApi.updateCurrency(id, { active: false })),

@@ -4,7 +4,6 @@ import {
   type AccountCategory,
   type BreakdownRow,
   type Currency,
-  type LedgerBriefing,
   type LedgerComparison,
   type LedgerEntry,
   type LedgerEntryInput,
@@ -16,7 +15,6 @@ import {
   type LedgerTableScope,
   type LedgerTrend,
   type MasterPurgePreview,
-  type PurgePreview,
   type TransactionCategory,
   type TransactionCategoryKind,
   type TransferInput,
@@ -27,7 +25,6 @@ import {
   mapAccountCategory,
   mapBreakdown,
   mapCurrency,
-  mapLedgerBriefing,
   mapLedgerComparison,
   mapLedgerEntry,
   mapLedgerEntryView,
@@ -37,7 +34,6 @@ import {
   mapLedgerTrend,
   mapMasterPurgePreview,
   mapPage,
-  mapPurgePreview,
   mapTransactionCategory,
   mapTransfer,
 } from "@/features/ledger/model/ledger-model";
@@ -58,7 +54,7 @@ const MAX_PENDING_TRANSFER_KEYS = 64;
 const pendingTransferKeys = new Map<string, string>();
 
 export type Page<T> = { items: T[]; nextOffset: number | null };
-export type PageQuery = { offset?: number; limit?: number };
+export type PageQuery = { offset?: number; limit?: number; includeInactive?: boolean };
 export type EntryQuery = PageQuery & {
   dateFrom?: string;
   dateTo?: string;
@@ -70,7 +66,6 @@ export type EntryQuery = PageQuery & {
   includeArchived?: boolean;
 };
 export type ReportRangeInput = { from: string; to: string };
-export type MonthlyReportInput = { year: number; month: number };
 export type ReportSelection =
   | { period: "current_month" | "previous_month" | "current_year" }
   | { period: "custom"; from: string; to: string };
@@ -78,16 +73,16 @@ export type ReportSelection =
 export type LedgerTablePage = { items: LedgerTableOccurrence[]; nextOffset: number | null };
 
 export type CurrencyInput = {
-  code: string; name: string; symbol: string; decimalPlaces: number; actor?: string;
+  code: string; name: string; symbol: string; decimalPlaces: number;
 };
 export type AccountCategoryInput = {
-  name: string; parent?: string | null; liability?: boolean; actor?: string;
+  name: string; parent?: string | null; liability?: boolean;
 };
 export type AccountInput = {
-  name: string; category: string; currency: string; openingBalance: string; actor?: string;
+  name: string; category: string; currency: string; openingBalance: string;
 };
 export type TransactionCategoryInput = {
-  name: string; parent?: string | null; kind: TransactionCategoryKind; actor?: string;
+  name: string; parent?: string | null; kind: TransactionCategoryKind;
 };
 
 export const ledgerApi = {
@@ -145,15 +140,6 @@ export const ledgerApi = {
       method: "POST",
     }));
   },
-  async previewEntryPurge(id: string): Promise<PurgePreview> {
-    return mapPurgePreview(await requestJson(`${ROOT}/entries/${segment(id)}/purge`));
-  },
-  async purgeEntry(id: string, confirmation: string): Promise<void> {
-    await requestJson(
-      `${ROOT}/entries/${segment(id)}/purge`,
-      jsonRequest("DELETE", { confirmation }),
-    );
-  },
   async createTransfer(input: TransferInput): Promise<TransferView> {
     const payload = transferBody(input);
     const fingerprint = await transferFingerprint(payload);
@@ -192,11 +178,10 @@ export const ledgerApi = {
       name: input.name,
       symbol: input.symbol,
       decimal_places: input.decimalPlaces,
-      actor: input.actor,
-    })))),
+      })))),
   updateCurrency: async (
     id: string,
-    input: Partial<CurrencyInput> & { active?: boolean; reason?: string | null },
+    input: Partial<CurrencyInput> & { active?: boolean },
   ): Promise<Currency> =>
     mapCurrency(await requestJson(`${ROOT}/currencies/${segment(id)}`, jsonRequest("PATCH", clean({
       code: input.code,
@@ -204,21 +189,19 @@ export const ledgerApi = {
       symbol: input.symbol,
       decimal_places: input.decimalPlaces,
       active: input.active,
-      actor: input.actor,
-      reason: input.reason,
-    })))),
+        })))),
   listAccountCategories: (query: PageQuery = {}) =>
     masterPage(`${ROOT}/account-categories`, query, mapAccountCategory),
   createAccountCategory: async (input: AccountCategoryInput): Promise<AccountCategory> =>
     mapAccountCategory(await requestJson(
       `${ROOT}/account-categories`,
       jsonRequest("POST", clean({
-        name: input.name, parent: input.parent, liability: input.liability, actor: input.actor,
+        name: input.name, parent: input.parent, liability: input.liability,
       })),
     )),
   updateAccountCategory: async (
     id: string,
-    input: Partial<AccountCategoryInput> & { active?: boolean; reason?: string | null },
+    input: Partial<AccountCategoryInput> & { active?: boolean },
   ): Promise<AccountCategory> =>
     mapAccountCategory(await requestJson(
       `${ROOT}/account-categories/${segment(id)}`,
@@ -227,9 +210,7 @@ export const ledgerApi = {
         parent: input.parent,
         liability: input.liability,
         active: input.active,
-        actor: input.actor,
-        reason: input.reason,
-      })),
+              })),
     )),
   listAccounts: (query: PageQuery = {}) => masterPage(`${ROOT}/accounts`, query, mapAccount),
   createAccount: async (input: AccountInput): Promise<Account> =>
@@ -238,11 +219,10 @@ export const ledgerApi = {
       category: input.category,
       currency: input.currency,
       opening_balance: input.openingBalance,
-      actor: input.actor,
-    })))),
+      })))),
   updateAccount: async (
     id: string,
-    input: Partial<AccountInput> & { active?: boolean; reason?: string | null },
+    input: Partial<AccountInput> & { active?: boolean },
   ): Promise<Account> =>
     mapAccount(await requestJson(`${ROOT}/accounts/${segment(id)}`, jsonRequest("PATCH", clean({
       name: input.name,
@@ -250,9 +230,7 @@ export const ledgerApi = {
       currency: input.currency,
       opening_balance: input.openingBalance,
       active: input.active,
-      actor: input.actor,
-      reason: input.reason,
-    })))),
+        })))),
   listTransactionCategories: (query: PageQuery = {}) =>
     masterPage(`${ROOT}/transaction-categories`, query, mapTransactionCategory),
   createTransactionCategory: async (
@@ -261,12 +239,12 @@ export const ledgerApi = {
     mapTransactionCategory(await requestJson(
       `${ROOT}/transaction-categories`,
       jsonRequest("POST", clean({
-        name: input.name, parent: input.parent, kind: input.kind, actor: input.actor,
+        name: input.name, parent: input.parent, kind: input.kind,
       })),
     )),
   updateTransactionCategory: async (
     id: string,
-    input: Partial<TransactionCategoryInput> & { active?: boolean; reason?: string | null },
+    input: Partial<TransactionCategoryInput> & { active?: boolean },
   ): Promise<TransactionCategory> =>
     mapTransactionCategory(await requestJson(
       `${ROOT}/transaction-categories/${segment(id)}`,
@@ -275,30 +253,25 @@ export const ledgerApi = {
         parent: input.parent,
         kind: input.kind,
         active: input.active,
-        actor: input.actor,
-        reason: input.reason,
-      })),
+              })),
     )),
   listAccountBalances: (query: PageQuery = {}) =>
     masterPage(`${ROOT}/account-balances`, query, mapAccountBalance),
   async previewMasterPurge(
-    kind: "currencies" | "account-categories" | "accounts" | "transaction-categories",
+    kind: "account-categories",
     id: string,
   ): Promise<MasterPurgePreview> {
     return mapMasterPurgePreview(await requestJson(`${ROOT}/${kind}/${segment(id)}/purge`));
   },
   async purgeMaster(
-    kind: "currencies" | "account-categories" | "accounts" | "transaction-categories",
+    kind: "account-categories",
     id: string,
     confirmation: string,
   ): Promise<void> {
     await requestJson(`${ROOT}/${kind}/${segment(id)}`, jsonRequest("DELETE", { confirmation }));
   },
-  async summary(input: ReportRangeInput | MonthlyReportInput): Promise<LedgerSummary> {
+  async summary(input: ReportRangeInput): Promise<LedgerSummary> {
     return mapLedgerSummary(await requestJson(apiPath(`${ROOT}/reports/summary`, reportQuery(input))));
-  },
-  async accountReport(input: ReportRangeInput): Promise<BreakdownRow[]> {
-    return mapBreakdown(await requestJson(apiPath(`${ROOT}/reports/accounts`, reportQuery(input))));
   },
   async categoryReport(input: ReportRangeInput): Promise<BreakdownRow[]> {
     return mapBreakdown(await requestJson(apiPath(`${ROOT}/reports/categories`, reportQuery(input))));
@@ -314,13 +287,7 @@ export const ledgerApi = {
     return mapLedgerTrend(await requestJson(apiPath(`${ROOT}/reports/trend`, {
       from: input.from,
       to: input.to,
-      granularity: "auto",
     })));
-  },
-  async briefing(input: ReportRangeInput): Promise<LedgerBriefing> {
-    return mapLedgerBriefing(await requestJson(
-      apiPath(`${ROOT}/reports/briefing`, reportQuery(input)),
-    ));
   },
 };
 
@@ -330,7 +297,7 @@ async function masterPage<T>(
   mapper: (value: unknown) => T,
 ): Promise<Page<T>> {
   return mapPage(
-    await requestJson(apiPath(path, { offset: query.offset, limit: query.limit })),
+    await requestJson(apiPath(path, { offset: query.offset, limit: query.limit, include_inactive: query.includeInactive })),
     mapper,
   );
 }
@@ -338,48 +305,38 @@ async function masterPage<T>(
 function entryBody(input: LedgerEntryInput): JsonObject {
   return clean({
     date: input.date,
-    written_at: input.writtenAt,
     content: input.content,
     category: input.category,
     account: input.account,
     entry_type: input.entryType,
     amount: input.amount,
     currency: input.currency,
-    source: input.source,
     notes: input.notes,
-    actor: input.actor,
   });
 }
 
 function entryUpdateBody(input: LedgerEntryUpdate): JsonObject {
   return clean({
     date: input.date,
-    written_at: input.writtenAt,
     content: input.content,
     category: input.category,
     account: input.account,
     entry_type: input.entryType,
     amount: input.amount,
     currency: input.currency,
-    source: input.source,
     notes: input.notes,
-    actor: input.actor,
-    reason: input.reason,
   });
 }
 
 function transferBody(input: TransferInput): JsonObject {
   return clean({
     date: input.date,
-    written_at: input.writtenAt,
     content: input.content,
     from_account: input.fromAccount,
     to_account: input.toAccount,
     amount: input.amount,
     currency: input.currency,
-    source: input.source,
     notes: input.notes,
-    actor: input.actor,
   });
 }
 
@@ -392,8 +349,6 @@ function transferUpdateBody(input: TransferUpdate): JsonObject {
     amount: input.amount,
     currency: input.currency,
     notes: input.notes,
-    actor: input.actor,
-    reason: input.reason,
   });
 }
 
@@ -407,10 +362,8 @@ async function transferFingerprint(payload: JsonObject): Promise<string> {
     .join("");
 }
 
-function reportQuery(input: ReportRangeInput | MonthlyReportInput) {
-  return "year" in input
-    ? { year: input.year, month: input.month }
-    : { from: input.from, to: input.to };
+function reportQuery(input: ReportRangeInput) {
+  return { from: input.from, to: input.to };
 }
 
 function clean(value: Record<string, JsonValue | undefined>): JsonObject {

@@ -1,4 +1,5 @@
 "use client";
+import { LedgerHistory } from "./LedgerHistory";
 
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import {
@@ -142,6 +143,7 @@ export function CategoryDetail({ controller, row, onBack, onDeleted }: CategoryD
 
   return (
     <section className="detail-view" aria-label={`${row.name} details`}>
+      <LedgerHistory key={row.id} recordType="transaction_category" recordId={row.id} />
       <header className="detail-header">
         <button ref={backButtonRef} type="button" className="detail-back" aria-label="< Back" disabled={pending} onClick={back}>
           <ArrowLeft size={16} aria-hidden="true" />
