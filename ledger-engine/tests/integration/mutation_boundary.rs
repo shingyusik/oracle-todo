@@ -12,8 +12,7 @@ fn downstream_crates_cannot_obtain_or_commit_raw_mutation_transactions() {
     fs::write(
         crate_dir.join("Cargo.toml"),
         format!(
-            "[package]\nname = \"raw-mutation-client\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nledger-engine = {{ path = {:?} }}\n",
-            ledger_path
+            "[package]\nname = \"raw-mutation-client\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nledger-engine = {{ path = {ledger_path:?} }}\n"
         ),
     )
     .unwrap();
@@ -65,8 +64,7 @@ fn downstream_crates_cannot_bypass_service_with_raw_repository_reads() {
     fs::write(
         crate_dir.join("Cargo.toml"),
         format!(
-            "[package]\nname = \"raw-read-client\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nledger-engine = {{ path = {:?} }}\n",
-            ledger_path
+            "[package]\nname = \"raw-read-client\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nledger-engine = {{ path = {ledger_path:?} }}\n"
         ),
     )
     .unwrap();

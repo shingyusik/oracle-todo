@@ -12,8 +12,7 @@ fn downstream_crates_cannot_obtain_raw_health_mutation_transactions() {
     fs::write(
         crate_dir.join("Cargo.toml"),
         format!(
-            "[package]\nname = \"raw-health-mutation-client\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nhealth-engine = {{ path = {:?} }}\n",
-            health_path
+            "[package]\nname = \"raw-health-mutation-client\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nhealth-engine = {{ path = {health_path:?} }}\n"
         ),
     )
     .unwrap();
