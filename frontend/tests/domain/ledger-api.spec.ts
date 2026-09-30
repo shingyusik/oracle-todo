@@ -22,7 +22,7 @@ describe("ledger report API", () => {
       .mockResolvedValueOnce(response({ items: [], next_offset: null }));
     vi.stubGlobal("fetch", fetchMock);
     const settings = defaultLedgerTableSettings("ledger.transactions");
-    settings.filterRules = [{ id: "content", field: "content", operator: "contains", value: "subscription" }];
+    settings.filterRules = [{ id: "content", field: "content", type: "text", operator: "contains", value: "subscription" }];
     settings.groupSettings.groupBy = "month";
     settings.groupSettings.hiddenGroupKeys = ["2026-07"];
     await ledgerApi.analyzeTable(settings, new Date(2026, 8, 29));

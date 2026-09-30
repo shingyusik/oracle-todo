@@ -34,7 +34,7 @@ describe("TransactionAnalysis", () => {
     const analyze = vi.spyOn(ledgerApi, "analyzeTable").mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
     const settings = defaultLedgerTableSettings("ledger.transactions");
     const view = render(<TransactionAnalysis settings={settings} generation={1} onClose={() => {}} />);
-    const filtered = { ...settings, filterRules: [{ id: "content", field: "content" as const, operator: "contains" as const, value: "subscription" }] };
+    const filtered = { ...settings, filterRules: [{ id: "content", field: "content" as const, type: "text" as const, operator: "contains" as const, value: "subscription" }] };
     view.rerender(<TransactionAnalysis settings={filtered} generation={1} onClose={() => {}} />);
     await act(async () => pending[1]([{ ...bucket, totalMinor: 200 }]));
     await act(async () => pending[0]([bucket]));
