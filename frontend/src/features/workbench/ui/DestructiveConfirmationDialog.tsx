@@ -63,7 +63,7 @@ function DestructiveDialogContent({
     cancelRef.current?.focus();
     return () => {
       const returnTarget = returnFocusRef.current;
-      requestAnimationFrame(() => {
+      queueMicrotask(() => {
         if (isEnabledFocusTarget(returnTarget)) returnTarget.focus();
         else fallbackFocusRef.current?.focus();
       });

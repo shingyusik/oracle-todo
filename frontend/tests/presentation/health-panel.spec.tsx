@@ -503,6 +503,7 @@ describe("HealthPanel", () => {
     expect(screen.getByLabelText("Weight")).toHaveValue(null);
     expect(screen.getByLabelText("Sleep")).toHaveValue(null);
     await user.click(screen.getByRole("button", { name: "Close Add health metrics" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
 
     view.rerender(<HealthPanel controller={{ ...health, state: {
       ...health.state, metricsStatus: "loading",
