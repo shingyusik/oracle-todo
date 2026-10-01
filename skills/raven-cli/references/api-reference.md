@@ -1,0 +1,563 @@
+# API Reference
+
+Raven serves one HTTP API below `/api/v1`. CLI and API adapters call the same domain
+services.
+
+## Authentication and bind
+
+Standalone `raven api` requires exactly one:
+
+- `RAVEN_API_TOKEN`
+- `RAVEN_API_TOKEN_FILE`
+
+Send `Authorization: Bearer <token>`. Tokens are 16–4096 visible ASCII bytes; duplicate or
+malformed authorization headers are rejected. The token-file variant enforces
+platform-specific file permissions.
+
+Default bind is `127.0.0.1:3002`. `RAVEN_API_BIND_HOST` must be an IP address and
+`RAVEN_API_BIND_PORT` must be `1..=65535`. A non-loopback cleartext bind is rejected unless
+`RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true` is set exactly.
+
+`raven ui` instead issues a fresh HTTP-only `SameSite=Strict` `raven_session` cookie from
+`/__raven/session`. Its listener stays loopback-only and validates exact request authority.
+Without `RAVEN_UI_PUBLIC_ORIGIN`, local behavior is unchanged.
+
+Setting an exact HTTPS origin enables Cloudflare Access UI mode while preserving the loopback
+trust boundary:
+
+```bash
+RAVEN_UI_PUBLIC_ORIGIN=https://raven.b-sir.xyz \
+  raven ui --port 3001 --no-open
+```
+
+The origin host must be lowercase. An optional port is decimal `1..=65535` without leading
+zeroes; explicit default port `443`, empty or malformed ports, and an authority that resolves to
+the active loopback listener are rejected before serving. Invalid configuration exits `2`
+without echoing the value.
+
+Public requests must use the configured Host and one non-empty `Cf-Access-Jwt-Assertion`
+validated and forwarded by `cloudflared`. Top-level document navigation may omit `Origin`, but
+every supplied Origin and every public API `POST`, `PUT`, `PATCH`, or `DELETE` request must match
+the configured HTTPS origin exactly. A request-target authority that conflicts with `Host`
+returns `421`. Successful public `GET` responses set a `Secure`, HTTP-only `SameSite=Strict`
+Raven cookie only for the UI index and extensionless SPA fallback; other static assets, including
+arbitrary `.html` files, do not set it. `/api/v1/*` routes still require the current Raven cookie.
+API tokens, Access JWTs or assertions, and Raven session cookies must not be logged or included
+in error responses.
+
+Exact `GET /healthz` is the only unauthenticated route:
+
+```json
+{"status":"ok"}
+```
+
+`/healthz/` and descendants are not health probes.
+
+## Shared error contract
+
+Raven errors are:
+
+```json
+{
+  "code": "validation_error",
+  "message": "The request is invalid.",
+  "fields": {"amount": ["invalid"]},
+  "request_id": "uuid"
+}
+```
+
+| Status | Default/common code |
+| --- | --- |
+| `400` | `validation_error` |
+| `401` | `unauthorized` |
+| `404` | `not_found` |
+| `409` | `conflict` |
+| `413` | `payload_too_large` |
+| `414` | `uri_too_long` |
+| `415` | `unsupported_media_type` |
+| `431` | `header_too_large` |
+| `500` | `internal_error` |
+
+Messages are intentionally generic except for the authenticated ToDo detail exception below.
+`request_id` correlates an internal failure without exposing database paths, SQL, record
+contents, tokens, sessions, or arbitrary metadata.
+
+## Dashboard and preferences
+
+| Method | Route | Behavior |
+| --- | --- | --- |
+| `GET` | `/api/v1/dashboard` | Combined ToDo, Ledger, Health, and recent activity |
+| `GET` | `/api/v1/preferences/:key` | Read namespaced presentation state |
+| `PUT` | `/api/v1/preferences/:key` | Store an object-valued preference |
+
+Preference keys are `planner.v1`, `workspace.views.v1`, `ledger.views.v1`, and `health.views.v1`. Preferences live in `todo.sqlite` and cannot mutate domain tables.
+
+Dashboard returns HTTP `200` even when one domain cannot load. Each `todo`, `ledger`, and
+`health` member is independently:
+
+```json
+{"status":"ok","data":{}}
+```
+
+or:
+
+```json
+{
+  "status":"error",
+  "code":"domain_unavailable",
+  "message":"This data is currently unavailable.",
+  "request_id":"uuid"
+}
+```
+
+## ToDo routes
+
+The existing ToDo router is mounted below `/api/v1/todo`:
+
+| Method | Relative route |
+| --- | --- |
+| `GET` | `/health`, `/items`, `/items/archive` (bounded `{items,next}` archive pages) |
+| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
+| `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
+| `PATCH` | `/items/:id` |
+| `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive` |
+
+Example full route: `GET /api/v1/todo/items`. Item history uses `GET /items/:id/history?offset=0&limit=50` and returns `{items,next}`.
+
+`POST /items/:id/postpone` requires caller-local `today` and a target `scheduled` date.
+The target may be today only when the source schedule is earlier than today; otherwise it
+must be later than today.
+
+The standalone ToDo API command is not part of Raven's supported surface:
+`raven todo api` is rejected. Use `raven api` or `raven ui`, both of which apply Raven
+authentication and bind policy.
+
+ToDo preserves its service policies: direct-active creation, required project
+`definition_of_done`, required routine RRULE, canonical goal anchors, status-machine
+transitions, and an audit event for every mutation.
+`PATCH /items/:id` preserves priority when omitted and clears it with `"priority":null`.
+The `expected_updated_at` condition applies to clearing as well as ordinary updates.
+
+Authenticated ToDo routes have a narrow safe-detail exception within the shared error
+envelope. Only `400 goal_invalid_anchor` and `400 goal_parent_horizon_not_coarser` retain
+their corresponding safe message detail. For these two errors, the `fields` object may
+contain only `parent_horizon`, `child_horizon`, `horizon`, `scheduled`, and `parent_id`, and
+each present value is a one-element string array.
+
+ToDo `400 policy_error` uses the generic `validation_error` code and message, and ToDo
+`404 not_found` uses the generic `not_found` message. Both have an empty `fields` object.
+
+Malformed, oversized, status-mismatched, conflicting, payload-too-large, and internal ToDo
+errors use the generic shared contract. They do not expose paths, SQL, raw storage errors,
+tokens, sessions, or arbitrary metadata.
+
+### ToDo table views
+
+`POST /table/query` filters, groups, and sorts the complete active scope before returning a
+page. `offset` defaults to `0`; `limit` defaults to and cannot exceed `50`. JSON bodies are
+limited to 128 KiB and recursively deny unknown fields. Existing `/items`
+routes keep their array response shapes.
+
+Scopes and contexts use these exact lowercase values:
+
+- Workspace: `workspace.area`, `.project`, `.goal`, `.routine`, `.task`, or `.event`, with
+  `"context": {}`.
+- Planner goal tables: `planner.yearly-period-goals`, `.yearly-month-goals`,
+  `.monthly-period-goals`, `.monthly-week-goals`, `.weekly-month-goals`, or
+  `.weekly-week-goals`.
+- Planner work tables: `planner.monthly-calendar`, `.weekly-day-grid`, `.daily-today`,
+  `.daily-overdue`, or `.daily-unscheduled`.
+- Linked tables: `linked.<parent>.<child>` for `area` to `project|routine|task|event`,
+  `project` to `routine|task|event`, `routine` to `task`, and `goal` to `goal|task`.
+
+Planner context is `{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}` using the selected local
+period, inclusive. Linked context is
+`{"parent_type":"project","parent_id":"<id>"}` and must match the scope. Any context may
+also carry `reference_date:"YYYY-MM-DD"`; it is required whenever a relative-date filter is
+used. Dates require zero-padded calendar form and are never inferred from the server clock.
+
+```json
+{
+  "scope": "workspace.task",
+  "offset": 0,
+  "limit": 50,
+  "filter_mode": "and",
+  "filters": [{"field":"title","operator":"contains","value":{"text":"review"}}],
+  "sorts": [{"field":"updated","direction":"desc"}],
+  "group_by": "tag",
+  "group_settings": {
+    "sort": "manual",
+    "hide_empty": true,
+    "manual_order": [],
+    "hidden_group_keys": []
+  },
+  "context": {"reference_date":"2026-08-22"}
+}
+```
+
+`filter_mode` is `and|or`; sort direction is `asc|desc`; group sort is
+`manual|alphabetical|reverse_alphabetical`. Filter values have exactly one shape:
+`{"text":"..."}`, `{"list":["..."]}`, `{"range":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`,
+`{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`. Operators are
+`is`, `is_not`, `contains`, `does_not_contain`, `starts_with`, `ends_with`, `is_before`,
+`is_after`, `is_on_or_before`, `is_on_or_after`, `is_between`, `is_relative_to_today`,
+`greater_than`, `less_than`, `is_empty`, and `is_not_empty`. Text fields accept
+`contains|does_not_contain|is|is_not|starts_with|ends_with` with `text`; date fields accept
+`is|is_not|is_before|is_after|is_on_or_before|is_on_or_after` with `text`, `is_between` with
+`range`, or `is_relative_to_today` with `relative`; select, multi-select, and relation fields
+accept `is|is_not|contains|does_not_contain` with `list`. Every field accepts
+`is_empty|is_not_empty` with `empty:true`. Priority is a select field, not a numeric field;
+no current ToDo field accepts `greater_than|less_than`.
+
+Workspace fields are scope-specific: area has `title,status,tags,note`; project adds
+`area,due`; goal has `title,status,tags,horizon,scheduled,parent,note`; routine has
+`title,status,tags,area,project,recurrence_rule,materialization_policy,priority,description,note`;
+task has `title,status,tags,area,project,routine,scheduled,due,priority,description,note`; and
+event has `title,status,tags,area,project,scheduled,due,priority,location,participants,commitment_type,description,note`.
+Linked tables use their child Workspace fields. Planner goal fields are
+`title,status,tags,horizon,scheduled,due,parent,note`; Planner work fields are
+`title,status,tags,area,project,routine,scheduled,due,priority,recurrence_rule,materialization_policy,location,participants,commitment_type,description,note`.
+Every corresponding sort field is allowed, plus `updated`.
+
+Workspace groups are `none,tag,status`, plus `area` for project/routine/task/event, `project`
+for routine/task/event, and `routine` for task. Linked tables use their child groups. Planner
+goal groups are `none,tag,status`; Planner work groups are
+`none,month,week,day,area,project,routine,tag,item_type,status`. Group keys in
+`manual_order` and `hidden_group_keys` are bounded saved-view keys; `hide_empty` suppresses
+empty relation/date groups.
+
+The page response is exactly `{"items":[...],"next_offset":50|null}`. Each occurrence has
+`key`, nullable `group_key`, nullable `group_label`, and `record`. `key` is deterministic for
+the logical record and group occurrence. The full display record contains `id`, `type`,
+`title`, `status`, `tags`, relation IDs, description/note/outcome/definition fields, recurrence
+and scheduling fields, timestamps, and `metadata_` (`location`, `participants`, and
+`commitment_type`). Enum values use the snake-case forms shown above.
+
+`GET /table/lookups?scope=...` accepts the same scope strings and returns
+`{"items":[{"id":"...","type":"task","title":"...","tags":["..."]}]}`. Results contain
+only non-terminal records relevant to the displayed and filter/group fields. Area returns
+`area`; project returns `area,project`; goal and Planner goal scopes return `goal`; routine
+returns `area,project,routine`; task returns `area,goal,project,routine,task`; event returns
+`area,event,project`; linked scopes use their child set; Planner work scopes return
+`area,event,project,routine,task`. Stored tag labels keep their trimmed casing and deduplicate
+only exact matches. Lookups contain no note, description, full record, or audit data.
+Optional `item_id` excludes the current item and narrows Goal parent choices using the
+same nesting policy as mutations. Optional `horizon=week|month|year` uses a proposed Goal
+horizon; it applies only to Goal scopes. Goal parents must be non-terminal and strictly
+coarser, without a prospective parent cycle. A supplied item must match the workspace or
+linked child type.
+
+## Ledger routes
+
+All routes below use prefix `/api/v1/ledger`.
+
+| Resource | Routes |
+| --- | --- |
+| Entries | `GET/POST /entries`, `GET/PATCH /entries/:id`, `POST /entries/:id/archive`, `POST /entries/:id/restore` |
+| Transfers | `POST /transfers`, `GET/PATCH /transfers/:id` |
+| Currencies | `GET/POST /currencies`, `PATCH /currencies/:id` |
+| Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
+| Accounts | `GET/POST /accounts`, `PATCH /accounts/:id` |
+| Transaction categories | `GET/POST /transaction-categories`, `PATCH /transaction-categories/:id` |
+| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
+| Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/categories`, `/reports/compare`, `/reports/trend` |
+
+JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
+offset `0`, limit `100`; limits are bounded. Reports accept `from`+`to`; comparison and trend reads use the UI period contract. Comparison derives the preceding equal-length period; trend granularity is chosen by the service.
+
+Only account-category purge `GET` returns a confirmation preview. Its `DELETE`
+requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
+Only entries expose archive/restore. Currency, account-category, account, and transaction
+category lifecycle uses the `active` field on update.
+
+### Ledger table views
+
+`POST /table/query` reads one page from `ledger.transactions`, `ledger.accounts`, or
+`ledger.categories`. The default and maximum `limit` are `50`; `offset` defaults to `0`.
+Filters, group visibility and ordering, and user sorts apply to the complete active dataset
+before paging. Existing Ledger list routes and their response shapes are unchanged.
+
+```json
+{
+  "scope": "ledger.transactions",
+  "offset": 0,
+  "limit": 50,
+  "filter_mode": "and",
+  "filters": [{"field":"content","operator":"contains","value":{"text":"lunch"}}],
+  "sorts": [{"field":"date","direction":"desc"}],
+  "group_by": "month",
+  "group_settings": {
+    "sort": "alphabetical",
+    "hide_empty": true,
+    "manual_order": [],
+    "hidden_group_keys": []
+  },
+  "context": {"reference_date":"2026-08-21"}
+}
+```
+
+`context.reference_date` is an optional caller-local `YYYY-MM-DD` date and is required when
+an `is_relative_to_today` date filter is present. Filter values use exactly one of `text`,
+`list`, `range` (`start` and `end`), `relative` (`amount` and `unit`), or `empty:true`.
+Unknown fields are rejected at every request-object level. The response is
+`{"items":[{"key":"...","group_key":null,"group_label":null,"record":{}}],"next_offset":50}`;
+`next_offset` is `null` on the final page.
+Transaction records include `amount_minor`, `currency_code`, and the currency's validated
+`decimal_places`, so clients can format minor units without loading the currency list.
+
+With `group_settings.sort:"manual"` and an empty manual order, Month, Week and Day
+transaction groups follow the leading Date sort direction. Explicit alphabetical,
+reverse-alphabetical and nonempty manual group orders keep their selected order.
+
+`GET /table/lookups` accepts the same three scope values. Transaction lookups return compact
+active `accounts`, `categories`, and `currencies`; account lookups return `account_types` and
+`currencies`; category lookups return `categories`. Every option contains only `id` and
+`label`.
+
+### Ledger reports
+
+`POST /table/analysis` accepts the same validated body as `/table/query` with scope
+`ledger.transactions`. It aggregates all matching active logical transactions, ignoring
+`offset`, `limit` and sort order. Hidden groups are honored; transfers visible under two
+accounts count once. The response is `{"buckets":[...]}`; an empty match returns an empty
+array. Each bucket contains `currency_id`, `currency_code`, `decimal_places`, `month`
+(`YYYY-MM`), `kind`, `category_id`, `category_label`, `count` and `total_minor`. Buckets
+group by currency, month, transaction kind and category; amounts remain integer minor
+units. Transfers are separate from income and spending. Unsupported scopes return 400.
+
+In Transactions, **Analyze** opens statistics and charts for the active view. Filters and
+hidden group changes refresh the analysis; saved table views retain these conditions.
+Currencies are analyzed separately. Monthly average spending divides spending by the
+calendar-month span from the first to last matching transaction, including empty months
+between them. Months outside that matched span are excluded even if a date filter allows
+them. Monthly values are available in an accessible table alongside the graph.
+
+`GET /reports/compare` accepts either the legacy explicit four-date selector or a period
+selector:
+
+| Selector | Query | Comparison period |
+| --- | --- | --- |
+| Explicit ranges | `current_from`, `current_to`, `previous_from`, `previous_to` | Explicitly supplied current and previous ranges |
+| Current month | `period=current_month` | Current calendar month vs. the preceding calendar month |
+| Previous month | `period=previous_month` | Previous calendar month vs. the calendar month before it |
+| Current year | `period=current_year` | Current calendar year vs. the preceding calendar year |
+| Custom | `period=custom&from=YYYY-MM-DD&to=YYYY-MM-DD` | The immediately preceding range of equal inclusive length |
+
+The three presets use the configured local date to select calendar periods. `custom` requires
+both `from` and `to`; its preceding range has the same inclusive number of days and ends the
+day before the custom range. The response retains `current` and `previous` summaries and
+also returns aligned `currencies` rows. Each currency remains separate: minor units from
+different currencies are never combined or converted, and a currency missing from one side
+has zero totals on that side. Summary and comparison currency rows include `decimal_places`
+so clients can format integer minor units correctly even when a referenced currency is inactive.
+
+`GET /reports/trend` requires `from` and `to` and accepts optional
+`granularity=auto|daily|weekly|monthly`. Ranges are inclusive. Series are partitioned by
+currency; each currency with activity receives zero-filled points for missing buckets. Daily,
+weekly (Monday-based), and monthly (calendar-month) buckets are clipped to the requested range. Archived
+entries are excluded. With no activity, `currencies` is an empty array. A trend request may
+produce at most 366 buckets; larger requests return the standard validation error.
+
+Report dates in JSON retain Raven's established `[year, ordinal]` representation for ranges
+and trend-point `start`/`end` values; they are not ISO date strings.
+
+## Health routes
+
+All routes below use prefix `/api/v1/health`.
+
+| Resource | Routes |
+| --- | --- |
+| Diet | `GET/POST /diet`, `GET/PATCH /diet/:id`, lifecycle `POST /diet/:id/archive|restore` |
+| Saved diet image | `GET /diet/:id/image` (authenticated, `Cache-Control: no-store`) |
+| Record inspector | `GET /records?offset=0&limit=100` returns `{items}` including archived and legacy records |
+| Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
+| Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore` |
+| Metrics | `POST /metrics/daily` |
+| Table pages | `POST /table/query`, `GET /table/lookups?scope=...` |
+| Reads | `GET /reports`, `/audit/:record_type/:record_id` |
+
+`GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and
+`daily_only=true|false`. `daily_only=true` returns only active events created through the
+daily-upsert workflow; ordinary metric events are excluded.
+
+`POST /metrics/daily` atomically saves one local date. The body contains 1 through 366
+combined `metrics` and `archives` operations. `archives` defaults to `[]`, and the existing
+metrics-only body remains valid. Each operation may include `expected_updated_at` for
+optimistic concurrency:
+
+```json
+{
+  "metrics": [{
+    "occurred_at": "2026-08-20T09:00:00+09:00",
+    "details": {"kind": "weight", "value": 68.2, "unit": "kg"},
+    "expected_updated_at": "2026-08-20T01:00:00Z"
+  }],
+  "archives": [{
+    "id": "00000000-0000-4000-8000-000000000001",
+    "expected_updated_at": "2026-08-20T01:00:00Z"
+  }]
+}
+```
+
+All operations must target the same UTC+09:00 calendar date. Existing values require `expected_updated_at`. The service rejects stale versions,
+ordinary or inactive archive targets, duplicate identities, and an identity present in both
+arrays. Any validation, conflict, audit, or storage failure rolls back the entire request.
+The response `items` contains the created or updated active events; archived events are not
+included.
+
+### Health table pages
+
+`POST /table/query` serves the exact scopes `health.diet`, `health.bowel`,
+`health.medication`, and `health.metrics`. The strict JSON body contains `scope`, `offset`,
+`limit`, `filter_mode`, `filters`, `sorts`, `group_by`, `group_settings`, and `context`.
+`limit` defaults to 50 and may not exceed 50. `context.reference_date`, when present, is a
+local calendar date in `YYYY-MM-DD` form and is required by `is_relative_to_today` filters.
+
+Filter values use one of the strict envelopes `{"text":"..."}`, `{"list":["..."]}`,
+`{"range":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}`,
+`{"relative":{"amount":"1","unit":"day|week|month"}}`, or `{"empty":true}`.
+Sort rules contain `field` and `direction` (`asc` or `desc`). `group_settings` contains
+`sort` (`manual`, `alphabetical`, or `reverse_alphabetical`), `hide_empty`, `manual_order`,
+and `hidden_group_keys`. Fields are validated against the selected scope. Filtering,
+grouping, hidden-group removal, and sorting apply to the complete active dataset before the
+requested offset page is selected.
+
+The response has the following envelope; `next_offset` is `null` after the final page:
+
+```json
+{
+  "items": [{
+    "key": "8:untagged:record-id",
+    "group_key": "untagged",
+    "group_label": "Untagged",
+    "record": {"kind": "diet", "id": "record-id"}
+  }],
+  "next_offset": 50
+}
+```
+
+Every row has `key`, nullable `group_key`, nullable `group_label`, and `record`. `key`
+identifies a displayed occurrence, including separate tag-group occurrences. Records use
+these exact snake-case fields:
+
+| `kind` | Record fields |
+| --- | --- |
+| `diet` | `kind`, `id`, `entry`, `date`, `meal_label`, `food`, `tags`, `has_photo`, `note` |
+| `bowel` | `kind`, `id`, `event`, `date`, `bristol_scale`, `blood_visible`, `blood_label`, `note` |
+| `medication` | `kind`, `id`, `event`, `date`, `medication_name`, `dose`, `unit`, `unit_label`, `note` |
+| `metrics` | `kind`, `id`, `date`, `events`, `weight`, `sleep`, `crp`, `calprotectin`, `condition`, `note`, `created_at`, `updated_at` |
+
+`date` is an ISO `YYYY-MM-DD` local calendar date. A Metrics record combines all active
+fixed-metric events for that local date; missing metric columns are `null`.
+
+`GET /table/lookups?scope=...` returns compact `{id,label}` arrays only. Diet exposes active
+normalized tags plus fixed meal and photo choices; Bowel exposes Bristol-scale and blood
+visibility choices; Medication exposes unit choices; Metrics exposes its fixed metric fields.
+The existing `/diet` and `/events` list response shapes are unchanged.
+
+### Health reports
+
+`GET /reports` requires exact local calendar dates `from` and `to` in `YYYY-MM-DD` format:
+
+```bash
+curl 'http://127.0.0.1:3002/api/v1/health/reports?from=2026-07-22&to=2026-08-20' \
+  -H "Authorization: Bearer $RAVEN_API_TOKEN"
+```
+
+The range is inclusive and may contain at most 366 days. The response also includes the
+immediately preceding period of equal inclusive length. Only active Diet and Health records
+contribute to reports; archived records are excluded.
+
+The five fixed daily metrics are body weight, sleep duration, CRP, fecal calprotectin, and
+overall condition. Each summary returns the latest reading in the selected range as `current`
+and that reading's immediate predecessor as `previous`; series contain the selected-range
+readings. A missing count, average, or metric reading is `null`, not zero.
+
+Bowel points and medication and Diet-tag frequencies cover the selected range. Diet-tag bowel
+response rows include every tag plus `positive_meals`, `eligible_meals`, and `rate`. A response
+uses bowel events in the interval `(meal, meal + 24 hours]`; a meal whose full response window
+has not elapsed is excluded from both numerator and denominator. Historical ranges therefore
+read through the selected end plus 24 hours so complete boundary responses remain visible.
+
+`diet_tag_bristol_comparisons` contains one row per recorded tag with `with_tag` and
+`without_tag` meal groups. Both groups include `eligible_meals` (completed 24-hour windows),
+`observed_meals` (eligible meals with any bowel record), `pending_meals` (incomplete windows),
+and `bristol_meals` (seven meal counts ordered by Bristol 1 through 7). Each score counts
+at most once per meal; different scores may count for the same meal. Meals without the tag,
+including untagged meals, form the comparison group. Only selected-period meals contribute;
+their bowel observations use the same `(meal, meal + 24 hours]` interval.
+
+The Reports heatmap displays `100 * (with_score / with_observed - without_score /
+without_observed)` in percentage points. Meals without bowel records are excluded from both
+percentage denominators, not classified as normal. Cells are gray when either group has fewer
+than five observed meals, including tags present on every meal. This display threshold does
+not establish statistical significance. Cells show a compact signed difference or a dash for
+insufficient data. Selecting a cell reveals raw counts, percentages, and unrecorded/pending
+meal counts below the heatmap. The minimum meal requirement stays visible above the table;
+method details are collapsed under About this chart. Dashboard and Reports heatmaps scroll
+within a 400px height with Bristol column headings fixed at the top. Green indicates
+a higher score frequency with the tag, amber a lower frequency, without health judgments.
+Missing food tags, shared foods, and overlapping observation windows limit interpretation;
+this is an unadjusted descriptive comparison, not a causal estimate or correlation coefficient.
+
+The response includes this exact interpretation warning:
+
+```text
+Observed associations only; they do not establish causation.
+```
+
+JSON bodies are limited to 128 KiB. The Diet image routes are not multipart:
+
+- Body: raw JPEG, PNG, or WebP bytes, at most 10 MiB
+- `Content-Type`: exactly `image/jpeg`, `image/png`, or `image/webp`
+- `X-Raven-Diet-Metadata`: required strict, HTTP-header-safe ASCII JSON
+  metadata, at most 8 KiB; escape non-ASCII text in the JSON header value
+
+The metadata object is:
+
+```json
+{
+  "occurred_at": "2026-07-31T12:00:00+09:00",
+  "meal_type": "lunch",
+  "food_name": "Rice bowl",
+  "note": null,
+  "tags": ["rice", "vegetables"]
+}
+```
+
+`note` is optional, `tags` defaults to `[]`, and actor is assigned by the adapter. Unknown
+metadata fields are rejected. Declared content type must agree with detected image bytes.
+The same limits, MIME validation, and safe API errors apply to
+`PATCH /diet/:id/with-image`. Its metadata accepts the optional Diet update fields plus
+`expected_updated_at` for optimistic concurrency. The new
+image and record fields are committed by one service mutation. `remove_image:true` is
+rejected because this route replaces the image.
+
+JSON `PATCH /diet/:id` accepts the same update fields. `remove_image` defaults to `false`,
+which preserves the current image; `remove_image:true` removes it. Record and media changes
+commit atomically as one service mutation.
+
+```bash
+curl -X POST http://127.0.0.1:3002/api/v1/health/diet/with-image \
+  -H "Authorization: Bearer $RAVEN_API_TOKEN" \
+  -H "Content-Type: image/jpeg" \
+  -H 'X-Raven-Diet-Metadata: {"occurred_at":"2026-07-31T12:00:00+09:00","meal_type":"lunch","food_name":"Rice bowl","tags":["rice"]}' \
+  --data-binary @meal.jpg
+```
+
+Generic event creation accepts bowel and medication only. Daily metrics use canonical
+weight, sleep, CRP, fecal calprotectin, and overall-condition keys. Names and units are
+service policy. Generic updates cannot change metric identity or date. Archive and
+restore accept optimistic timestamps. Public Health purge routes are absent.
+
+A committed media cleanup failure returns `cleanup_pending`, `committed: true`, and a
+safe UUID `record_id` when available. Refresh the saved record; do not repeat creation.
+Domain reads open existing stores read-only and do not create or migrate data homes.
+
+Legacy stored workspace preferences remain readable through the canonical key.
+
+## UI static boundary
+
+`raven ui` serves the startup snapshot of the static artifact. `/api`, `/__raven`, and
+`/healthz` namespaces never use SPA fallback. Static files have bounded count, depth,
+individual size, and total size; symlinks/reparse points are rejected during artifact load.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Raven Ledger"
+  short_description: "Raven 거래·계좌·분류·이체·보고서 조회와 기록 관리"
+  default_prompt: "Use $raven-ledger to query or manage the requested Raven Ledger records through the CLI."

@@ -82,8 +82,10 @@ npm --prefix npm/raven test
 
 ## Skills & Hooks
 
-Project skills live under `.claude/plugins/` and are mirrored under `.codex/skills/`.
-Treat `.claude/plugins/` as source of truth. Use docs skills after code changes, verification
+Installable Raven CLI skills live in root `skills/` and are versioned with application code;
+install them manually into the target environment. Development skills live under
+`.claude/plugins/` and are mirrored under `.codex/skills/`, with `.claude/plugins/` as their
+source of truth. Use docs skills after code changes, verification
 skills before completion, and structured-commit rules when committing. Codex hooks are in
 `.codex/hooks.json`.
 

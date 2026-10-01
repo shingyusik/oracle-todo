@@ -1,0 +1,4 @@
+interface:
+  display_name: "Raven CLI"
+  short_description: "Raven CLI help·선택값·검색·출력·재시도 공통 안내"
+  default_prompt: "Use $raven-cli to discover supported commands and choices, then query Raven with the requested filters, sorts, and groups."

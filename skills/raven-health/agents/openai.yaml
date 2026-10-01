@@ -1,0 +1,4 @@
+interface:
+  display_name: "Raven Health"
+  short_description: "Raven 식사·배변·약·일일 지표 조회와 건강 기록 관리"
+  default_prompt: "Use $raven-health to query or record the requested Raven Health Journal data and canonical daily metrics."

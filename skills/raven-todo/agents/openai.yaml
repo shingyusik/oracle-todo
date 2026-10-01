@@ -1,0 +1,4 @@
+interface:
+  display_name: "Raven ToDo"
+  short_description: "Raven 할 일·일정·목표·반복 작업 조회와 상태 관리"
+  default_prompt: "Use $raven-todo to search and manage the requested Raven ToDo items using current UI choices."
