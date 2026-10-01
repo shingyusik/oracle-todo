@@ -12,6 +12,86 @@ async fn body_json(response: http::Response<Body>) -> Value {
 }
 
 #[tokio::test]
+async fn priority_null_clears_value_but_omission_preserves_it() {
+    let app = router(":memory:").unwrap();
+    let task = body_json(
+        json_request(
+            app.clone(),
+            "POST",
+            "/tasks/propose",
+            json!({"title":"priority", "priority":3}),
+        )
+        .await,
+    )
+    .await;
+    let uri = format!("/items/{}", task["id"].as_str().unwrap());
+    let preserved =
+        body_json(json_request(app.clone(), "PATCH", &uri, json!({"note":"keep priority"})).await)
+            .await;
+    assert_eq!(preserved["priority"], 3);
+    let cleared = body_json(
+        json_request(
+            app.clone(),
+            "PATCH",
+            &uri,
+            json!({"priority":null, "expected_updated_at":preserved["updated_at"]}),
+        )
+        .await,
+    )
+    .await;
+    assert!(cleared["priority"].is_null());
+    let read = body_json(empty_request(app, "GET", "/items").await).await;
+    assert!(read[0]["priority"].is_null());
+}
+
+#[tokio::test]
+async fn goal_parent_lookups_use_current_items_nesting_policy() {
+    let app = router(":memory:").unwrap();
+    let mut goals = Vec::new();
+    for (horizon, scheduled) in [
+        ("year", "2026-01-01"),
+        ("month", "2026-10-01"),
+        ("week", "2026-09-28"),
+    ] {
+        goals.push(
+            body_json(
+                json_request(
+                    app.clone(),
+                    "POST",
+                    "/goals/propose",
+                    json!({"title":horizon,"horizon":horizon,"scheduled":scheduled}),
+                )
+                .await,
+            )
+            .await,
+        );
+    }
+    let uri = format!(
+        "/table/lookups?scope=workspace.goal&item_id={}",
+        goals[1]["id"].as_str().unwrap()
+    );
+    let choices = body_json(empty_request(app.clone(), "GET", uri).await).await;
+    assert_eq!(choices["items"].as_array().unwrap().len(), 1);
+    assert_eq!(choices["items"][0]["id"], goals[0]["id"]);
+    let changed_period = body_json(
+        empty_request(
+            app.clone(),
+            "GET",
+            format!(
+                "/table/lookups?scope=workspace.goal&item_id={}&horizon=year",
+                goals[1]["id"].as_str().unwrap()
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(changed_period["items"].as_array().unwrap().is_empty());
+    let task_choices =
+        body_json(empty_request(app, "GET", "/table/lookups?scope=workspace.task").await).await;
+    assert_eq!(task_choices["items"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
 async fn http_update_rejects_stale_version_and_removed_inputs() {
     let app = router(":memory:").unwrap();
     let item = body_json(

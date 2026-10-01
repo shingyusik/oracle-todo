@@ -22,6 +22,71 @@ impl TodoService {
             ServiceStore::InMemory(items) => Ok(build_lookups(items.values(), scope)),
         }
     }
+
+    pub fn table_lookups_for_item(
+        &mut self,
+        scope: TodoTableScope,
+        item_id: Option<&str>,
+        horizon: Option<&str>,
+    ) -> TodoResult<Vec<TodoTableLookup>> {
+        let lookups = self.table_lookups(scope)?;
+        let item = item_id.map(|id| self.get(id)).transpose()?;
+        if let Some(item) = &item
+            && (matches!(scope, TodoTableScope::Workspace(workspace) if workspace.item_type() != item.item_type)
+                || matches!(scope, TodoTableScope::Linked { child, .. } if child != item.item_type))
+        {
+            return Err(crate::application::error::TodoError::Validation(
+                "lookup scope must match item type".into(),
+            ));
+        }
+        if horizon.is_some()
+            && !matches!(
+                scope,
+                TodoTableScope::Workspace(WorkspaceTableScope::Goal)
+                    | TodoTableScope::Linked {
+                        child: ItemType::Goal,
+                        ..
+                    }
+            )
+        {
+            return Err(crate::application::error::TodoError::Validation(
+                "horizon applies only to goal parent choices".into(),
+            ));
+        }
+        let goal_horizon = horizon
+            .or_else(|| {
+                item.as_ref()
+                    .filter(|item| item.item_type == ItemType::Goal)
+                    .and_then(|item| item.horizon.as_deref())
+            })
+            .map(|value| {
+                value
+                    .parse::<crate::domain::Horizon>()
+                    .map_err(crate::application::error::TodoError::Validation)
+            })
+            .transpose()?;
+        let mut valid = Vec::new();
+        for candidate in lookups {
+            if item.as_ref().is_some_and(|item| candidate.id == item.id) {
+                continue;
+            }
+            if let Some(horizon) = goal_horizon.filter(|_| candidate.item_type == ItemType::Goal) {
+                match self.validate_goal_nesting(Some(&candidate.id), horizon, item_id) {
+                    Ok(()) => {}
+                    Err(
+                        crate::application::error::TodoError::GoalParentHorizonNotCoarser {
+                            ..
+                        }
+                        | crate::application::error::TodoError::Policy(_)
+                        | crate::application::error::TodoError::Validation(_),
+                    ) => continue,
+                    Err(error) => return Err(error),
+                }
+            }
+            valid.push(candidate);
+        }
+        Ok(valid)
+    }
 }
 
 pub(crate) fn query_items(
@@ -128,7 +193,7 @@ pub(crate) const fn lookup_item_types(scope: TodoTableScope) -> &'static [ItemTy
         } => &[I::Area, I::Project, I::Routine],
         TodoTableScope::Workspace(WorkspaceTableScope::Task)
         | TodoTableScope::Linked { child: I::Task, .. } => {
-            &[I::Area, I::Project, I::Routine, I::Task]
+            &[I::Area, I::Project, I::Goal, I::Routine, I::Task]
         }
         TodoTableScope::Workspace(WorkspaceTableScope::Event)
         | TodoTableScope::Linked {

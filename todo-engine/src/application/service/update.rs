@@ -22,6 +22,7 @@ pub struct UpdateItem {
     pub scheduled: Option<String>,
     pub horizon: Option<String>,
     pub priority: Option<i64>,
+    pub clear_priority: bool,
     pub tags: Option<Vec<String>>,
     pub location: Option<String>,
     pub participants: Option<Vec<String>>,
@@ -59,6 +60,7 @@ impl TodoService {
             scheduled,
             horizon,
             priority,
+            clear_priority,
             tags,
             location,
             participants,
@@ -79,6 +81,11 @@ impl TodoService {
         }
         super::policy::deprecated(description.as_deref(), routine_id.as_deref())?;
         super::policy::priority(priority)?;
+        if clear_priority && priority.is_some() {
+            return Err(TodoError::Validation(
+                "priority and clear_priority cannot be combined".into(),
+            ));
+        }
         super::policy::review_cycle(review_cycle.as_deref())?;
         super::policy::date(due.as_deref(), "due", false)?;
         if item.item_type != ItemType::Goal {
@@ -137,7 +144,7 @@ impl TodoService {
                 "scheduled",
             ),
             (
-                priority.is_some(),
+                priority.is_some() || clear_priority,
                 matches!(kind, ItemType::Routine | ItemType::Task | ItemType::Event),
                 "priority",
             ),
@@ -210,7 +217,11 @@ impl TodoService {
                 item.parent_id.clone()
             };
             let canonical_scheduled = self.validate_goal_anchor(next_horizon, next_scheduled)?;
-            self.validate_goal_nesting(resolved_parent_id.as_deref(), next_horizon)?;
+            self.validate_goal_nesting(
+                resolved_parent_id.as_deref(),
+                next_horizon,
+                Some(&item.id),
+            )?;
 
             next_goal_parent_id = Some(resolved_parent_id);
             item.horizon = Some(next_horizon.as_str().to_string());
@@ -289,6 +300,9 @@ impl TodoService {
         }
         if let Some(priority) = priority {
             item.priority = Some(priority);
+        }
+        if clear_priority {
+            item.priority = None;
         }
         if let Some(tags) = tags {
             item.tags = super::normalize_tags(tags);

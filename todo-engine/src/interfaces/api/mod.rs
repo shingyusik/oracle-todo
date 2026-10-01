@@ -25,6 +25,7 @@ mod handlers;
 mod table;
 use handlers::*;
 use table::*;
+pub(crate) use table::{decode_table_query_json, decode_table_scope};
 
 #[derive(Clone)]
 pub(super) struct ApiState {

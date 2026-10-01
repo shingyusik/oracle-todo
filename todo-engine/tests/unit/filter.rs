@@ -5,6 +5,22 @@ use todo_engine::domain::{Actor, ItemStatus, ItemType, TodoItem};
 
 const NOW: OffsetDateTime = datetime!(2026 - 05 - 31 12:00 UTC);
 
+#[test]
+fn text_search_uses_ui_unicode_case_folding() {
+    let mut candidate = TodoItem::new_task("search", "ÄPFEL_%", Actor::User, NOW);
+    candidate.note = Some("한글 Note".into());
+    for query in ["äpfel_%", "note", "한글"] {
+        let matches = apply_list_filter(
+            [candidate.clone()],
+            ListFilter {
+                query: Some(query.into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(matches.len(), 1, "{query}");
+    }
+}
+
 fn item(id: &str, item_type: ItemType, status: ItemStatus) -> TodoItem {
     let mut i = TodoItem::new(id, item_type, id, Actor::User, NOW);
     i.status = status;

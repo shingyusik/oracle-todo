@@ -234,7 +234,7 @@ impl TodoService {
             .parse::<Horizon>()
             .map_err(TodoError::Validation)?;
         let canonical = self.validate_goal_anchor(horizon, &request.scheduled)?;
-        self.validate_goal_nesting(request.parent_id.as_deref(), horizon)?;
+        self.validate_goal_nesting(request.parent_id.as_deref(), horizon, None)?;
 
         let now = self.next_now();
         let mut item = TodoItem::new(

@@ -310,6 +310,8 @@ struct GroupSettingsBody {
 #[serde(deny_unknown_fields)]
 pub(super) struct TableLookupQuery {
     scope: TableScopeBody,
+    item_id: Option<String>,
+    horizon: Option<String>,
 }
 
 pub(super) async fn query_table(
@@ -317,38 +319,57 @@ pub(super) async fn query_table(
     body: Result<Json<TableQueryBody>, JsonRejection>,
 ) -> ApiResult<Json<Value>> {
     let Json(body) = body.map_err(validation_rejection)?;
-    let scope = body.scope.application();
-    let (context, reference_date) = context(scope, body.context)?;
-    let filters = body
-        .filters
-        .into_iter()
-        .map(|value| filter(scope, value))
-        .collect::<Result<Vec<_>, _>>()?;
-    let sorts = body
-        .sorts
-        .into_iter()
-        .map(|value| sort(scope, value))
-        .collect::<Result<Vec<_>, _>>()?;
-    let group_settings = TodoTableGroupSettings::new(
-        group(scope, body.group_by)?,
-        body.group_settings.sort,
-        body.group_settings.hide_empty,
-        body.group_settings.manual_order,
-        body.group_settings.hidden_group_keys,
-    )?;
-    let query = TodoTableQuery::new(
-        scope,
-        context,
-        body.offset,
-        body.limit,
-        body.filter_mode,
-        filters,
-        sorts,
-        group_settings,
-        reference_date,
-    )?;
+    let query = body.application()?;
     let page = with_read_service(&state, |service| service.query_table(&query))?;
     Ok(Json(json!(page)))
+}
+
+pub(crate) fn decode_table_query_json(body: &str) -> Result<TodoTableQuery, TodoError> {
+    serde_json::from_str::<TableQueryBody>(body)
+        .map_err(|_| validation())?
+        .application()
+}
+
+pub(crate) fn decode_table_scope(scope: &str) -> Result<TodoTableScope, TodoError> {
+    serde_json::from_value::<TableScopeBody>(Value::String(scope.to_owned()))
+        .map(TableScopeBody::application)
+        .map_err(|_| validation())
+}
+
+impl TableQueryBody {
+    fn application(self) -> Result<TodoTableQuery, TodoError> {
+        let body = self;
+        let scope = body.scope.application();
+        let (context, reference_date) = context(scope, body.context)?;
+        let filters = body
+            .filters
+            .into_iter()
+            .map(|value| filter(scope, value))
+            .collect::<Result<Vec<_>, _>>()?;
+        let sorts = body
+            .sorts
+            .into_iter()
+            .map(|value| sort(scope, value))
+            .collect::<Result<Vec<_>, _>>()?;
+        let group_settings = TodoTableGroupSettings::new(
+            group(scope, body.group_by)?,
+            body.group_settings.sort,
+            body.group_settings.hide_empty,
+            body.group_settings.manual_order,
+            body.group_settings.hidden_group_keys,
+        )?;
+        TodoTableQuery::new(
+            scope,
+            context,
+            body.offset,
+            body.limit,
+            body.filter_mode,
+            filters,
+            sorts,
+            group_settings,
+            reference_date,
+        )
+    }
 }
 
 pub(super) async fn table_lookups(
@@ -357,7 +378,11 @@ pub(super) async fn table_lookups(
 ) -> ApiResult<Json<Value>> {
     let Query(query) = query.map_err(|error| TodoError::Validation(error.body_text()))?;
     let items = with_read_service(&state, |service| {
-        service.table_lookups(query.scope.application())
+        service.table_lookups_for_item(
+            query.scope.application(),
+            query.item_id.as_deref(),
+            query.horizon.as_deref(),
+        )
     })?;
     Ok(Json(json!({"items": items})))
 }

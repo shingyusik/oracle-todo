@@ -219,7 +219,7 @@ impl TodoService {
         })?);
         if item.item_type == ItemType::Area {
             return Err(TodoError::Policy(
-                "Areas cannot be completed; pause or archive them".to_string(),
+                "Areas cannot be completed; archive them".to_string(),
             ));
         }
         if terminal_status(item.status) {

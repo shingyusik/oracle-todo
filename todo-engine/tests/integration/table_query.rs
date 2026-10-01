@@ -830,7 +830,7 @@ fn every_lookup_scope_returns_only_displayed_and_allowed_relation_types() {
         ),
         (
             WorkspaceTableScope::Task,
-            vec!["area", "project", "routine", "task"],
+            vec!["area", "goal", "project", "routine", "task"],
         ),
         (WorkspaceTableScope::Event, vec!["area", "event", "project"]),
     ] {
@@ -882,7 +882,7 @@ fn every_lookup_scope_returns_only_displayed_and_allowed_relation_types() {
         (
             ItemType::Area,
             ItemType::Task,
-            vec!["area", "project", "routine", "task"],
+            vec!["area", "goal", "project", "routine", "task"],
         ),
         (
             ItemType::Area,
@@ -897,7 +897,7 @@ fn every_lookup_scope_returns_only_displayed_and_allowed_relation_types() {
         (
             ItemType::Project,
             ItemType::Task,
-            vec!["area", "project", "routine", "task"],
+            vec!["area", "goal", "project", "routine", "task"],
         ),
         (
             ItemType::Project,
@@ -907,13 +907,13 @@ fn every_lookup_scope_returns_only_displayed_and_allowed_relation_types() {
         (
             ItemType::Routine,
             ItemType::Task,
-            vec!["area", "project", "routine", "task"],
+            vec!["area", "goal", "project", "routine", "task"],
         ),
         (ItemType::Goal, ItemType::Goal, vec!["goal"]),
         (
             ItemType::Goal,
             ItemType::Task,
-            vec!["area", "project", "routine", "task"],
+            vec!["area", "goal", "project", "routine", "task"],
         ),
     ] {
         let scope = TodoTableScope::Linked { parent, child };

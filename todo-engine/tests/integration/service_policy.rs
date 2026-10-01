@@ -95,7 +95,7 @@ fn area_creation_is_active_and_cannot_complete() {
     let error = service.complete(&area.id, None).unwrap_err();
     assert_eq!(
         error,
-        TodoError::Policy("Areas cannot be completed; pause or archive them".to_string())
+        TodoError::Policy("Areas cannot be completed; archive them".to_string())
     );
 }
 

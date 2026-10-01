@@ -55,8 +55,8 @@ export async function queryTodoTable(
   return { items: array(page.items, "todo table page.items").map(mapOccurrence), nextOffset };
 }
 
-export async function loadTodoTableLookups(scope: TodoTableScope): Promise<TodoTableLookups> {
-  const value = record(await requestJson(apiPath("/api/v1/todo/table/lookups", { scope })), "todo table lookups");
+export async function loadTodoTableLookups(scope: TodoTableScope, itemId?: string, horizon?: string): Promise<TodoTableLookups> {
+  const value = record(await requestJson(apiPath("/api/v1/todo/table/lookups", { scope, item_id: itemId, horizon })), "todo table lookups");
   const items = array(value.items, "todo table lookups.items").map(mapLookup);
   return { items, tags: [...new Set(items.flatMap((item) => item.tags))], relatedItems: buildRelatedItems(items) };
 }

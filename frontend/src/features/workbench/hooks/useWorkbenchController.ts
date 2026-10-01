@@ -42,6 +42,7 @@ import {
   type WorkspaceItemTransitionState,
   type WorkspaceItemsModel,
   createPanelModel,
+  isTerminalTodo,
   plannerCreationPolicyForTable,
 } from "@/features/workbench/model/workbench-model";
 import {
@@ -2407,7 +2408,7 @@ function titlesById(
 ): Record<string, string> {
   return Object.fromEntries(
     items
-      .filter((item) => item.type === itemType)
+      .filter((item) => item.type === itemType && !isTerminalTodo(item))
       .map((item) => [item.id, item.title]),
   );
 }

@@ -80,6 +80,10 @@ pub fn apply_list_filter(
     items: impl IntoIterator<Item = TodoItem>,
     filter: ListFilter,
 ) -> Vec<TodoItem> {
+    let search = filter
+        .query
+        .as_deref()
+        .map(crate::application::table::unicode_fold);
     items
         .into_iter()
         .filter(|item| {
@@ -130,20 +134,16 @@ pub fn apply_list_filter(
                 .is_none_or(|scheduled| item.scheduled.as_ref() == Some(scheduled))
         })
         .filter(|item| {
-            filter.query.as_ref().is_none_or(|query| {
-                item.title.contains(query)
-                    || item
-                        .note
-                        .as_ref()
-                        .is_some_and(|value| value.contains(query))
-                    || item
-                        .description
-                        .as_ref()
-                        .is_some_and(|value| value.contains(query))
-                    || item
-                        .outcome
-                        .as_ref()
-                        .is_some_and(|value| value.contains(query))
+            search.as_ref().is_none_or(|query| {
+                [
+                    Some(item.title.as_str()),
+                    item.note.as_deref(),
+                    item.description.as_deref(),
+                    item.outcome.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|value| crate::application::table::unicode_fold(value).contains(query))
             })
         })
         .collect()

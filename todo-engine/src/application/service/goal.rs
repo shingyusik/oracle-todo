@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::{TodoService, parse_day};
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Horizon, ItemType, is_period_start};
+use crate::domain::{Horizon, ItemType, is_period_start, terminal_status};
 
 /// Maximum depth of the goal ancestor chain walked during nesting validation.
 /// Bounds the traversal so a cyclic/legacy `parent_id` chain cannot drive an
@@ -50,6 +50,7 @@ impl TodoService {
         &mut self,
         parent_id: Option<&str>,
         child_horizon: Horizon,
+        child_id: Option<&str>,
     ) -> TodoResult<()> {
         let Some(parent_id) = parent_id else {
             return Ok(());
@@ -59,6 +60,12 @@ impl TodoService {
         if parent.item_type != ItemType::Goal {
             return Err(TodoError::Policy(format!(
                 "Goal parent must be a goal: {parent_id}"
+            )));
+        }
+        if terminal_status(parent.status) {
+            return Err(TodoError::Policy(format!(
+                "Goal parent is terminal: {}",
+                parent.status.as_str()
             )));
         }
         let parent_horizon = parent
@@ -80,6 +87,9 @@ impl TodoService {
         let mut depth = 0usize;
         let mut current = Some(parent);
         while let Some(node) = current {
+            if child_id == Some(node.id.as_str()) {
+                return Err(TodoError::Policy("Goal parent would create a cycle".into()));
+            }
             if !visited.insert(node.id.clone()) {
                 return Err(TodoError::Policy(format!(
                     "Goal parent chain forms a cycle at {}",

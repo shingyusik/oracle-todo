@@ -70,9 +70,9 @@ impl TodoRepository for SqliteTodoRepository {
             }
         }
         if let Some(text) = &filter.query {
-            values.push(Value::Text(text.clone()));
+            values.push(Value::Text(crate::application::table::unicode_fold(text)));
             let index = values.len();
-            clauses.push(format!("(instr(title, ?{index}) > 0 OR instr(note, ?{index}) > 0 OR instr(description, ?{index}) > 0 OR instr(outcome, ?{index}) > 0)"));
+            clauses.push(format!("(instr(todo_fold(title), ?{index}) > 0 OR instr(todo_fold(note), ?{index}) > 0 OR instr(todo_fold(description), ?{index}) > 0 OR instr(todo_fold(outcome), ?{index}) > 0)"));
         }
         match query.scope {
             ItemPageScope::List => {}

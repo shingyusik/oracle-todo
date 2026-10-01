@@ -14,6 +14,65 @@ fn goal(actor: Actor, horizon: &str, scheduled: &str, parent_id: Option<&str>) -
     }
 }
 
+#[test]
+fn creating_goal_rejects_terminal_parent_without_writes() {
+    for archived in [false, true] {
+        let mut service = TodoService::in_memory();
+        let parent = service
+            .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
+            .unwrap();
+        if archived {
+            service.archive(&parent.id, None).unwrap();
+        } else {
+            service.complete(&parent.id, None).unwrap();
+        }
+        let before = service.events().len();
+        assert!(
+            service
+                .propose_goal(goal(Actor::User, "month", "2026-10-01", Some(&parent.id)))
+                .is_err()
+        );
+        assert_eq!(service.events().len(), before);
+    }
+}
+
+#[test]
+fn changing_horizon_cannot_create_a_parent_cycle() {
+    let mut service = TodoService::in_memory();
+    let parent = service
+        .propose_goal(goal(Actor::User, "year", "2026-01-01", None))
+        .unwrap();
+    let child = service
+        .propose_goal(goal(Actor::User, "month", "2026-10-01", Some(&parent.id)))
+        .unwrap();
+    let before = service.events().len();
+    let choices = service
+        .table_lookups_for_item(
+            todo_engine::application::table::TodoTableScope::Workspace(
+                todo_engine::application::table::WorkspaceTableScope::Goal,
+            ),
+            Some(&parent.id),
+            Some("week"),
+        )
+        .unwrap();
+    assert!(choices.is_empty());
+    assert!(
+        service
+            .update_item(
+                &parent.id,
+                UpdateItem {
+                    horizon: Some("week".into()),
+                    scheduled: Some("2026-09-28".into()),
+                    parent_id: Some(child.id),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(service.get(&parent.id).unwrap(), parent);
+    assert_eq!(service.events().len(), before);
+}
+
 // SC1: every actor creates active work and every create writes a propose_goal audit event.
 #[test]
 fn every_actor_goal_is_active_and_audited() {

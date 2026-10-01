@@ -36,7 +36,7 @@ import {
 } from "@/features/ledger/model/ledger-reports";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { RavenApiError } from "@/lib/raven-api";
-import { plannerTodoTableScope } from "@/features/workbench/api/table-api";
+import { loadTodoTableLookups, plannerTodoTableScope } from "@/features/workbench/api/table-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   useBrowserDetailHistory,
@@ -67,6 +67,7 @@ import {
 } from "@/features/workbench/model/planner-model";
 import {
   DEFAULT_FUTURE_OCCURRENCES,
+  isTerminalTodo,
   MAX_FUTURE_OCCURRENCES,
   type CreateWorkspaceItemForm,
   type MaterializeRoutineTarget,
@@ -3149,8 +3150,12 @@ function addPriorityPatch(
   priority: string,
   currentPriority?: number | null,
 ) {
+  if (priority.trim() === "") {
+    if (currentPriority != null) patch.priority = null;
+    return;
+  }
   const value = Number(normalizePriorityDraft(priority));
-  if (priority.trim() !== "" && validPriority(value) && value !== currentPriority) {
+  if (validPriority(value) && value !== currentPriority) {
     patch.priority = value;
   }
 }
@@ -3216,19 +3221,16 @@ function relatedItemsForDetail(
   relatedItems: WorkspaceItemsModel["relatedItems"],
 ): WorkspaceItemsModel["relatedItems"] {
   return {
-    areas: { ...relatedItems.areas, ...detailTitlesByType(items, "area") },
-    goals: { ...relatedItems.goals, ...detailTitlesByType(items, "goal") },
-    projects: { ...relatedItems.projects, ...detailTitlesByType(items, "project") },
-    routines: { ...relatedItems.routines, ...detailTitlesByType(items, "routine") },
+    areas: detailRelationCandidates(items, relatedItems.areas),
+    goals: detailRelationCandidates(items, relatedItems.goals),
+    projects: detailRelationCandidates(items, relatedItems.projects),
+    routines: detailRelationCandidates(items, relatedItems.routines),
   };
 }
 
-function detailTitlesByType(items: WorkspaceItemModel[], type: string): Record<string, string> {
-  return Object.fromEntries(
-    items
-      .filter((item) => item.type === type)
-      .map((item) => [item.id, item.title]),
-  );
+function detailRelationCandidates(items: WorkspaceItemModel[], options: Record<string, string>): Record<string, string> {
+  const terminalIds = new Set(items.filter(isTerminalTodo).map((item) => item.id));
+  return Object.fromEntries(Object.entries(options).filter(([id]) => !terminalIds.has(id)));
 }
 
 function DetailTypeFields({
@@ -3259,6 +3261,7 @@ function DetailTypeFields({
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
           options={detailRelatedItems.areas}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.area)?.title}
           onChange={(area) => setField("area", area)}
         />
         <DetailTextField
@@ -3289,6 +3292,7 @@ function DetailTypeFields({
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
           options={detailRelatedItems.areas}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.area)?.title}
           onChange={(area) => setField("area", area)}
         />
         <DetailRelationField
@@ -3296,6 +3300,7 @@ function DetailTypeFields({
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
           options={detailRelatedItems.projects}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.project_id)?.title}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
@@ -3334,6 +3339,7 @@ function DetailTypeFields({
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
           options={detailRelatedItems.areas}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.area)?.title}
           onChange={(area) => setField("area", area)}
         />
         <DetailRelationField
@@ -3341,6 +3347,7 @@ function DetailTypeFields({
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
           options={detailRelatedItems.projects}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.project_id)?.title}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
@@ -3349,12 +3356,13 @@ function DetailTypeFields({
           controlLabel={`Goal parent for ${item.title}`}
           value={draft.parent_id}
           options={detailRelatedItems.goals}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.parent_id)?.title}
           allowNone
           onChange={(parent_id) => setField("parent_id", parent_id)}
         />
         <div className="property-row">
           <span>Routine</span>
-          <span>{relatedTitle(detailRelatedItems.routines, item.routine_id)}</span>
+          <span>{relatedTitle(detailRelatedItems.routines, item.routine_id, workspaceItems.allItems)}</span>
         </div>
         <DetailTextField
           label="Scheduled"
@@ -3385,6 +3393,7 @@ function DetailTypeFields({
           controlLabel={`Area for ${item.title}`}
           value={draft.area}
           options={detailRelatedItems.areas}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.area)?.title}
           onChange={(area) => setField("area", area)}
         />
         <DetailRelationField
@@ -3392,6 +3401,7 @@ function DetailTypeFields({
           controlLabel={`Project for ${item.title}`}
           value={draft.project_id}
           options={detailRelatedItems.projects}
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.project_id)?.title}
           allowNone
           onChange={(project_id) => setField("project_id", project_id)}
         />
@@ -3471,12 +3481,13 @@ function DetailTypeFields({
             }}
           />
         </div>
-        <DetailRelationField
+        <GoalParentSelect
           label="Parent"
           controlLabel={`Parent for ${item.title}`}
+          item={item}
+          horizon={draft.horizon}
           value={draft.parent_id}
-          options={detailRelatedItems.goals}
-          allowNone
+          currentTitle={workspaceItems.allItems.find((candidate) => candidate.id === draft.parent_id)?.title}
           onChange={(parent_id) => setField("parent_id", parent_id)}
         />
         <DetailTimestamps item={item} />
@@ -4662,6 +4673,7 @@ function DetailRelationField({
   controlLabel,
   value,
   options,
+  currentTitle,
   allowNone = false,
   onChange,
 }: {
@@ -4669,6 +4681,7 @@ function DetailRelationField({
   controlLabel: string;
   value: string;
   options: Record<string, string>;
+  currentTitle?: string;
   allowNone?: boolean;
   onChange: (value: string) => void;
 }) {
@@ -4683,6 +4696,7 @@ function DetailRelationField({
         <option value="" disabled={!allowNone}>
           {allowNone ? "None" : "-"}
         </option>
+        {value && !(value in options) ? <option value={value} disabled>{currentTitle ?? value}</option> : null}
         {Object.entries(options).map(([id, title]) => (
           <option key={id} value={id}>
             {title}
@@ -5553,7 +5567,7 @@ function InlinePrioritySelect({
 }: {
   label: string;
   value: number | null | undefined;
-  onCommit: (value: number) => void;
+  onCommit: (value: number | null) => void;
 }) {
   const selectedValue = value?.toString() ?? "";
 
@@ -5566,8 +5580,8 @@ function InlinePrioritySelect({
       onKeyDown={stopRowEvent}
       onChange={(event) => {
         stopRowEvent(event);
-        const priority = Number(event.target.value);
-        if (validPriority(priority) && event.target.value !== selectedValue) {
+        const priority = event.target.value === "" ? null : Number(event.target.value);
+        if ((priority === null || validPriority(priority)) && event.target.value !== selectedValue) {
           onCommit(priority);
         }
       }}
@@ -5586,12 +5600,14 @@ function InlineRelationSelect({
   label,
   value,
   options,
+  currentTitle,
   allowNone = false,
   onCommit,
 }: {
   label: string;
   value: string | null | undefined;
   options: Record<string, string>;
+  currentTitle?: string;
   allowNone?: boolean;
   onCommit: (value: string) => void;
 }) {
@@ -5617,6 +5633,7 @@ function InlineRelationSelect({
       <option value="" disabled={!allowNone}>
         {allowNone ? "None" : "-"}
       </option>
+      {selectedValue && !(selectedValue in options) ? <option value={selectedValue} disabled>{currentTitle ?? selectedValue}</option> : null}
       {Object.entries(options).map(([id, title]) => (
         <option key={id} value={id}>
           {title}
@@ -5734,12 +5751,8 @@ function DetailStatusField({
   );
 }
 
-function isTerminalTodo(item: WorkspaceItemModel): boolean {
-  return ["completed", "archived", "dropped", "cancelled", "missed", "rejected"].includes(item.status);
-}
-
 function statusOptionsForItem(item: WorkspaceItemModel): string[] {
-  if (["completed", "archived", "dropped", "cancelled", "missed", "rejected"].includes(item.status)) {
+  if (isTerminalTodo(item)) {
     return item.status === "completed" && ["task", "event"].includes(item.type)
       ? ["completed", "active"] : [item.status];
   }
@@ -5748,7 +5761,11 @@ function statusOptionsForItem(item: WorkspaceItemModel): string[] {
     : item.type === "task"
       ? taskStatusOptions
       : workItemStatusOptions;
-  return options.includes(item.status) ? options : [item.status, ...options];
+  const statuses = options.includes(item.status) ? options : [item.status, ...options];
+  return statuses.filter((status) => status === item.status || (
+    transitionActionForStatus(item.status, status, item.type) !== null &&
+    !(status === "active" && item.type === "routine" && item.recurrence_rule == null)
+  ));
 }
 
 function detailStatusForItem(item: WorkspaceItemModel | null): string {
@@ -5770,10 +5787,10 @@ function transitionActionForStatus(
     ) {
       return "reopen";
     }
-    return currentStatus === "paused" ? "resume" : null;
+    return currentStatus === "paused" && itemType !== "area" ? "resume" : null;
   }
   if (nextStatus === "paused") {
-    return currentStatus === "active" && itemType !== "task" ? "pause" : null;
+    return ["active", "waiting"].includes(currentStatus) && !["task", "area"].includes(itemType) ? "pause" : null;
   }
   if (nextStatus === "completed") {
     return "complete";
@@ -5807,6 +5824,7 @@ function areaColumn(): ItemColumn {
         label={`Area for ${item.title}`}
         value={item.area_id}
         options={items.relatedItems.areas}
+        currentTitle={items.allItems.find((candidate) => candidate.id === item.area_id)?.title}
         onCommit={(area) => void controller.patchWorkspaceItem(item.id, { area })}
       />
     ),
@@ -5821,6 +5839,7 @@ function projectColumn(): ItemColumn {
         label={`Project for ${item.title}`}
         value={item.project_id}
         options={items.relatedItems.projects}
+        currentTitle={items.allItems.find((candidate) => candidate.id === item.project_id)?.title}
         allowNone
         onCommit={(project_id) =>
           void controller.patchWorkspaceItem(item.id, { project_id })
@@ -5833,7 +5852,7 @@ function projectColumn(): ItemColumn {
 function routineColumn(): ItemColumn {
   return {
     label: "Routine",
-    value: (item, items) => relatedTitle(items.relatedItems.routines, item.routine_id),
+    value: (item, items) => relatedTitle(items.relatedItems.routines, item.routine_id, items.allItems),
   };
 }
 
@@ -5923,17 +5942,50 @@ function parentGoalColumn(): ItemColumn {
   return {
     label: "Parent",
     value: (item, items, controller) => (
-      <InlineRelationSelect
+      <GoalParentSelect
         label={`Parent for ${item.title}`}
+        item={item}
+        horizon={item.horizon}
         value={item.parent_id}
-        options={items.relatedItems.goals}
-        allowNone
-        onCommit={(parent_id) =>
+        currentTitle={items.allItems.find((candidate) => candidate.id === item.parent_id)?.title}
+        onChange={(parent_id) =>
           void controller.patchWorkspaceItem(item.id, { parent_id })
         }
       />
     ),
   };
+}
+
+function GoalParentSelect({ item, horizon, label, controlLabel, value, currentTitle, onChange }: {
+  item: WorkspaceItemModel;
+  horizon?: string | null;
+  label: string;
+  controlLabel?: string;
+  value: string | null | undefined;
+  currentTitle?: string;
+  onChange: (parentId: string) => void;
+}) {
+  const [options, setOptions] = React.useState<Record<string, string>>({});
+  const [error, setError] = React.useState(false);
+  useEffect(() => {
+    // ponytail: one lookup per visible goal; batch if page loading becomes slow.
+    let cancelled = false;
+    setOptions({});
+    setError(false);
+    void loadTodoTableLookups("workspace.goal", item.id, horizon ?? undefined).then((lookups) => {
+      if (!cancelled) setOptions(lookups.relatedItems.goals);
+    }).catch(() => {
+      if (!cancelled) setError(true);
+    });
+    return () => { cancelled = true; };
+  }, [item.id, item.updated_at, horizon]);
+  return <>
+    {controlLabel ? <DetailRelationField label={label} controlLabel={controlLabel} value={value ?? ""}
+      options={options} currentTitle={currentTitle} allowNone onChange={onChange} />
+      : <InlineRelationSelect label={label} value={value} options={options} currentTitle={currentTitle}
+        allowNone onCommit={onChange} />}
+    {error ? <span role="alert">Could not load parent choices.</span> : null}
+  </>;
 }
 
 function locationColumn(): ItemColumn {
@@ -6094,8 +6146,9 @@ function columnsForPanel(panelId: LeafTabId): ItemColumn[] {
 function relatedTitle(
   titlesById: Record<string, string>,
   id: string | null | undefined,
+  items: WorkspaceItemModel[] = [],
 ): string {
-  return id ? (titlesById[id] ?? id) : "-";
+  return id ? (titlesById[id] ?? items.find((item) => item.id === id)?.title ?? id) : "-";
 }
 
 function displayValue(value: string | number | null | undefined): string {

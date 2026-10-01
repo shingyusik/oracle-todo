@@ -136,12 +136,19 @@ pub(super) struct UpdateBody {
     pub due: Option<String>,
     pub scheduled: Option<String>,
     pub horizon: Option<String>,
-    pub priority: Option<i64>,
+    #[serde(default, deserialize_with = "nullable_priority")]
+    pub priority: Option<Option<i64>>,
     pub tags: Option<Vec<String>>,
     pub location: Option<String>,
     pub participants: Option<Vec<String>>,
     pub commitment_type: Option<String>,
     pub reason: Option<String>,
+}
+
+fn nullable_priority<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<i64>>, D::Error> {
+    Option::<i64>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]

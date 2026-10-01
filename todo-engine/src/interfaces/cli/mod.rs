@@ -1,7 +1,11 @@
 mod create;
 mod lifecycle;
 mod markdown;
+mod options;
 mod output;
+mod table;
+#[cfg(test)]
+mod tests;
 mod views;
 
 use std::path::{Path, PathBuf};
@@ -41,6 +45,13 @@ enum Command {
     Health,
     /// List items.
     List(ListArgs),
+    /// Query UI tables and their relation/filter lookups as JSON.
+    Table {
+        #[command(subcommand)]
+        command: TableCommand,
+    },
+    /// Discover fixed enums and lifecycle transitions as JSON; optionally narrow by type or item.
+    Options(OptionsArgs),
     /// Show an item as JSON.
     Show { item_id: String },
     /// Reopen a completed task or event.
@@ -75,15 +86,15 @@ enum Command {
         #[command(subcommand)]
         command: EventCommand,
     },
-    /// Pause an item.
+    /// Pause a nonterminal project, goal, routine, or event (areas and tasks cannot pause).
     Pause(ItemTransitionArgs),
-    /// Mark a task or event as missed.
+    /// Mark an active task or event as missed.
     Miss(ItemTransitionArgs),
-    /// Postpone a task or event.
+    /// Postpone an active task or event by marking it missed and creating a follow-up.
     Postpone(PostponeArgs),
-    /// Resume a paused item.
+    /// Resume a paused item except an area; routines require a recurrence rule.
     Resume(ItemTransitionArgs),
-    /// Complete an item.
+    /// Complete a nonterminal item except an area.
     Complete(ItemTransitionArgs),
     /// Archive an item.
     Archive(ItemTransitionArgs),
@@ -102,6 +113,48 @@ enum Command {
 enum AreaCommand {
     /// Create an active area.
     Create(AreaCreateArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum TableCommand {
+    /// Run the UI table query JSON, including typed filters, sorts, groups, and context.
+    #[command(
+        after_help = r#"Required body fields: scope, sorts, group_by, group_settings, context. Optional: offset (0), limit (1..50, default 50), filter_mode (and|or), filters.
+Workspace scopes: workspace.area, workspace.project, workspace.goal, workspace.routine, workspace.task, workspace.event. Planner and linked scopes use the UI API names.
+Each filter: {field,operator,value}; value is {text}, {list}, {range:{start,end}}, {relative:{amount,unit}} or {empty:true}. Relative units: day|week|month; requires context.reference_date (YYYY-MM-DD).
+Operators by field type: is, is_not, contains, does_not_contain, starts_with, ends_with, is_before, is_after, is_on_or_before, is_on_or_after, is_between, is_relative_to_today, greater_than, less_than, is_empty, is_not_empty.
+Common fields: title,status,tags,note. Area has only common fields; Project: area,due; Goal: horizon,scheduled,parent; Routine: area,project,recurrence_rule,materialization_policy,priority,description; Task: area,project,routine,scheduled,due,priority,description; Event: area,project,scheduled,due,priority,location,participants,commitment_type,description. Fields/operators are checked against scope.
+Sorts: [{field,direction:"asc"|"desc"}]. group_by is none or a supported relation, tag, status, month or weekday for the scope. group_settings: {sort:"manual"|"alphabetical"|"reverse_alphabetical",hide_empty,manual_order:[],hidden_group_keys:[]}.
+Workspace context: {} or {reference_date}; Planner: {from,to,reference_date}; Linked: {parent_type,parent_id,reference_date}.
+Example:
+  --json '{"scope":"workspace.task","filters":[{"field":"title","operator":"contains","value":{"text":"dentist"}}],"sorts":[],"group_by":"none","group_settings":{"sort":"manual","hide_empty":true,"manual_order":[],"hidden_group_keys":[]},"context":{}}'
+Output: {items,next_offset}. Reuse the same query with offset=next_offset until null. Lookup IDs: todo table lookups --scope <scope>. Fixed values: todo options --type <type>."#
+    )]
+    Query {
+        #[arg(long)]
+        json: String,
+    },
+    /// Return UI relation/filter lookup choices as {items}; --id narrows valid goal parents.
+    Lookups {
+        /// UI table scope, such as workspace.task, workspace.goal, or linked.goal.task.
+        #[arg(long, value_parser = parse_table_scope)]
+        scope: crate::application::table::TodoTableScope,
+        #[arg(long)]
+        id: Option<String>,
+        /// Goal scope only: parent choices for the new week, month, or year horizon.
+        #[arg(long, value_parser = ["week", "month", "year"])]
+        horizon: Option<String>,
+    },
+}
+
+#[derive(Debug, Args)]
+struct OptionsArgs {
+    /// Item type: area, project, goal, routine, task, event; historical: review, archive_item.
+    #[arg(long = "type", value_parser = parse_item_type, conflicts_with = "id")]
+    item_type: Option<ItemType>,
+    /// Existing item ID; report only transitions allowed for its current state.
+    #[arg(long)]
+    id: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -146,6 +199,7 @@ struct AreaCreateArgs {
     #[arg(long = "tag")]
     tags: Vec<String>,
     title: String,
+    /// Area review cycle: daily, weekly, monthly, quarterly.
     #[arg(long)]
     review_cycle: Option<String>,
     #[arg(long)]
@@ -158,14 +212,17 @@ struct AreaCreateArgs {
 struct ListArgs {
     #[arg(long)]
     parent_id: Option<String>,
+    /// Goal horizon: week, month, year.
     #[arg(long)]
     horizon: Option<String>,
     #[arg(long)]
     scheduled: Option<String>,
     #[command(flatten)]
     read: ReadArgs,
+    /// Read filter: active, waiting, paused, completed, cancelled, dropped, archived, missed, rejected. Historical statuses are readable; lifecycle commands determine writable transitions.
     #[arg(long, value_parser = parse_status)]
     status: Option<ItemStatus>,
+    /// Read type: area, project, goal, routine, task, event, review, archive_item. Review and archive_item are historical types.
     #[arg(long = "type", value_parser = parse_item_type)]
     item_type: Option<ItemType>,
     #[arg(long)]
@@ -219,6 +276,7 @@ struct GoalProposeArgs {
     #[arg(long = "tag")]
     tags: Vec<String>,
     title: String,
+    /// Goal period: week, month, year.
     #[arg(long)]
     horizon: String,
     #[arg(long)]
@@ -244,7 +302,8 @@ struct TaskProposeArgs {
     due: Option<String>,
     #[arg(long)]
     scheduled: Option<String>,
-    #[arg(long)]
+    /// Priority: 1..10 (task, routine, and event only).
+    #[arg(long, value_parser = clap::value_parser!(i64).range(1..=10))]
     priority: Option<i64>,
     #[arg(long)]
     note: Option<String>,
@@ -259,10 +318,12 @@ struct RoutineProposeArgs {
     area: Option<String>,
     #[arg(long)]
     project_id: Option<String>,
-    #[arg(long)]
+    /// Priority: 1..10 (task, routine, and event only).
+    #[arg(long, value_parser = clap::value_parser!(i64).range(1..=10))]
     priority: Option<i64>,
     #[arg(long)]
     recurrence_rule: Option<String>,
+    /// Routine task generation: single_open, per_occurrence.
     #[arg(long, default_value = "single_open")]
     materialization_policy: String,
     #[arg(long, default_value_t = crate::domain::DEFAULT_FUTURE_OCCURRENCES)]
@@ -295,7 +356,8 @@ struct EventProposeArgs {
     project_id: Option<String>,
     #[arg(long)]
     due: Option<String>,
-    #[arg(long)]
+    /// Priority: 1..10 (task, routine, and event only).
+    #[arg(long, value_parser = clap::value_parser!(i64).range(1..=10))]
     priority: Option<i64>,
     #[arg(long)]
     note: Option<String>,
@@ -303,6 +365,7 @@ struct EventProposeArgs {
     location: Option<String>,
     #[arg(long = "with")]
     participants: Vec<String>,
+    /// Event commitment kind; free text, defaults to appointment.
     #[arg(long, default_value = "appointment")]
     commitment_type: String,
     #[arg(long, default_value = "agent", value_parser = parse_actor)]
@@ -332,14 +395,18 @@ struct UpdateArgs {
     expected_updated_at: Option<String>,
     #[arg(long, conflicts_with = "tags")]
     clear_tags: bool,
+    /// Event only: location.
     #[arg(long)]
     location: Option<String>,
+    /// Event only: participants.
     #[arg(long = "with")]
     participants: Vec<String>,
     #[arg(long, conflicts_with = "participants")]
     clear_participants: bool,
+    /// Event only: free-text commitment kind.
     #[arg(long)]
     commitment_type: Option<String>,
+    /// Goal only: week, month, year.
     #[arg(long)]
     horizon: Option<String>,
     item_id: String,
@@ -347,30 +414,45 @@ struct UpdateArgs {
     title: Option<String>,
     #[arg(long)]
     note: Option<String>,
+    /// Project only: outcome.
     #[arg(long)]
     outcome: Option<String>,
+    /// Project only: nonblank completion criteria.
     #[arg(long)]
     definition_of_done: Option<String>,
+    /// Area only: responsibility standard.
     #[arg(long)]
     standard: Option<String>,
+    /// Area only: daily, weekly, monthly, quarterly.
     #[arg(long)]
     review_cycle: Option<String>,
+    /// Routine only: supported RRULE.
     #[arg(long)]
     recurrence_rule: Option<String>,
+    /// Routine only: single_open, per_occurrence.
     #[arg(long)]
     materialization_policy: Option<String>,
+    /// Project, routine, task, or event: area ID or title; empty clears.
     #[arg(long)]
     area: Option<String>,
+    /// Routine, task, or event: project ID; empty clears.
     #[arg(long)]
     project_id: Option<String>,
+    /// Goal or task: goal parent ID; empty clears.
     #[arg(long = "parent-id")]
     parent_id: Option<String>,
+    /// Project, task, or event: ISO due date; empty clears.
     #[arg(long)]
     due: Option<String>,
+    /// Goal, task, or event: ISO schedule; events also accept RFC 3339 and cannot clear.
     #[arg(long)]
     scheduled: Option<String>,
-    #[arg(long)]
+    /// Task, routine, or event: priority 1..10.
+    #[arg(long, value_parser = clap::value_parser!(i64).range(1..=10))]
     priority: Option<i64>,
+    /// Task, routine, or event: clear priority.
+    #[arg(long, conflicts_with = "priority")]
+    clear_priority: bool,
     #[arg(long = "tag")]
     tags: Vec<String>,
     #[arg(long)]
@@ -455,6 +537,8 @@ fn execute(home: PathBuf, command: Command) -> Result<()> {
         Command::Init => init(&home),
         Command::Health => health(&home),
         Command::List(args) => views::list(&home, args),
+        Command::Table { command } => table::run(&home, command),
+        Command::Options(args) => options::run(&home, args),
         Command::Show { item_id } => views::show(&home, &item_id),
         Command::Reopen(args) => lifecycle::reopen(&home, args),
         Command::Area {
@@ -516,6 +600,13 @@ fn command_label(command: &Command) -> &'static str {
         Command::Init => "init",
         Command::Health => "health",
         Command::List(_) => "list",
+        Command::Table {
+            command: TableCommand::Query { .. },
+        } => "table query",
+        Command::Table {
+            command: TableCommand::Lookups { .. },
+        } => "table lookups",
+        Command::Options(_) => "options",
         Command::Show { .. } => "show",
         Command::Reopen(_) => "reopen",
         Command::Area {
@@ -673,7 +764,13 @@ fn parse_status(value: &str) -> std::result::Result<ItemStatus, String> {
 fn parse_item_type(value: &str) -> std::result::Result<ItemType, String> {
     ItemType::from_str(value).map_err(|_| {
         format!(
-            "invalid type '{value}'; expected one of: area, project, routine, task, event, review, archive_item"
+            "invalid type '{value}'; expected one of: area, project, goal, routine, task, event, review, archive_item"
         )
     })
+}
+
+fn parse_table_scope(
+    value: &str,
+) -> std::result::Result<crate::application::table::TodoTableScope, String> {
+    crate::interfaces::api::decode_table_scope(value).map_err(|error| error.to_string())
 }

@@ -69,6 +69,10 @@ export type TodoTableOccurrence = {
   record: WorkspaceItemModel;
 };
 
+export function isTerminalTodo(item: WorkspaceItemModel): boolean {
+  return ["completed", "archived", "dropped", "cancelled", "missed", "rejected"].includes(item.status);
+}
+
 export type TodoItemType = "area" | "project" | "goal" | "routine" | "task" | "event";
 export type TodoTableScope =
   | `workspace.${TodoItemType}`
@@ -307,7 +311,7 @@ export type WorkspaceItemPatch = {
   materialization_policy?: string;
   due?: string;
   scheduled?: string;
-  priority?: number;
+  priority?: number | null;
   area?: string;
   project_id?: string;
   location?: string;

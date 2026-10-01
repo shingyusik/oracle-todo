@@ -91,6 +91,7 @@ pub(super) fn update(home: &Path, args: UpdateArgs) -> Result<()> {
             scheduled: args.scheduled,
             horizon: args.horizon,
             priority: args.priority,
+            clear_priority: args.clear_priority,
             tags: if args.tags.is_empty() && !args.clear_tags {
                 None
             } else {

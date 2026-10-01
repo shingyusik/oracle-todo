@@ -43,8 +43,8 @@ fn bounded_list_pages_filter_before_limit_and_preserve_literal_search() {
     let (second, next) = service
         .list_items_page(ItemPageQuery { offset: 1, ..query })
         .unwrap();
-    assert_eq!(second[0].id, "04");
-    assert_eq!(next, None);
+    assert_eq!(second[0].id, "03");
+    assert_eq!(next, Some(2));
 }
 
 #[test]
