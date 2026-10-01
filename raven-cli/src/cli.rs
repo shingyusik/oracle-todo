@@ -82,7 +82,12 @@ pub enum ImportCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum LedgerCommand {
-    /// Create, read, update, archive, restore, or purge entries.
+    /// Query the UI tables using the same filters, sorts, groups and lookup IDs.
+    Table {
+        #[command(subcommand)]
+        command: TableCommand,
+    },
+    /// Create, read, update, archive, or restore entries.
     Entry {
         #[command(subcommand)]
         command: LedgerEntryCommand,
@@ -140,6 +145,11 @@ pub enum LedgerEntryCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum HealthCommand {
+    /// Query the UI tables using the same filters, sorts, groups and lookup IDs.
+    Table {
+        #[command(subcommand)]
+        command: TableCommand,
+    },
     /// Manage diet entries and optional images.
     Diet {
         #[command(subcommand)]
@@ -170,7 +180,7 @@ pub enum HealthCommand {
 pub enum DietCommand {
     Add(DietAddArgs),
     Update(DietUpdateArgs),
-    List(HealthPageArgs),
+    List(DietListArgs),
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
@@ -180,7 +190,7 @@ pub enum DietCommand {
 pub enum BowelCommand {
     Add(BowelAddArgs),
     Update(BowelUpdateArgs),
-    List(HealthPageArgs),
+    List(HealthListArgs),
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
@@ -190,7 +200,7 @@ pub enum BowelCommand {
 pub enum MedicationCommand {
     Add(MedicationAddArgs),
     Update(MedicationUpdateArgs),
-    List(HealthPageArgs),
+    List(MedicationListArgs),
     Show(HealthIdentityReadArgs),
     Archive(HealthIdentityArgs),
     Restore(HealthIdentityArgs),
@@ -209,21 +219,110 @@ pub enum MetricCommand {
 #[value(rename_all = "snake_case")]
 pub enum HealthEventCategoryArg {
     Weight,
-    Bowel,
     Sleep,
     Lab,
     Symptom,
-    Medication,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum MealArg {
+    Breakfast,
+    Lunch,
+    Dinner,
+    Snack,
+    LateNight,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum MedicationUnitArg {
+    Tablet,
+    Capsule,
+    Packet,
+    Mg,
+    G,
+    Ml,
+    Drop,
+    Dose,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum EntryMutationTypeArg {
+    Expense,
+    Income,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TableCommand {
+    /// Query the UI table from strict API-compatible JSON; output {items,next_offset}.
+    Query(TableQueryArgs),
+    /// List the IDs and labels accepted by table filters.
+    Lookups(TableLookupArgs),
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = r#"Body fields: scope, offset (default 0), limit (1..50; default 50), filter_mode (and|or), filters, sorts, group_by, group_settings, context.reference_date (YYYY-MM-DD).
+Each filter has field, operator and value: {text}, {list}, {range:{start,end}}, {relative:{amount,unit}} or {empty:true}.
+Sorts use field and direction asc|desc, with at most 10 rules. Ledger requires at least one sort rule; Health accepts an empty list. Group settings require sort alphabetical|reverse_alphabetical|manual, hide_empty, manual_order and hidden_group_keys.
+
+Example:
+  --json '{"scope":"health.diet","filters":[{"field":"food","operator":"contains","value":{"text":"Rice"}}],"sorts":[{"field":"date","direction":"desc"}],"group_by":"none","group_settings":{"sort":"alphabetical","hide_empty":false,"manual_order":[],"hidden_group_keys":[]}}'
+
+Health scopes: health.diet, health.bowel, health.medication, health.metrics.
+Ledger scopes: ledger.transactions, ledger.accounts, ledger.categories.
+Filter fields by scope:
+  health.diet: date,meal_type,food,tags,has_photo
+  health.bowel: date,bristol_scale,blood_visible
+  health.medication: date,medication_name,medication_unit
+  health.metrics: date,weight,sleep,crp,calprotectin,condition
+  ledger.transactions: date,content,entry_type,account,category,currency,amount
+  ledger.accounts: name,account_type,currency,current_balance
+  ledger.categories: name,kind,parent
+Operators vary by field type: is,is_not,contains,does_not_contain,starts_with,ends_with,is_before,is_after,is_on_or_before,is_on_or_after,is_between,is_relative_to_today,greater_than,less_than,is_empty,is_not_empty.
+Sort fields by scope:
+  health.diet: date,meal_type,food,created,updated
+  health.bowel: date,bristol_scale,created,updated
+  health.medication: date,medication_name,dose,created,updated
+  health.metrics: date,weight,sleep,crp,calprotectin,condition
+  ledger.transactions: date,content,account,category,amount,updated
+  ledger.accounts: name,account_type,currency,current_balance
+  ledger.categories: name,kind,parent
+Group fields by scope (all accept none):
+  health.diet: month,week,day,meal_type,tag,has_photo
+  health.bowel: month,week,day,bristol_scale,blood_visible
+  health.medication: month,week,day,medication_name,medication_unit
+  health.metrics: month,week
+  ledger.transactions: month,week,day,account,category,entry_type
+  ledger.accounts: account_type,currency
+  ledger.categories: kind,parent
+Relative units are day|week|month and require context.reference_date. Dates in Health use UTC+09:00.
+Use table lookups for selectable IDs. Output is JSON {items,next_offset}; reuse filters, sorts and groups with the returned offset."#
+)]
+pub struct TableQueryArgs {
+    /// Strict API-compatible table query object. Unknown fields are rejected.
+    #[arg(long)]
+    pub json: String,
+}
+
+#[derive(Debug, Args)]
+pub struct TableLookupArgs {
+    /// health.diet|health.bowel|health.medication|health.metrics or ledger.transactions|ledger.accounts|ledger.categories.
+    #[arg(long)]
+    pub scope: String,
 }
 
 #[derive(Debug, Args)]
 pub struct DietAddArgs {
     #[arg(long, conflicts_with_all = ["at", "meal", "food", "note", "tags", "image", "content_type"])]
+    /// Strict object: required at (RFC3339), meal, food; optional note, tags (array), image ({path,content_type}). Example: {"at":"2026-09-30T12:00:00+09:00","meal":"lunch","food":"Rice","tags":["rice"]}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
     #[arg(long)]
-    pub meal: Option<String>,
+    pub meal: Option<MealArg>,
     #[arg(long)]
     pub food: Option<String>,
     #[arg(long)]
@@ -240,11 +339,12 @@ pub struct DietAddArgs {
 pub struct DietUpdateArgs {
     pub id: String,
     #[arg(long, conflicts_with_all = ["at", "meal", "food", "note", "clear_note", "tags", "image", "remove_image", "content_type", "expected_updated_at"])]
+    /// Strict partial object: at, meal, food, note, clear_note, tags, image ({path,content_type}), remove_image, expected_updated_at. Omitted fields are preserved; clear_note/remove_image explicitly clear values. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
     #[arg(long)]
-    pub meal: Option<String>,
+    pub meal: Option<MealArg>,
     #[arg(long)]
     pub food: Option<String>,
     #[arg(long, conflicts_with = "clear_note")]
@@ -266,6 +366,7 @@ pub struct DietUpdateArgs {
 #[derive(Debug, Args)]
 pub struct BowelAddArgs {
     #[arg(long, conflicts_with_all = ["at", "bristol", "blood_visible", "note"])]
+    /// Strict object: required at (RFC3339), bristol (1..7); optional blood_visible (default false), note. Example: {"at":"2026-09-30T12:00:00+09:00","bristol":4}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -281,6 +382,7 @@ pub struct BowelAddArgs {
 pub struct BowelUpdateArgs {
     pub id: String,
     #[arg(long, conflicts_with_all = ["at", "bristol", "blood_visible", "note", "clear_note", "expected_updated_at"])]
+    /// Strict partial object: at, bristol, blood_visible, note, clear_note, expected_updated_at. Omitted fields are preserved; clear_note clears note. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -299,6 +401,7 @@ pub struct BowelUpdateArgs {
 #[derive(Debug, Args)]
 pub struct MedicationAddArgs {
     #[arg(long, conflicts_with_all = ["at", "name", "dose", "unit", "note"])]
+    /// Strict object: required at (RFC3339), name, dose (positive number), unit; optional note. Example: {"at":"2026-09-30T08:00:00+09:00","name":"Vitamin D","dose":1,"unit":"tablet"}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -307,7 +410,7 @@ pub struct MedicationAddArgs {
     #[arg(long)]
     pub dose: Option<f64>,
     #[arg(long)]
-    pub unit: Option<String>,
+    pub unit: Option<MedicationUnitArg>,
     #[arg(long)]
     pub note: Option<String>,
 }
@@ -316,6 +419,7 @@ pub struct MedicationAddArgs {
 pub struct MedicationUpdateArgs {
     pub id: String,
     #[arg(long, conflicts_with_all = ["at", "name", "dose", "unit", "note", "clear_note", "expected_updated_at"])]
+    /// Strict partial object: at, name, dose, unit, note, clear_note, expected_updated_at. Omitted fields are preserved; clear_note clears note. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "RFC3339")]
     pub at: Option<String>,
@@ -324,7 +428,7 @@ pub struct MedicationUpdateArgs {
     #[arg(long)]
     pub dose: Option<f64>,
     #[arg(long)]
-    pub unit: Option<String>,
+    pub unit: Option<MedicationUnitArg>,
     #[arg(long, conflicts_with = "clear_note")]
     pub note: Option<String>,
     #[arg(long)]
@@ -335,8 +439,49 @@ pub struct MedicationUpdateArgs {
 
 #[derive(Debug, Args)]
 pub struct MetricDailyUpsertArgs {
-    #[arg(long, help = "Strict JSON array of metric objects")]
+    #[arg(
+        long,
+        help = "Strict JSON array of daily metrics",
+        long_help = "Strict JSON array. Required: at (RFC3339), category, value. Optional: key, name, unit, condition_note, expected_updated_at. Dates use fixed UTC+09:00. Canonical identities: weight/body_weight/Body weight/kg; sleep/sleep_duration/Sleep duration (hours; omit unit); lab/crp/CRP/mg/L; lab/fecal_calprotectin/Fecal calprotectin/µg/g; overall_condition/Overall condition (integer 1..10; omit key and unit). Weight and sleep keys/names and condition name default to canonical values; labs require key and unit. Existing daily values require expected_updated_at from metric show/list; only condition accepts condition_note. Unknown fields are rejected. Example: --json '[{\"at\":\"2026-09-30T07:00:00+09:00\",\"category\":\"weight\",\"value\":70.2}]'"
+    )]
     pub json: String,
+}
+
+#[derive(Debug, Args)]
+pub struct HealthListArgs {
+    /// Inclusive date in UTC+09:00, using the same date filter as the UI table.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub from: Option<String>,
+    /// Inclusive date in UTC+09:00.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub to: Option<String>,
+    #[command(flatten)]
+    pub page: HealthPageArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct DietListArgs {
+    /// Case-insensitive food substring (UI contains filter).
+    #[arg(long)]
+    pub food: Option<String>,
+    /// Match any normalized diet tag; comma-separated (UI is filter).
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+    #[arg(long, value_enum)]
+    pub meal: Option<MealArg>,
+    #[command(flatten)]
+    pub list: HealthListArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct MedicationListArgs {
+    /// Case-insensitive medication-name substring (UI contains filter).
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long, value_enum)]
+    pub unit: Option<MedicationUnitArg>,
+    #[command(flatten)]
+    pub list: HealthListArgs,
 }
 
 #[derive(Debug, Args)]
@@ -350,6 +495,9 @@ pub struct HealthPageArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    after_help = "This record list preserves historical metrics. For the UI daily metric table with date/value filters, sorts and groups, use raven health table query --help with scope health.metrics."
+)]
 pub struct MetricListArgs {
     #[arg(long, value_enum)]
     pub category: Option<HealthEventCategoryArg>,
@@ -377,14 +525,14 @@ pub struct HealthIdentityArgs {
 pub enum CurrencyCommand {
     Create(CurrencyCreateArgs),
     Update(CurrencyUpdateArgs),
-    List(PageReadArgs),
+    List(MasterListArgs),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum AccountCategoryCommand {
     Create(AccountCategoryCreateArgs),
     Update(AccountCategoryUpdateArgs),
-    List(PageReadArgs),
+    List(MasterListArgs),
     Purge(PurgeArgs),
 }
 
@@ -392,14 +540,14 @@ pub enum AccountCategoryCommand {
 pub enum AccountCommand {
     Create(AccountCreateArgs),
     Update(AccountUpdateArgs),
-    List(PageReadArgs),
+    List(MasterListArgs),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum CategoryCommand {
     Create(CategoryCreateArgs),
     Update(CategoryUpdateArgs),
-    List(PageReadArgs),
+    List(MasterListArgs),
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -442,11 +590,12 @@ pub enum ReportBy {
 )]
 pub struct EntryAddArgs {
     #[arg(long)]
+    /// Strict object: date (YYYY-MM-DD), entry_type (expense|income), amount (decimal string), currency, account, content; category required for expense/income; optional notes. Names or IDs resolve through the service. See examples below. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, value_name = "YYYY-MM-DD")]
     pub date: Option<String>,
     #[arg(long = "type")]
-    pub entry_type: Option<EntryTypeArg>,
+    pub entry_type: Option<EntryMutationTypeArg>,
     #[arg(long)]
     pub amount: Option<String>,
     #[arg(long)]
@@ -465,11 +614,12 @@ pub struct EntryAddArgs {
 pub struct EntryUpdateArgs {
     pub id: String,
     #[arg(long)]
+    /// Strict partial object: date, entry_type (expense|income), amount (decimal string), currency, account, category, clear_category, content, notes, clear_notes. Omitted fields are preserved. Historical records can be edited without changing entry_type. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub date: Option<String>,
     #[arg(long = "type")]
-    pub entry_type: Option<EntryTypeArg>,
+    pub entry_type: Option<EntryMutationTypeArg>,
     #[arg(long)]
     pub amount: Option<String>,
     #[arg(long)]
@@ -540,6 +690,7 @@ pub struct PurgeArgs {
 )]
 pub struct TransferArgs {
     #[arg(long)]
+    /// Strict object: operation_key (canonical UUID v4), date, amount (decimal string), currency, from_account, to_account, content; optional notes. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long, visible_alias = "idempotency-key")]
     pub operation_key: Option<String>,
@@ -569,6 +720,7 @@ pub struct TransferShowArgs {
 #[derive(Debug, Args)]
 pub struct CurrencyCreateArgs {
     #[arg(long)]
+    /// Strict object: code, name, symbol, decimal_places (0..18). Example: {"code":"KRW","name":"Korean Won","symbol":"won","decimal_places":0}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub code: Option<String>,
@@ -584,6 +736,7 @@ pub struct CurrencyCreateArgs {
 pub struct CurrencyUpdateArgs {
     pub id: String,
     #[arg(long)]
+    /// Strict partial object: code, name, symbol, decimal_places, active (boolean). Omitted fields are preserved. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub code: Option<String>,
@@ -600,6 +753,7 @@ pub struct CurrencyUpdateArgs {
 #[derive(Debug, Args)]
 pub struct AccountCategoryCreateArgs {
     #[arg(long)]
+    /// Strict object: name; optional parent (name or ID), liability (default false). Example: {"name":"Cash"}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -613,6 +767,7 @@ pub struct AccountCategoryCreateArgs {
 pub struct AccountCategoryUpdateArgs {
     pub id: String,
     #[arg(long)]
+    /// Strict partial object: name, parent, clear_parent, liability, active. Omitted fields are preserved. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -629,6 +784,7 @@ pub struct AccountCategoryUpdateArgs {
 #[derive(Debug, Args)]
 pub struct AccountCreateArgs {
     #[arg(long)]
+    /// Strict object: name, category, currency, opening_balance (decimal string). Example: {"name":"Wallet","category":"Cash","currency":"KRW","opening_balance":"0"}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -644,6 +800,7 @@ pub struct AccountCreateArgs {
 pub struct AccountUpdateArgs {
     pub id: String,
     #[arg(long)]
+    /// Strict partial object: name, category, currency, opening_balance (decimal string), active. Omitted fields are preserved. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -660,6 +817,7 @@ pub struct AccountUpdateArgs {
 #[derive(Debug, Args)]
 pub struct CategoryCreateArgs {
     #[arg(long)]
+    /// Strict object: name, kind (expense|income); optional parent (name or ID). Example: {"name":"Food","kind":"expense"}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -673,6 +831,7 @@ pub struct CategoryCreateArgs {
 pub struct CategoryUpdateArgs {
     pub id: String,
     #[arg(long)]
+    /// Strict partial object: name, kind, parent, clear_parent, active. Omitted fields are preserved. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -684,6 +843,18 @@ pub struct CategoryUpdateArgs {
     pub kind: Option<CategoryKindArg>,
     #[arg(long)]
     pub active: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+pub struct MasterListArgs {
+    /// Include inactive master data for inspection and reactivation.
+    #[arg(long)]
+    pub include_inactive: bool,
+    /// Case-insensitive substring search of names and currency codes before pagination.
+    #[arg(long)]
+    pub query: Option<String>,
+    #[command(flatten)]
+    pub page: PageReadArgs,
 }
 
 #[derive(Debug, Args)]

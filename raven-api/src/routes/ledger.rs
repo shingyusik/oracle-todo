@@ -351,6 +351,11 @@ async fn analyze_table(
     Ok(Json(json!({"buckets": buckets})))
 }
 
+pub fn parse_ledger_table_query(json: &str) -> Result<LedgerTableQuery, ApiError> {
+    let body = serde_json::from_str(json).map_err(|_| ApiError::validation(Some("json")))?;
+    validated_table_query(body)
+}
+
 fn validated_table_query(body: TableQueryBody) -> Result<LedgerTableQuery, ApiError> {
     let reference_date =
         parse_optional_date(body.context.reference_date.as_deref(), "reference_date")?;
@@ -389,30 +394,37 @@ async fn table_lookups(
 ) -> Result<Json<Value>, ApiError> {
     let scope = query_value(query)?.scope;
     ledger(&state, false, move |service| {
-        let value = match scope {
-            LedgerTableScope::Transactions => json!({
-                "accounts": all_pages(|page| service.accounts_page(page))?
-                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
-                "categories": all_pages(|page| service.transaction_categories_page(page))?
-                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
-                "currencies": all_pages(|page| service.currencies_page(page))?
-                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.code().into() }).collect::<Vec<_>>(),
-            }),
-            LedgerTableScope::Accounts => json!({
-                "account_types": all_pages(|page| service.account_categories_page(page))?
-                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
-                "currencies": all_pages(|page| service.currencies_page(page))?
-                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.code().into() }).collect::<Vec<_>>(),
-            }),
-            LedgerTableScope::Categories => json!({
-                "categories": all_pages(|page| service.transaction_categories_page(page))?
-                    .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
-            }),
-        };
-        Ok(value)
+        ledger_table_lookups(service, scope)
     })
     .await
     .map(Json)
+}
+
+pub fn ledger_table_lookups(
+    service: &LedgerService<SqliteLedgerRepository>,
+    scope: LedgerTableScope,
+) -> ledger_engine::application::error::LedgerResult<Value> {
+    let value = match scope {
+        LedgerTableScope::Transactions => json!({
+        "accounts": all_pages(|page| service.accounts_page(page))?
+            .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+        "categories": all_pages(|page| service.transaction_categories_page(page))?
+            .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+        "currencies": all_pages(|page| service.currencies_page(page))?
+            .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.code().into() }).collect::<Vec<_>>(),
+        }),
+        LedgerTableScope::Accounts => json!({
+        "account_types": all_pages(|page| service.account_categories_page(page))?
+            .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+        "currencies": all_pages(|page| service.currencies_page(page))?
+            .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.code().into() }).collect::<Vec<_>>(),
+        }),
+        LedgerTableScope::Categories => json!({
+        "categories": all_pages(|page| service.transaction_categories_page(page))?
+            .into_iter().map(|value| LookupOption { id: value.id().into(), label: value.name().into() }).collect::<Vec<_>>(),
+        }),
+    };
+    Ok(value)
 }
 
 fn all_pages<T>(

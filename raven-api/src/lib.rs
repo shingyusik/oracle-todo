@@ -21,6 +21,8 @@ pub use dto::dashboard::{
     TodoDashboard,
 };
 pub use error::{ApiError, ApiErrorBody};
+pub use routes::health::{health_table_lookups, health_table_page_json, parse_health_table_query};
+pub use routes::ledger::{ledger_table_lookups, parse_ledger_table_query};
 pub use server::{
     BindError, UiArtifact, UiPublicOriginError, serve, serve_listener, ui_router, validate_bind,
     validate_ui_public_origin,

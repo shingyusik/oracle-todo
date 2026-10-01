@@ -571,3 +571,139 @@ fn metrics_are_canonical_daily_only_and_require_current_version() {
         );
     }
 }
+#[test]
+fn journal_cli_help_only_advertises_supported_mutation_types_and_values() {
+    let home = tempfile::tempdir().unwrap();
+    let help =
+        String::from_utf8(success(home.path(), &["health", "metric", "list", "--help"]).stdout)
+            .unwrap();
+    assert!(!help.contains("bowel"));
+    assert!(!help.contains("medication"));
+    for args in [
+        ["health", "diet", "add", "--help"],
+        ["health", "medication", "add", "--help"],
+    ] {
+        let help = String::from_utf8(success(home.path(), &args).stdout).unwrap();
+        assert!(help.contains("possible values"));
+    }
+    let help = String::from_utf8(
+        success(home.path(), &["health", "metric", "daily-upsert", "--help"]).stdout,
+    )
+    .unwrap();
+    for field in [
+        "expected_updated_at",
+        "body_weight",
+        "sleep_duration",
+        "crp",
+        "calprotectin",
+        "overall_condition",
+        "UTC+09:00",
+    ] {
+        assert!(help.contains(field), "missing {field}: {help}");
+    }
+}
+
+#[test]
+fn health_table_query_and_lookups_reuse_ui_filters() {
+    let home = tempfile::tempdir().unwrap();
+    init(home.path());
+    add_diet(home.path());
+    let query = r#"{"scope":"health.diet","limit":1,"filters":[{"field":"tags","operator":"is","value":{"list":["wheat"]}}],"sorts":[{"field":"date","direction":"desc"}],"group_by":"none","group_settings":{"sort":"alphabetical","hide_empty":false,"manual_order":[],"hidden_group_keys":[]}}"#;
+    let result = json_success(home.path(), &["health", "table", "query", "--json", query]);
+    assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    assert!(result["next_offset"].is_null());
+    let lookups = json_success(
+        home.path(),
+        &["health", "table", "lookups", "--scope", "health.diet"],
+    );
+    assert!(
+        lookups["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|option| option["id"] == "wheat")
+    );
+    assert_exit(
+        home.path(),
+        &[
+            "health",
+            "table",
+            "query",
+            "--json",
+            "{\"scope\":\"health.diet\",\"unknown\":true}",
+        ],
+        2,
+    );
+}
+#[test]
+fn health_list_filters_apply_before_offset_and_use_ui_local_dates() {
+    let home = tempfile::tempdir().unwrap();
+    init(home.path());
+    for (at, food, tags) in [
+        ("2026-07-30T23:30:00Z", "Rice A", "rice"),
+        ("2026-07-31T09:00:00+09:00", "Other", "other"),
+        ("2026-07-31T12:00:00+09:00", "Rice B", "RICE"),
+        ("2026-08-01T12:00:00+09:00", "Rice C", "rice"),
+    ] {
+        json_success(
+            home.path(),
+            &[
+                "health", "diet", "add", "--at", at, "--meal", "lunch", "--food", food, "--tags",
+                tags,
+            ],
+        );
+    }
+    let first = json_success(
+        home.path(),
+        &[
+            "health",
+            "diet",
+            "list",
+            "--from",
+            "2026-07-31",
+            "--to",
+            "2026-07-31",
+            "--food",
+            "rice",
+            "--tags",
+            "RICE",
+            "--meal",
+            "lunch",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(first["items"][0]["food_name"], "Rice B");
+    assert_eq!(first["next"], 1);
+    let second = json_success(
+        home.path(),
+        &[
+            "health",
+            "diet",
+            "list",
+            "--from",
+            "2026-07-31",
+            "--to",
+            "2026-07-31",
+            "--food",
+            "rice",
+            "--tags",
+            "RICE",
+            "--offset",
+            "1",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(second["items"][0]["food_name"], "Rice A");
+    assert!(second["next"].is_null());
+    assert_exit(
+        home.path(),
+        &["health", "diet", "list", "--from", "invalid"],
+        2,
+    );
+}

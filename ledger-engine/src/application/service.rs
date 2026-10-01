@@ -1,3 +1,6 @@
+use unicode_casefold::UnicodeCaseFold;
+use unicode_normalization::UnicodeNormalization;
+
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
     AuditActivity, AuditEvent, EntryQuery, LedgerReadRepository, MAX_PAGE_LIMIT, Page, Paged,
@@ -135,6 +138,89 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         })
     }
 
+    pub fn search_currencies_page(
+        &self,
+        page: Page,
+        include_inactive: bool,
+        query: Option<&str>,
+    ) -> LedgerResult<Paged<Currency>> {
+        search_page(
+            page,
+            query,
+            |page| {
+                if include_inactive {
+                    self.currencies_including_inactive_page(page)
+                } else {
+                    self.currencies_page(page)
+                }
+            },
+            |value, query| {
+                search_fold(value.name()).contains(query)
+                    || search_fold(value.code()).contains(query)
+            },
+        )
+    }
+
+    pub fn search_account_categories_page(
+        &self,
+        page: Page,
+        include_inactive: bool,
+        query: Option<&str>,
+    ) -> LedgerResult<Paged<AccountCategory>> {
+        search_page(
+            page,
+            query,
+            |page| {
+                if include_inactive {
+                    self.account_categories_including_inactive_page(page)
+                } else {
+                    self.account_categories_page(page)
+                }
+            },
+            |value, query| search_fold(value.name()).contains(query),
+        )
+    }
+
+    pub fn search_accounts_page(
+        &self,
+        page: Page,
+        include_inactive: bool,
+        query: Option<&str>,
+    ) -> LedgerResult<Paged<Account>> {
+        search_page(
+            page,
+            query,
+            |page| {
+                if include_inactive {
+                    self.accounts_including_inactive_page(page)
+                } else {
+                    self.accounts_page(page)
+                }
+            },
+            |value, query| search_fold(value.name()).contains(query),
+        )
+    }
+
+    pub fn search_transaction_categories_page(
+        &self,
+        page: Page,
+        include_inactive: bool,
+        query: Option<&str>,
+    ) -> LedgerResult<Paged<TransactionCategory>> {
+        search_page(
+            page,
+            query,
+            |page| {
+                if include_inactive {
+                    self.transaction_categories_including_inactive_page(page)
+                } else {
+                    self.transaction_categories_page(page)
+                }
+            },
+            |value, query| search_fold(value.name()).contains(query),
+        )
+    }
+
     fn historical_currency_precision(&self, id: &str) -> LedgerResult<u8> {
         self.repository
             .get_currency(id, true)?
@@ -175,4 +261,67 @@ pub(crate) fn paged<T>(
         None
     };
     Ok(Paged { items, next })
+}
+
+// ponytail: scans bounded master pages; add repository search if large master sets make this slow.
+fn search_page<T>(
+    page: Page,
+    query: Option<&str>,
+    mut fetch: impl FnMut(Page) -> LedgerResult<Paged<T>>,
+    matches: impl Fn(&T, &str) -> bool,
+) -> LedgerResult<Paged<T>> {
+    if page.limit == 0 || page.limit > MAX_PAGE_LIMIT {
+        return Err(LedgerError::Validation {
+            field: "page",
+            message: format!("page limit must be between 1 and {MAX_PAGE_LIMIT}"),
+        });
+    }
+    let Some(query) = query.map(str::trim).filter(|query| !query.is_empty()) else {
+        return fetch(page);
+    };
+    if query.len() > 512 {
+        return Err(LedgerError::Validation {
+            field: "query",
+            message: "must be at most 512 bytes".into(),
+        });
+    }
+    let query = search_fold(query);
+    let mut offset = 0;
+    let mut skipped = 0;
+    let mut items = Vec::new();
+    loop {
+        let batch = fetch(Page {
+            offset,
+            limit: MAX_PAGE_LIMIT,
+        })?;
+        for item in batch
+            .items
+            .into_iter()
+            .filter(|value| matches(value, &query))
+        {
+            if skipped < page.offset {
+                skipped += 1;
+                continue;
+            }
+            if items.len() == usize::from(page.limit) {
+                let next = page
+                    .offset
+                    .checked_add(u32::from(page.limit))
+                    .map(|offset| Page {
+                        offset,
+                        limit: page.limit,
+                    });
+                return Ok(Paged { items, next });
+            }
+            items.push(item);
+        }
+        let Some(next) = batch.next else {
+            return Ok(Paged { items, next: None });
+        };
+        offset = next.offset;
+    }
+}
+
+fn search_fold(value: &str) -> String {
+    value.nfkc().case_fold().nfkc().collect()
 }

@@ -267,6 +267,17 @@ async fn query_table(
     body: Result<Json<TableQueryBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let body = json_value(body)?;
+    let query = validated_table_query(body)?;
+    let page = health(&state, false, move |service| service.query_table(&query)).await?;
+    Ok(Json(health_table_page_json(page)))
+}
+
+pub fn parse_health_table_query(json: &str) -> Result<HealthTableQuery, ApiError> {
+    let body = serde_json::from_str(json).map_err(|_| ApiError::validation(Some("json")))?;
+    validated_table_query(body)
+}
+
+fn validated_table_query(body: TableQueryBody) -> Result<HealthTableQuery, ApiError> {
     let reference_date =
         parse_optional_date(body.context.reference_date.as_deref(), "reference_date")?;
     let filters = body
@@ -286,7 +297,7 @@ async fn query_table(
         body.group_settings.manual_order,
         body.group_settings.hidden_group_keys,
     )?;
-    let query = HealthTableQuery::new(
+    Ok(HealthTableQuery::new(
         body.scope,
         body.offset,
         body.limit,
@@ -295,8 +306,14 @@ async fn query_table(
         sorts,
         groups,
         reference_date,
-    )?;
-    let page = health(&state, false, move |service| service.query_table(&query)).await?;
+    )?)
+}
+
+pub fn health_table_page_json(
+    page: health_engine::application::table::TablePage<
+        health_engine::application::table::HealthTableRow,
+    >,
+) -> Value {
     let items = page
         .items
         .into_iter()
@@ -321,9 +338,7 @@ async fn query_table(
             })
         })
         .collect::<Vec<_>>();
-    Ok(Json(
-        json!({"items": items, "next_offset": page.next_offset}),
-    ))
+    json!({"items": items, "next_offset": page.next_offset})
 }
 
 async fn table_lookups(
@@ -331,19 +346,24 @@ async fn table_lookups(
     query: Result<Query<TableLookupQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let scope = query_value(query)?.scope;
-    let value = match scope {
+    let tags = if scope == HealthTableScope::Diet {
+        health(&state, false, |service| service.list_active_diet_tags()).await?
+    } else {
+        Vec::new()
+    };
+    Ok(Json(health_table_lookups(scope, tags)))
+}
+
+pub fn health_table_lookups(scope: HealthTableScope, tags: Vec<String>) -> Value {
+    match scope {
         HealthTableScope::Diet => {
-            let tags = health(&state, false, |service| {
-                Ok(service
-                    .list_active_diet_tags()?
-                    .into_iter()
-                    .map(|tag| LookupOption {
-                        id: tag.clone(),
-                        label: tag,
-                    })
-                    .collect::<Vec<_>>())
-            })
-            .await?;
+            let tags = tags
+                .into_iter()
+                .map(|tag| LookupOption {
+                    id: tag.clone(),
+                    label: tag,
+                })
+                .collect::<Vec<_>>();
             json!({
                 "meal_type": options(&[("breakfast", "Breakfast"), ("lunch", "Lunch"), ("dinner", "Dinner"), ("snack", "Snack"), ("late_night", "Late night")]),
                 "has_photo": options(&[("with-photo", "Yes"), ("without-photo", "No")]),
@@ -360,8 +380,7 @@ async fn table_lookups(
         HealthTableScope::Metrics => json!({
             "metric": options(&[("weight", "Weight"), ("sleep", "Sleep"), ("crp", "CRP"), ("calprotectin", "Calprotectin"), ("condition", "Condition")]),
         }),
-    };
-    Ok(Json(value))
+    }
 }
 
 fn options(values: &[(&str, &str)]) -> Vec<LookupOption> {

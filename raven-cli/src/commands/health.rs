@@ -8,6 +8,7 @@ use health_engine::application::commands::{
 use health_engine::application::error::{HealthError, HealthResult};
 use health_engine::application::ports::{EventClass, EventQuery, Page};
 use health_engine::application::service::HealthService;
+use health_engine::application::table::{HealthTableRecord, HealthTableRow, HealthTableScope};
 use health_engine::domain::{
     BowelAttributes, HealthCategory, HealthEvent, HealthEventDetails, LabAttributes, MealType,
     MedicationAttributes, MedicationUnit, SleepAttributes, SleepValue, SymptomAttributes,
@@ -16,15 +17,16 @@ use health_engine::domain::{
 use health_engine::infrastructure::media::{LocalMediaStore, read_bounded_regular_file};
 use health_engine::infrastructure::sqlite::{HealthStorageHealth, SqliteHealthRepository};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{
-    BowelAddArgs, BowelCommand, BowelUpdateArgs, DietAddArgs, DietCommand, DietUpdateArgs,
-    HealthAuditArgs, HealthCommand, HealthEventCategoryArg, HealthIdentityArgs,
-    HealthIdentityReadArgs, HealthPageArgs, MedicationAddArgs, MedicationCommand,
-    MedicationUpdateArgs, MetricCommand, MetricDailyUpsertArgs, MetricListArgs, OutputFormat,
-    ReportRangeArgs,
+    BowelAddArgs, BowelCommand, BowelUpdateArgs, DietAddArgs, DietCommand, DietListArgs,
+    DietUpdateArgs, HealthAuditArgs, HealthCommand, HealthEventCategoryArg, HealthIdentityArgs,
+    HealthIdentityReadArgs, HealthListArgs, MealArg, MedicationAddArgs, MedicationCommand,
+    MedicationListArgs, MedicationUnitArg, MedicationUpdateArgs, MetricCommand,
+    MetricDailyUpsertArgs, MetricListArgs, OutputFormat, ReportRangeArgs, TableCommand,
 };
 use crate::config::RavenPaths;
 
@@ -59,7 +61,7 @@ fn is_mutation(command: &HealthCommand) -> bool {
         HealthCommand::Metric { command } => {
             !matches!(command, MetricCommand::List(_) | MetricCommand::Show(_))
         }
-        HealthCommand::Reports(_) | HealthCommand::Audit(_) => false,
+        HealthCommand::Reports(_) | HealthCommand::Audit(_) | HealthCommand::Table { .. } => false,
     }
 }
 
@@ -93,6 +95,30 @@ fn open_service(paths: &RavenPaths, mutation: bool) -> HealthResult<Service> {
 
 fn execute(service: &mut Service, command: HealthCommand) -> HealthResult<()> {
     match command {
+        HealthCommand::Table { command } => {
+            match command {
+                TableCommand::Query(args) => {
+                    let query = raven_api::parse_health_table_query(&args.json).map_err(|_| {
+                        HealthError::Validation {
+                            field: "json",
+                            message: "invalid table query; see health table query --help".into(),
+                        }
+                    })?;
+                    print_json(&raven_api::health_table_page_json(
+                        service.query_table(&query)?,
+                    ))
+                }
+                TableCommand::Lookups(args) => {
+                    let scope = serde_json::from_value(serde_json::json!(args.scope)).map_err(|_| HealthError::Validation { field: "scope", message: "must be health.diet, health.bowel, health.medication or health.metrics".into() })?;
+                    let tags = if scope == HealthTableScope::Diet {
+                        service.list_active_diet_tags()?
+                    } else {
+                        Vec::new()
+                    };
+                    print_json(&raven_api::health_table_lookups(scope, tags))
+                }
+            }
+        }
         HealthCommand::Diet { command } => diet(service, command),
         HealthCommand::Bowel { command } => bowel(service, command),
         HealthCommand::Medication { command } => medication(service, command),
@@ -117,11 +143,7 @@ fn diet(service: &mut Service, command: DietCommand) -> HealthResult<()> {
             })?)
         }
         DietCommand::Update(args) => update_diet(service, args),
-        DietCommand::List(args) => {
-            let (entries, next) =
-                read_page(args.offset, args.limit, |page| service.list_diet(page))?;
-            print_diet_list(&entries, next, args.format)
-        }
+        DietCommand::List(args) => diet_list(service, args),
         DietCommand::Show(args) => {
             let record = service.get_diet_including_archived(&args.id)?;
             print_record(&record, args.format, diet_table)
@@ -144,7 +166,7 @@ fn update_diet(service: &mut Service, args: DietUpdateArgs) -> HealthResult<()> 
     } else {
         DietUpdateInput {
             at: args.at,
-            meal: args.meal,
+            meal: args.meal.map(|value| MealType::from(value).to_string()),
             food: args.food,
             note: args.note,
             clear_note: args.clear_note,
@@ -201,7 +223,9 @@ fn bowel(service: &mut Service, command: BowelCommand) -> HealthResult<()> {
             })?)
         }
         BowelCommand::Update(args) => update_bowel(service, args),
-        BowelCommand::List(args) => list_events(service, HealthCategory::Bowel, None, args),
+        BowelCommand::List(args) => {
+            filtered_event_list(service, HealthTableScope::Bowel, Vec::new(), args)
+        }
         BowelCommand::Show(args) => show_event_category(service, args, HealthCategory::Bowel),
         BowelCommand::Archive(args) => transition_event(service, args, true, EventKind::Bowel),
         BowelCommand::Restore(args) => transition_event(service, args, false, EventKind::Bowel),
@@ -254,9 +278,7 @@ fn medication(service: &mut Service, command: MedicationCommand) -> HealthResult
             })?)
         }
         MedicationCommand::Update(args) => update_medication(service, args),
-        MedicationCommand::List(args) => {
-            list_events(service, HealthCategory::Medication, None, args)
-        }
+        MedicationCommand::List(args) => medication_list(service, args),
         MedicationCommand::Show(args) => {
             show_event_category(service, args, HealthCategory::Medication)
         }
@@ -278,7 +300,9 @@ fn update_medication(service: &mut Service, args: MedicationUpdateArgs) -> Healt
             at: args.at,
             name: args.name,
             dose: args.dose,
-            unit: args.unit,
+            unit: args
+                .unit
+                .map(|value| MedicationUnit::from(value).to_string()),
             note: args.note,
             clear_note: args.clear_note,
             expected_updated_at: args.expected_updated_at,
@@ -344,14 +368,6 @@ fn metric(service: &mut Service, command: MetricCommand) -> HealthResult<()> {
 }
 
 fn metric_list(service: &Service, args: MetricListArgs) -> HealthResult<()> {
-    if args.category.is_some_and(|category| {
-        matches!(
-            category,
-            HealthEventCategoryArg::Bowel | HealthEventCategoryArg::Medication
-        )
-    }) {
-        return validation("category", "must be weight, sleep, lab, or symptom");
-    }
     let (records, next) = read_page(args.page.offset, args.page.limit, |page| {
         let mut query = EventQuery::new(page).with_class(EventClass::Metric);
         if let Some(category) = args.category {
@@ -365,20 +381,122 @@ fn metric_list(service: &Service, args: MetricListArgs) -> HealthResult<()> {
     print_event_list(&records, next, args.page.format)
 }
 
-fn list_events(
+fn diet_list(service: &Service, args: DietListArgs) -> HealthResult<()> {
+    let mut filters = Vec::new();
+    if let Some(food) = args.food {
+        filters.push(json!({"field":"food","operator":"contains","value":{"text":food}}));
+    }
+    if !args.tags.is_empty() {
+        filters.push(json!({"field":"tags","operator":"is","value":{"list":args.tags}}));
+    }
+    if let Some(meal) = args.meal {
+        filters.push(json!({"field":"meal_type","operator":"is","value":{"list":[MealType::from(meal).to_string()]}}));
+    }
+    if filters.is_empty() && args.list.from.is_none() && args.list.to.is_none() {
+        let (entries, next) = read_page(args.list.page.offset, args.list.page.limit, |page| {
+            service.list_diet(page)
+        })?;
+        return print_diet_list(&entries, next, args.list.page.format);
+    }
+    let (rows, next) = filtered_list_rows(service, HealthTableScope::Diet, filters, &args.list)?;
+    let entries = rows
+        .iter()
+        .filter_map(|row| match row.record() {
+            HealthTableRecord::Diet(record) => Some(record.entry.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    print_diet_list(&entries, next, args.list.page.format)
+}
+
+fn medication_list(service: &Service, args: MedicationListArgs) -> HealthResult<()> {
+    let mut filters = Vec::new();
+    if let Some(name) = args.name {
+        filters
+            .push(json!({"field":"medication_name","operator":"contains","value":{"text":name}}));
+    }
+    if let Some(unit) = args.unit {
+        filters.push(json!({"field":"medication_unit","operator":"is","value":{"list":[MedicationUnit::from(unit).to_string()]}}));
+    }
+    filtered_event_list(service, HealthTableScope::Medication, filters, args.list)
+}
+
+fn filtered_event_list(
     service: &Service,
-    category: HealthCategory,
-    key: Option<&str>,
-    args: HealthPageArgs,
+    scope: HealthTableScope,
+    filters: Vec<Value>,
+    args: HealthListArgs,
 ) -> HealthResult<()> {
-    let (records, next) = read_page(args.offset, args.limit, |page| {
-        let mut query = EventQuery::new(page).with_category(category);
-        if let Some(key) = key {
-            query = query.with_metric_key(key)?;
+    if filters.is_empty() && args.from.is_none() && args.to.is_none() {
+        let category = match scope {
+            HealthTableScope::Bowel => HealthCategory::Bowel,
+            _ => HealthCategory::Medication,
+        };
+        let (records, next) = read_page(args.page.offset, args.page.limit, |page| {
+            service.list_events(EventQuery::new(page).with_category(category))
+        })?;
+        return print_event_list(&records, next, args.page.format);
+    }
+    let (rows, next) = filtered_list_rows(service, scope, filters, &args)?;
+    let records = rows
+        .iter()
+        .filter_map(|row| match row.record() {
+            HealthTableRecord::Bowel(record) => Some(record.event.clone()),
+            HealthTableRecord::Medication(record) => Some(record.event.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    print_event_list(&records, next, args.page.format)
+}
+
+fn filtered_list_rows(
+    service: &Service,
+    scope: HealthTableScope,
+    mut filters: Vec<Value>,
+    args: &HealthListArgs,
+) -> HealthResult<(Vec<HealthTableRow>, Option<u32>)> {
+    Page::new(args.page.offset, args.page.limit)?;
+    for (date, operator) in [
+        (&args.from, "is_on_or_after"),
+        (&args.to, "is_on_or_before"),
+    ] {
+        if let Some(date) = date {
+            filters.push(json!({"field":"date","operator":operator,"value":{"text":date}}));
         }
-        service.list_events(query)
-    })?;
-    print_event_list(&records, next, args.format)
+    }
+    if args
+        .from
+        .as_ref()
+        .zip(args.to.as_ref())
+        .is_some_and(|(from, to)| from > to)
+    {
+        return validation("from", "must not be after to");
+    }
+    let mut rows = Vec::new();
+    let mut offset = args.page.offset;
+    loop {
+        let limit = (usize::from(args.page.limit) + 1 - rows.len()).min(50) as u16;
+        let body = json!({"scope":scope,"offset":offset,"limit":limit,"filters":filters,"sorts":[{"field":"date","direction":"desc"}],"group_by":"none","group_settings":{"sort":"alphabetical","hide_empty":false,"manual_order":[],"hidden_group_keys":[]}});
+        let query = raven_api::parse_health_table_query(&body.to_string()).map_err(|_| {
+            HealthError::Validation {
+                field: "filters",
+                message: "invalid list filters; see health table query --help".into(),
+            }
+        })?;
+        let batch = service.query_table(&query)?;
+        rows.extend(batch.items);
+        if rows.len() > usize::from(args.page.limit) {
+            rows.truncate(usize::from(args.page.limit));
+            return Ok((
+                rows,
+                args.page.offset.checked_add(u32::from(args.page.limit)),
+            ));
+        }
+        let Some(next) = batch.next_offset else {
+            return Ok((rows, None));
+        };
+        offset = next;
+    }
 }
 
 fn show_event_category(
@@ -626,7 +744,7 @@ fn diet_add_input(args: DietAddArgs) -> HealthResult<DietInput> {
     }
     Ok(DietInput {
         at: required(args.at, "at")?,
-        meal: required(args.meal, "meal")?,
+        meal: MealType::from(required(args.meal, "meal")?).to_string(),
         food: required(args.food, "food")?,
         note: args.note,
         tags: args.tags,
@@ -657,7 +775,7 @@ fn medication_add_input(args: MedicationAddArgs) -> HealthResult<MedicationInput
         at: required(args.at, "at")?,
         name: required(args.name, "name")?,
         dose: required(args.dose, "dose")?,
-        unit: required(args.unit, "unit")?,
+        unit: MedicationUnit::from(required(args.unit, "unit")?).to_string(),
         note: args.note,
     })
 }
@@ -896,11 +1014,9 @@ impl From<HealthEventCategoryArg> for HealthCategory {
     fn from(value: HealthEventCategoryArg) -> Self {
         match value {
             HealthEventCategoryArg::Weight => Self::Weight,
-            HealthEventCategoryArg::Bowel => Self::Bowel,
             HealthEventCategoryArg::Sleep => Self::Sleep,
             HealthEventCategoryArg::Lab => Self::Lab,
             HealthEventCategoryArg::Symptom => Self::Symptom,
-            HealthEventCategoryArg::Medication => Self::Medication,
         }
     }
 }
@@ -1089,6 +1205,33 @@ impl CommonUpdate {
             note,
             clear_note,
             expected_updated_at,
+        }
+    }
+}
+
+impl From<MealArg> for MealType {
+    fn from(value: MealArg) -> Self {
+        match value {
+            MealArg::Breakfast => Self::Breakfast,
+            MealArg::Lunch => Self::Lunch,
+            MealArg::Dinner => Self::Dinner,
+            MealArg::Snack => Self::Snack,
+            MealArg::LateNight => Self::LateNight,
+        }
+    }
+}
+
+impl From<MedicationUnitArg> for MedicationUnit {
+    fn from(value: MedicationUnitArg) -> Self {
+        match value {
+            MedicationUnitArg::Tablet => Self::Tablet,
+            MedicationUnitArg::Capsule => Self::Capsule,
+            MedicationUnitArg::Packet => Self::Packet,
+            MedicationUnitArg::Mg => Self::Mg,
+            MedicationUnitArg::G => Self::G,
+            MedicationUnitArg::Ml => Self::Ml,
+            MedicationUnitArg::Drop => Self::Drop,
+            MedicationUnitArg::Dose => Self::Dose,
         }
     }
 }

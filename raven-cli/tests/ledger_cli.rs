@@ -1528,3 +1528,134 @@ fn public_entry_metadata_adjustment_creation_and_manual_comparison_are_rejected(
     );
     assert!(list["items"].as_array().unwrap().is_empty());
 }
+#[test]
+fn journal_cli_entry_mutation_help_excludes_historical_types() {
+    let home = tempfile::tempdir().unwrap();
+    for command in ["add", "update"] {
+        let help =
+            String::from_utf8(success(home.path(), &["ledger", "entry", command, "--help"]).stdout)
+                .unwrap();
+        assert!(help.contains("expense"));
+        assert!(help.contains("income"));
+        for unsupported in [
+            "transfer_out",
+            "transfer_in",
+            "adjustment_out",
+            "adjustment_in",
+        ] {
+            assert!(
+                !help.contains(unsupported),
+                "unexpected {unsupported}: {help}"
+            );
+        }
+    }
+    let help =
+        String::from_utf8(success(home.path(), &["ledger", "entry", "list", "--help"]).stdout)
+            .unwrap();
+    assert!(help.contains("adjustment_in"));
+}
+
+#[test]
+fn master_search_includes_inactive_and_filters_before_paging() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"]);
+    for name in ["Alpha", "Match A", "Match B", "Zebra"] {
+        let category = json_success(
+            home.path(),
+            &["ledger", "account-category", "create", "--name", name],
+        );
+        if name == "Match A" {
+            json_success(
+                home.path(),
+                &[
+                    "ledger",
+                    "account-category",
+                    "update",
+                    category["id"].as_str().unwrap(),
+                    "--active",
+                    "false",
+                ],
+            );
+        }
+    }
+    let first = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account-category",
+            "list",
+            "--query",
+            "match",
+            "--include-inactive",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(first["items"].as_array().unwrap().len(), 1);
+    assert_eq!(first["next"], 1);
+    let second = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account-category",
+            "list",
+            "--query",
+            "MATCH",
+            "--include-inactive",
+            "--offset",
+            "1",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(second["items"].as_array().unwrap().len(), 1);
+    assert!(second["next"].is_null());
+    let active = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account-category",
+            "list",
+            "--query",
+            "match",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(active["items"].as_array().unwrap().len(), 1);
+}
+#[test]
+fn ledger_table_query_and_lookups_share_ui_schema() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+    let query = r#"{"scope":"ledger.accounts","filters":[{"field":"name","operator":"contains","value":{"text":"card"}}],"sorts":[{"field":"name","direction":"asc"}],"group_by":"none","group_settings":{"sort":"alphabetical","hide_empty":false,"manual_order":[],"hidden_group_keys":[]}}"#;
+    let result = json_success(home.path(), &["ledger", "table", "query", "--json", query]);
+    assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    assert!(result["next_offset"].is_null());
+    let lookups = json_success(
+        home.path(),
+        &["ledger", "table", "lookups", "--scope", "ledger.accounts"],
+    );
+    assert!(
+        lookups["currencies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|option| option["label"] == "KRW")
+    );
+    assert_exit(
+        home.path(),
+        &[
+            "ledger",
+            "table",
+            "query",
+            "--json",
+            "{\"scope\":\"ledger.accounts\",\"unknown\":true}",
+        ],
+        2,
+    );
+}

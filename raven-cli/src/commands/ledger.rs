@@ -28,10 +28,10 @@ use crate::cli::{
     AccountCategoryCommand, AccountCategoryCreateArgs, AccountCategoryUpdateArgs, AccountCommand,
     AccountCreateArgs, AccountUpdateArgs, AuditArgs, CategoryCommand, CategoryCreateArgs,
     CategoryKindArg, CategoryUpdateArgs, CompareArgs, CurrencyCommand, CurrencyCreateArgs,
-    CurrencyUpdateArgs, DoctorArgs, EntryAddArgs, EntryIdentityArgs, EntryListArgs, EntryShowArgs,
-    EntryTypeArg, EntryUpdateArgs, ExportArgs, LedgerCommand, LedgerEntryCommand, OutputFormat,
-    PageReadArgs, ReportArgs, ReportBy, ReportRangeArgs, TransferArgs, TransferShowArgs,
-    TransferUpdateArgs,
+    CurrencyUpdateArgs, DoctorArgs, EntryAddArgs, EntryIdentityArgs, EntryListArgs,
+    EntryMutationTypeArg, EntryShowArgs, EntryTypeArg, EntryUpdateArgs, ExportArgs, LedgerCommand,
+    LedgerEntryCommand, MasterListArgs, OutputFormat, PageReadArgs, ReportArgs, ReportBy,
+    ReportRangeArgs, TableCommand, TransferArgs, TransferShowArgs, TransferUpdateArgs,
 };
 use crate::config::RavenPaths;
 
@@ -104,6 +104,24 @@ pub fn run(paths: &RavenPaths, command: LedgerCommand) -> Result<()> {
 
 fn execute(service: &mut Service, command: LedgerCommand) -> LedgerResult<()> {
     match command {
+        LedgerCommand::Table { command } => match command {
+            TableCommand::Query(args) => {
+                let query = raven_api::parse_ledger_table_query(&args.json).map_err(|_| {
+                    validation("json", "invalid table query; see ledger table query --help")
+                })?;
+                print_json(&service.query_table(&query)?)
+            }
+            TableCommand::Lookups(args) => {
+                let scope =
+                    serde_json::from_value(serde_json::json!(args.scope)).map_err(|_| {
+                        validation(
+                            "scope",
+                            "must be ledger.transactions, ledger.accounts or ledger.categories",
+                        )
+                    })?;
+                print_json(&raven_api::ledger_table_lookups(service, scope)?)
+            }
+        },
         LedgerCommand::Entry { command } => entry(service, command),
         LedgerCommand::Transfer(args) => transfer(service, args),
         LedgerCommand::TransferShow(args) => transfer_show(service, args),
@@ -475,13 +493,17 @@ fn category(service: &mut Service, command: CategoryCommand) -> LedgerResult<()>
     }
 }
 
-fn list_currencies(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
-    let page = service.currencies_page(page(&args))?;
+fn list_currencies(service: &Service, args: MasterListArgs) -> LedgerResult<()> {
+    let page = service.search_currencies_page(
+        page(&args.page),
+        args.include_inactive,
+        args.query.as_deref(),
+    )?;
     let output = PageOutput {
         items: page.items.iter().map(CurrencyOutput::from).collect(),
         next: page.next.map(|page| page.offset),
     };
-    match args.format {
+    match args.page.format {
         OutputFormat::Json => print_json(&output),
         OutputFormat::Table => {
             println!("ID\tCODE\tNAME\tSYMBOL\tDECIMAL_PLACES\tACTIVE");
@@ -501,13 +523,17 @@ fn list_currencies(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     }
 }
 
-fn list_account_categories(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
-    let page = service.account_categories_page(page(&args))?;
+fn list_account_categories(service: &Service, args: MasterListArgs) -> LedgerResult<()> {
+    let page = service.search_account_categories_page(
+        page(&args.page),
+        args.include_inactive,
+        args.query.as_deref(),
+    )?;
     let output = PageOutput {
         items: page.items.iter().map(AccountCategoryOutput::from).collect(),
         next: page.next.map(|page| page.offset),
     };
-    match args.format {
+    match args.page.format {
         OutputFormat::Json => print_json(&output),
         OutputFormat::Table => {
             println!("ID\tNAME\tPARENT_ID\tLIABILITY\tACTIVE");
@@ -526,13 +552,17 @@ fn list_account_categories(service: &Service, args: PageReadArgs) -> LedgerResul
     }
 }
 
-fn list_accounts(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
-    let page = service.accounts_page(page(&args))?;
+fn list_accounts(service: &Service, args: MasterListArgs) -> LedgerResult<()> {
+    let page = service.search_accounts_page(
+        page(&args.page),
+        args.include_inactive,
+        args.query.as_deref(),
+    )?;
     let output = PageOutput {
         items: page.items.iter().map(AccountOutput::from).collect(),
         next: page.next.map(|page| page.offset),
     };
-    match args.format {
+    match args.page.format {
         OutputFormat::Json => print_json(&output),
         OutputFormat::Table => {
             println!("ID\tNAME\tACCOUNT_CATEGORY_ID\tCURRENCY_ID\tOPENING_BALANCE_MINOR\tACTIVE");
@@ -552,13 +582,17 @@ fn list_accounts(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
     }
 }
 
-fn list_categories(service: &Service, args: PageReadArgs) -> LedgerResult<()> {
-    let page = service.transaction_categories_page(page(&args))?;
+fn list_categories(service: &Service, args: MasterListArgs) -> LedgerResult<()> {
+    let page = service.search_transaction_categories_page(
+        page(&args.page),
+        args.include_inactive,
+        args.query.as_deref(),
+    )?;
     let output = PageOutput {
         items: page.items.iter().map(CategoryOutput::from).collect(),
         next: page.next.map(|page| page.offset),
     };
-    match args.format {
+    match args.page.format {
         OutputFormat::Json => print_json(&output),
         OutputFormat::Table => {
             println!("ID\tNAME\tPARENT_ID\tKIND\tACTIVE");
@@ -1704,4 +1738,13 @@ struct MasterPurgePreviewOutput {
 struct PurgeResult {
     purged: bool,
     id: String,
+}
+
+impl From<EntryMutationTypeArg> for EntryType {
+    fn from(value: EntryMutationTypeArg) -> Self {
+        match value {
+            EntryMutationTypeArg::Expense => Self::Expense,
+            EntryMutationTypeArg::Income => Self::Income,
+        }
+    }
 }
