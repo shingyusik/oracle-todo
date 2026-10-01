@@ -21,8 +21,21 @@ impl RavenPaths {
     ) -> anyhow::Result<Self> {
         let home = explicit
             .or(env_home)
-            .or_else(|| std::env::var_os("HOME").map(|value| PathBuf::from(value).join(".raven")))
-            .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .filter(|value| !value.is_empty())
+                    .map(|value| PathBuf::from(value).join(".raven"))
+            })
+            .or_else(|| {
+                if cfg!(windows) {
+                    std::env::var_os("USERPROFILE")
+                        .filter(|value| !value.is_empty())
+                        .map(|value| PathBuf::from(value).join(".raven"))
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| anyhow::anyhow!("Home directory is not set"))?;
 
         Ok(Self { home })
     }

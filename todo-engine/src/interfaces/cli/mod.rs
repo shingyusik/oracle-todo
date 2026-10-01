@@ -599,18 +599,33 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    let original = Cli::command();
-    let subcommands = original.get_subcommands().cloned().collect::<Vec<_>>();
-    let command = clap::Command::new("raven todo")
-        .about("Policy-enforced personal ToDo engine")
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .subcommands(subcommands);
-    let matches = command
+    let matches = raven_command()
         .try_get_matches_from(args)
         .map_err(anyhow::Error::new)?;
     let command = Command::from_arg_matches(&matches).map_err(anyhow::Error::new)?;
     execute(home.to_path_buf(), command)
+}
+
+/// Validate delegated arguments without resolving a home or opening a store.
+pub fn validate_raven_args<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    raven_command()
+        .try_get_matches_from(args)
+        .map_err(anyhow::Error::new)?;
+    Ok(())
+}
+
+fn raven_command() -> clap::Command {
+    let original = Cli::command();
+    let subcommands = original.get_subcommands().cloned().collect::<Vec<_>>();
+    clap::Command::new("raven todo")
+        .about("Policy-enforced personal ToDo engine")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommands(subcommands)
 }
 
 pub(super) fn connect_path(path: &Path) -> Result<rusqlite::Connection> {

@@ -73,7 +73,8 @@ cargo run -p raven-cli -- init
 cargo run -p raven-cli -- health-check
 ```
 
-The data home resolves from `--home`, then `RAVEN_HOME`, then `$HOME/.raven`:
+The data home resolves from `--home`, then `RAVEN_HOME`, then `$HOME/.raven`.
+On Windows, `%USERPROFILE%/.raven` is the fallback when `HOME` is absent or empty:
 
 ```text
 ~/.raven/

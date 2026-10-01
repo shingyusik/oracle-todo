@@ -60,6 +60,7 @@ Resolution order:
 1. `--home <path>`
 2. `RAVEN_HOME` from the process or `.env`
 3. `$HOME/.raven`
+4. `%USERPROFILE%/.raven` on Windows when `HOME` is absent or empty
 
 ```bash
 RAVEN_HOME=/path/to/data raven init

@@ -9,6 +9,7 @@ The Raven home contains all canonical domain stores, Health media, and operation
 1. global `--home <path>`
 2. `RAVEN_HOME` from the process or `.env`
 3. `$HOME/.raven`
+4. `%USERPROFILE%/.raven` on Windows when `HOME` is absent or empty
 
 ```bash
 raven --home /path/to/raven-data init

@@ -167,8 +167,9 @@ fn keyed_help_has_no_receipt() {
         &home,
         &["--request-key", "help", "todo", "task", "create", "--help"],
     );
-    assert_eq!(output.status.code(), Some(2));
-    assert!(!home.join("retry.sqlite").exists());
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage:"));
+    assert!(!home.exists());
 }
 #[test]
 fn todo_json_validation_is_quiet_and_failed_key_can_retry() {

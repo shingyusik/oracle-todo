@@ -26,6 +26,14 @@ where
 {
     let args = args.into_iter().map(Into::into).collect::<Vec<OsString>>();
     let cli = Cli::try_parse_from(&args)?;
+    if let crate::cli::Command::Todo { args } = &cli.command
+        && let Err(error) = commands::todo::validate_args(args)
+        && error
+            .downcast_ref::<clap::Error>()
+            .is_some_and(|error| error.exit_code() == 0)
+    {
+        return Err(error);
+    }
     let paths = RavenPaths::resolve(cli.home)?;
     if matches!(cli.error_format, crate::cli::ErrorFormat::Text) {
         logging::init(&paths);

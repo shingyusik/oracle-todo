@@ -56,6 +56,46 @@ fn raven_binary_prints_raven_help() {
 }
 
 #[test]
+fn delegated_todo_help_needs_no_home_or_initialization() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [vec!["todo", "list", "--help"], vec!["todo", "help", "list"]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_raven"))
+            .args(args)
+            .current_dir(dir.path())
+            .env_remove("HOME")
+            .env_remove("USERPROFILE")
+            .env_remove("RAVEN_HOME")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("--status"));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_home_falls_back_to_userprofile_without_creating_stores() {
+    let dir = tempfile::tempdir().unwrap();
+    let profile = dir.path().join("profile");
+    let output = Command::new(env!("CARGO_BIN_EXE_raven"))
+        .args(["--error-format", "json", "health-check"])
+        .current_dir(dir.path())
+        .env_remove("HOME")
+        .env_remove("RAVEN_HOME")
+        .env("USERPROFILE", &profile)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("todo=not_initialized"));
+    assert!(!profile.exists());
+}
+
+#[test]
 fn raven_init_creates_todo_and_ledger_databases_and_media_directory() {
     let home = tempfile::tempdir().unwrap();
 
@@ -107,7 +147,7 @@ fn raven_todo_invalid_command_logs_a_terminal_exit_two_event() {
 }
 
 #[test]
-fn raven_todo_help_logs_a_terminal_exit_zero_event() {
+fn raven_todo_help_does_not_initialize_logging() {
     let home = tempfile::tempdir().unwrap();
 
     let output = raven(home.path())
@@ -122,13 +162,7 @@ fn raven_todo_help_logs_a_terminal_exit_zero_event() {
             .unwrap()
             .contains("Policy-enforced personal ToDo engine")
     );
-    let events = raven_log_events(home.path());
-    assert_eq!(command_events(&events, "command_started").len(), 1);
-    let completed = command_events(&events, "command_completed");
-    assert_eq!(completed.len(), 1);
-    assert_eq!(completed[0]["fields"]["exit_code"], 0);
-    assert!(completed[0]["fields"]["duration_ms"].is_number());
-    assert!(command_events(&events, "command_failed").is_empty());
+    assert!(!home.path().join("logs").exists());
 }
 
 #[test]

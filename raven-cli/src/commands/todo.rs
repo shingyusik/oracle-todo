@@ -32,6 +32,11 @@ where
     todo_engine::interfaces::cli::run_raven_at(paths.home(), args)
 }
 
+pub fn validate_args(args: &[OsString]) -> Result<()> {
+    let args = std::iter::once(OsString::from("raven todo")).chain(args.iter().cloned());
+    todo_engine::interfaces::cli::validate_raven_args(args)
+}
+
 fn has_nested_home(args: &[OsString]) -> bool {
     forwarded_command(args).is_some_and(|arg| {
         arg == "--home"
