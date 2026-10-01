@@ -135,6 +135,8 @@ authentication and bind policy.
 ToDo preserves its service policies: direct-active creation, required project
 `definition_of_done`, required routine RRULE, canonical goal anchors, status-machine
 transitions, and an audit event for every mutation.
+`PATCH /items/:id` preserves priority when omitted and clears it with `"priority":null`.
+The `expected_updated_at` condition applies to clearing as well as ordinary updates.
 
 Authenticated ToDo routes have a narrow safe-detail exception within the shared error
 envelope. Only `400 goal_invalid_anchor` and `400 goal_parent_horizon_not_coarser` retain
@@ -235,10 +237,15 @@ and scheduling fields, timestamps, and `metadata_` (`location`, `participants`, 
 `{"items":[{"id":"...","type":"task","title":"...","tags":["..."]}]}`. Results contain
 only non-terminal records relevant to the displayed and filter/group fields. Area returns
 `area`; project returns `area,project`; goal and Planner goal scopes return `goal`; routine
-returns `area,project,routine`; task returns `area,project,routine,task`; event returns
+returns `area,project,routine`; task returns `area,goal,project,routine,task`; event returns
 `area,event,project`; linked scopes use their child set; Planner work scopes return
 `area,event,project,routine,task`. Stored tag labels keep their trimmed casing and deduplicate
 only exact matches. Lookups contain no note, description, full record, or audit data.
+Optional `item_id` excludes the current item and narrows Goal parent choices using the
+same nesting policy as mutations. Optional `horizon=week|month|year` uses a proposed Goal
+horizon; it applies only to Goal scopes. Goal parents must be non-terminal and strictly
+coarser, without a prospective parent cycle. A supplied item must match the workspace or
+linked child type.
 
 ## Ledger routes
 

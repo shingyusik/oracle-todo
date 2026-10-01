@@ -1,5 +1,7 @@
 # CLI Reference
 
+[한국어](cli-reference.ko.md)
+
 The native command is `raven`. Inputs are structured flags or schema-validated JSON; Raven
 does not parse natural-language journal text.
 
@@ -9,8 +11,9 @@ does not parse natural-language journal text.
 raven [--home <path>] [--error-format text|json] [--request-key <key>] <command>
 ```
 
-`--home` overrides `RAVEN_HOME` and the default `$HOME/.raven`. It may precede any native
-command.
+`--home` overrides `RAVEN_HOME` and the default `$HOME/.raven`. Windows uses
+`%USERPROFILE%/.raven` when `HOME` is absent or empty. It may precede any native command.
+Help does not require a data home and does not initialize stores or logging.
 
 `--error-format json` emits one structured error document on stderr and suppresses
 console tracing. Successful command output still follows that command's output contract.
@@ -55,7 +58,7 @@ assertions, and cookies must not be logged.
 `raven todo` delegates domain commands to the reusable ToDo CLI:
 
 ```text
-init, health, list, show,
+init, health, list, show, options, table query|lookups,
 area create,
 project create,
 goal create,
@@ -97,6 +100,31 @@ ToDo, Ledger, and Health read commands do not create or migrate databases. Run `
 before querying an uninitialized home.
 Run `raven todo --help` and `raven todo <command> --help` for the complete existing flags.
 
+`options [--type <type> | --id <item-id>]` returns JSON with fixed enums, type-specific
+update fields, UI `status_choices`, and separate lifecycle `actions`. Item inspection
+accounts for its current status. Read status filters include historical states; they are
+not a list of writable statuses.
+
+| Type | Status selector for open items |
+| --- | --- |
+| Area | `active`, `archived` |
+| Task | `active`, `completed` |
+| Event, Project, Routine, Goal | `active`, `paused`, `completed` |
+
+Terminal items retain their current status. Completed Tasks and Events also allow
+`active` through `reopen`. Archive and planner miss/postpone remain separate actions.
+Existing historical states are retained in the selector, with only reachable transitions
+offered. A paused Routine requires a recurrence rule before `active` is available.
+`update --clear-priority` removes a Task, Routine, or Event priority and conflicts with
+`--priority`; numeric priorities are `1..10`.
+
+`list --query <text>` searches title, note, legacy description, and outcome with the
+same Unicode case folding as UI text filters. Literal `%` and `_` remain literal.
+Use `table query` for field-specific filters, sorting, and grouping.
+`list --include-archived` includes statuses hidden by the default list. Use
+`archive-list` to list terminal items (`completed,cancelled,dropped,archived,missed,rejected`);
+`show <item-id>` also reads terminal items.
+
 ## Ledger
 
 Top-level groups:
@@ -117,6 +145,7 @@ Top-level groups:
 | `ledger audit` | Audit page for one record; alias `history` |
 | `ledger doctor` | Bounded read-only consistency diagnostics |
 | `ledger export` | Deterministic schema-v3 JSON export |
+| `ledger table` | `query --json <body>`, `lookups --scope <scope>` |
 
 Mutating add/create/update commands accept either `--json <object>` or field flags, not a
 mixture. Dates use `YYYY-MM-DD`; timestamps use RFC 3339. Lists default to
@@ -158,8 +187,15 @@ raven ledger transfer-update <group-id> --json \
 Entries support `archive <id>` and `restore <id>`. Master data uses
 `update --active <true|false>`. Only account-category purge is exposed; preview first,
 then repeat with `--confirm <confirmation-id>`. Audit history remains available.
+`entry list --include-archived` includes archived entries in search results. The list
+contains their complete CLI record; `entry show` reads only non-archived entries.
 Entry source, actor, and written timestamp are assigned by the adapter. Adjustment
 records remain readable; creation and conversion to adjustment types are rejected.
+Manual entry add/update type choices are `expense` and `income`; create transfers through
+`ledger transfer`. Read filters also support historical transfer and adjustment types.
+Currency, account-category, account, and category lists accept `--query <text>` and
+`--include-inactive`. Name/code search uses Unicode case folding and filters before
+pagination; inactive records remain available for recovery without becoming active choices.
 
 ## Health Journal
 
@@ -170,7 +206,8 @@ records remain readable; creation and conversion to adjustment types are rejecte
 | `health medication` | same lifecycle |
 | `health metric` | `daily-upsert`, `list`, `show`, `archive`, `restore` |
 | `health reports` | Report for explicit inclusive `--from` and `--to` dates |
-| `health audit` | Paginated audit history for a record; alias `history` |
+| `health audit` | Paginated audit history for a record |
+| `health table` | `query --json <body>`, `lookups --scope <scope>` |
 
 Create/update commands accept strict `--json` or typed flags. Timestamps use RFC 3339.
 Mutation JSON rejects unknown fields.
@@ -189,6 +226,14 @@ raven health audit health_event <id> --limit 100 --format json
 
 Daily metrics use fixed UTC+09:00 dates and canonical weight, sleep, CRP, fecal calprotectin, and overall-condition identities. Existing daily values require `expected_updated_at` when replaced. Per-metric notes are absent; overall condition uses `condition_note`.
 
+Meal choices are `breakfast,lunch,dinner,snack,late_night`. Medication units are
+`tablet,capsule,packet,mg,g,ml,drop,dose`. Metric category filters accept only
+`weight,sleep,lab,symptom`; Bowel and Medication use their own commands.
+Diet, Bowel, and Medication lists accept inclusive `--from`/`--to` dates in UTC+09:00.
+Diet also accepts `--food`, `--meal`, and comma-separated `--tags`; Medication accepts
+`--name` and `--unit`. These filters use the UI table service. Daily metric date/value
+filters use `health table query`; `metric list` retains individual historical records.
+
 Health audit record types are `diet_entry`, `health_event`, and `media_file`. Audit JSON has
 `items` with RFC 3339 occurrence timestamps, before/after snapshots, and reasons. Reports
 JSON returns the complete report projection; the table view summarizes record counts.
@@ -196,6 +241,47 @@ JSON returns the complete report projection; the table view summarizes record co
 Health archive/restore accept optional `--expected-updated-at <RFC3339>` for optimistic
 concurrency. The public Health CLI does not expose purge. Archived and legacy records remain
 available for inspection and supported restore operations in the UI.
+Health lists omit archived records and have no `--include-archived` flag. Use the matching
+`diet|bowel|medication|metric show <id> --format json` command to inspect a known archived
+record, and `health audit <record-type> <id> --format json` for its audit history.
+
+## UI table queries and choice lookups
+
+All three domains expose `table query --json <body>` and `table lookups --scope <scope>`.
+Query JSON uses the same validated schema, filters, sorts, groups, and projections as the
+corresponding UI table API. Query pages return `{items,next_offset}`; pass `next_offset`
+back as JSON `offset`, keeping the other conditions. Ordinary list pages use `{items,next}`.
+Run the command's `--help` for schema and examples; the API reference defines each scope's
+fields and operators.
+Each query accepts at most 50 filters and a page limit of `1..50` (default 50).
+Ledger queries require 1..10 sort rules; ToDo and Health accept 0..10. Each rule has a scope-specific
+`field` and `direction` (`asc` or `desc`).
+`filters` combine with `filter_mode: "and"` or `"or"`. `sorts` apply in their array order.
+`group_by` accepts one grouping field supported by the scope; `group_settings` controls
+group order and visibility. Table queries follow the selected UI scope's visibility:
+ToDo Workspace and linked tables hide `archived,dropped,cancelled`; Planner work tables
+also hide `rejected`, while Planner goal tables exclude all terminal statuses.
+Completed and missed work can remain visible. Ledger/Health tables omit archived records.
+
+| Domain | Scopes |
+| --- | --- |
+| ToDo | `workspace.area/project/goal/routine/task/event`, plus the UI planner and linked scopes |
+| Ledger | `ledger.transactions`, `ledger.accounts`, `ledger.categories` |
+| Health | `health.diet`, `health.bowel`, `health.medication`, `health.metrics` |
+
+Lookups return UI choice IDs and labels. ToDo returns `{items}`; Ledger and Health return
+scope-specific lookup maps. ToDo accepts `--id <item-id>` to exclude invalid current-item
+relations and `--horizon week|month|year` for Goal parent choices at a proposed horizon.
+Goal parents must be non-terminal, strictly coarser, and must not create a cycle.
+
+```bash
+raven todo options --type task
+raven todo options --id <item-id>
+raven todo table lookups --scope workspace.task
+raven todo table lookups --scope workspace.goal --id <goal-id> --horizon month
+raven health table lookups --scope health.medication
+raven ledger table lookups --scope ledger.transactions
+```
 
 ## Output and exit codes
 
