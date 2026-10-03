@@ -3,6 +3,7 @@ mod auth_permissions;
 mod config;
 mod dto;
 mod error;
+pub mod mcp;
 mod routes;
 mod server;
 mod state;

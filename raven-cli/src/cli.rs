@@ -56,6 +56,24 @@ pub enum Command {
     Api,
     /// Serve Raven's local UI and authenticated API.
     Ui(UiArgs),
+    /// Serve remote MCP through Cloudflare Access and Tunnel.
+    Mcp(McpArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct McpArgs {
+    /// Loopback port for the MCP endpoint /mcp.
+    #[arg(long, default_value_t = 3003, value_parser = clap::value_parser!(u16).range(1..))]
+    pub port: u16,
+    /// Exact HTTPS origin of the MCP hostname.
+    #[arg(long, env = "RAVEN_MCP_PUBLIC_ORIGIN")]
+    pub public_origin: Option<String>,
+    /// Cloudflare Access issuer: https://<team>.cloudflareaccess.com.
+    #[arg(long, env = "RAVEN_MCP_ACCESS_ISSUER")]
+    pub access_issuer: Option<String>,
+    /// Application Audience (AUD) of the MCP Access application.
+    #[arg(long, env = "RAVEN_MCP_ACCESS_AUDIENCE")]
+    pub access_audience: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -941,6 +959,7 @@ impl Command {
             Self::Health { .. } => "health",
             Self::Api => "api",
             Self::Ui(_) => "ui",
+            Self::Mcp(_) => "mcp",
         }
     }
 
@@ -952,7 +971,7 @@ impl Command {
             | Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
             Self::Health { .. } => "health",
-            Self::Init | Self::HealthCheck | Self::Api | Self::Ui(_) => "raven",
+            Self::Init | Self::HealthCheck | Self::Api | Self::Ui(_) | Self::Mcp(_) => "raven",
         }
     }
 }

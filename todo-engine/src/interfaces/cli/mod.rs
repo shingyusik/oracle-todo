@@ -8,6 +8,14 @@ mod table;
 mod tests;
 mod views;
 
+/// UI-compatible choices shared by the CLI and authenticated adapters.
+pub fn choice_options(
+    item_type: Option<crate::domain::ItemType>,
+    item: Option<&crate::domain::TodoItem>,
+) -> serde_json::Value {
+    options::value(item_type, item)
+}
+
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 

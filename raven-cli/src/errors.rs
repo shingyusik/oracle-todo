@@ -54,6 +54,11 @@ pub fn describe(error: &anyhow::Error) -> CliError {
     {
         return validation("configuration");
     }
+    if let Some(crate::commands::mcp::McpCommandError::Configuration) =
+        error.downcast_ref::<crate::commands::mcp::McpCommandError>()
+    {
+        return validation("configuration");
+    }
     if let Some(error) = error.downcast_ref::<crate::commands::ui::UiCommandError>() {
         return match error {
             crate::commands::ui::UiCommandError::Artifact => CliError::new(

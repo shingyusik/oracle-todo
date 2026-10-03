@@ -9,7 +9,7 @@ use axum::extract::Request;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
+use axum::routing::{get, post};
 use serde::Serialize;
 use tower::ServiceExt;
 
@@ -50,11 +50,12 @@ fn routes(state: ApiState) -> Router {
         .route("/events/propose", post(propose_event))
         .route("/tasks/propose", post(propose_task))
         .route("/items", get(list_items))
+        .route("/options", get(item_options))
         .route("/table/query", post(query_table))
         .route("/table/lookups", get(table_lookups))
         .route("/items/archive", get(archive_items))
         .route("/items/:id/history", get(item_history))
-        .route("/items/:id", patch(update_item))
+        .route("/items/:id", get(get_item).patch(update_item))
         .route("/items/:id/pause", post(pause_item))
         .route("/items/:id/miss", post(miss_item))
         .route("/items/:id/postpone", post(postpone_item))

@@ -22,6 +22,43 @@ use crate::application::service::{
 use crate::domain::{Actor, ItemStatus, ItemType, TodoItem};
 use crate::infrastructure::system::local_today_string;
 
+pub(super) async fn get_item(
+    State(state): State<ApiState>,
+    AxumPath(id): AxumPath<String>,
+) -> ApiResult<Json<TodoItem>> {
+    Ok(Json(with_read_service(&state, |service| service.get(&id))?))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OptionsQuery {
+    #[serde(rename = "type")]
+    item_type: Option<ItemType>,
+    id: Option<String>,
+}
+
+pub(super) async fn item_options(
+    State(state): State<ApiState>,
+    query: Result<Query<OptionsQuery>, axum::extract::rejection::QueryRejection>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let Query(query) = query.map_err(|_| TodoError::Validation("Invalid options query".into()))?;
+    let item = query
+        .id
+        .as_deref()
+        .map(|id| with_read_service(&state, |service| service.get(id)))
+        .transpose()?;
+    if item
+        .as_ref()
+        .is_some_and(|item| query.item_type.is_some_and(|kind| kind != item.item_type))
+    {
+        return Err(TodoError::Validation("Option type must match item".into()).into());
+    }
+    Ok(Json(crate::interfaces::cli::choice_options(
+        query.item_type,
+        item.as_ref(),
+    )))
+}
+
 pub(super) async fn item_history(
     State(state): State<ApiState>,
     AxumPath(id): AxumPath<String>,

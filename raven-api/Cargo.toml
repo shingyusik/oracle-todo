@@ -6,6 +6,7 @@ description = "Unified HTTP API composition for Raven"
 
 [dependencies]
 anyhow = "1.0"
+base64 = "0.22"
 axum = "0.7"
 backend = { path = "../backend" }
 health-engine = { path = "../health-engine" }
@@ -13,12 +14,17 @@ getrandom = "0.4"
 ledger-engine = { path = "../ledger-engine" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rmcp = { version = "3.5.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+jsonschema = { version = "0.58.4", default-features = false }
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tower = { version = "0.5", features = ["util"] }
 sha2 = "0.10"
 subtle = "2.6"
 thiserror = "2"
 time = { version = "0.3", features = ["parsing", "serde"] }
 todo-engine = { path = "../todo-engine" }
-tokio = { version = "1", features = ["net", "rt-multi-thread"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "sync"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
 
