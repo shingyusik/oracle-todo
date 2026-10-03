@@ -16,6 +16,16 @@ cargo build --release -p raven-cli
 The release binary is `target/release/raven` (`raven.exe` on Windows). The UI artifact is
 `frontend/out`.
 
+Frontend Health assertions use the fixed UTC+09:00 calendar, independent of the host
+timezone. Match the Linux release runner when checking timezone-sensitive tests on Unix:
+
+```bash
+TZ=UTC npm --prefix frontend test
+```
+
+Timestamp display assertions must specify `timeZone: "Etc/GMT-9"`; editable Health times
+must assert the UTC instant represented by an explicit `+09:00` offset.
+
 ## Throwaway-home rule
 
 MCP regression checks use temporary stores and disposable signing keys:

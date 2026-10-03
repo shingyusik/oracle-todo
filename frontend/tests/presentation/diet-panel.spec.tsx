@@ -604,23 +604,22 @@ describe("DietPanel table", () => {
     }, undefined);
   });
 
-  it("sends an exact RFC3339 instant across the local timezone boundary", async () => {
+  it("sends an exact RFC3339 instant across the UTC+09:00 date boundary", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<DietPanel controller={health} />);
     await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    const localDate = new Date(2026, 7, 19, 0, 15, 0, 0);
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-19T00:15:00" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
     const submitted = vi.mocked(health.updateDiet).mock.calls[0]![1].occurredAt!;
     expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
-      occurredAt: localDate.toISOString(),
+      occurredAt: "2026-08-18T15:15:00.000Z",
       expectedUpdatedAt: entry.updatedAt,
     }, undefined);
-    const roundTrip = new Date(submitted);
+    const roundTrip = new Date(new Date(submitted).getTime() + 9 * 60 * 60 * 1000);
     expect([
-      roundTrip.getFullYear(), roundTrip.getMonth(), roundTrip.getDate(),
-      roundTrip.getHours(), roundTrip.getMinutes(), roundTrip.getSeconds(),
+      roundTrip.getUTCFullYear(), roundTrip.getUTCMonth(), roundTrip.getUTCDate(),
+      roundTrip.getUTCHours(), roundTrip.getUTCMinutes(), roundTrip.getUTCSeconds(),
     ]).toEqual([2026, 7, 19, 0, 15, 0]);
   });
 

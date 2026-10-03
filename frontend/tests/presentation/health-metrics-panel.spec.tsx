@@ -190,8 +190,8 @@ describe("Health Metrics table", () => {
 
     await user.click(screen.getByRole("row", { name: "Open health metrics for 2026-08-19" }));
     expect(screen.getByRole("heading", { name: "Health Metrics · 2026-08-19" })).toBeInTheDocument();
-    expect(screen.getByText(`Created ${new Date(weight.createdAt).toLocaleString()}`)).toBeInTheDocument();
-    expect(screen.getByText(`Updated ${new Date(weight.updatedAt).toLocaleString()}`)).toBeInTheDocument();
+    expect(screen.getByText(`Created ${new Date(weight.createdAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`)).toBeInTheDocument();
+    expect(screen.getByText(`Updated ${new Date(weight.updatedAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`)).toBeInTheDocument();
     expect(screen.getByLabelText("Date")).toHaveValue("2026-08-19");
     expect(screen.getByLabelText("Weight")).toHaveValue(72.5);
     expect(screen.getByLabelText("Sleep")).toHaveValue(7.5);

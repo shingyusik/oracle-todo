@@ -58,7 +58,7 @@ function deferred<T>() {
 describe("Health Reports controller", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 7, 20, 12));
+    vi.setSystemTime(new Date("2026-08-20T12:00:00+09:00"));
     vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
     vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
     vi.spyOn(healthApi, "reports").mockResolvedValue(report("2026-07-22", "2026-08-20"));
@@ -433,7 +433,7 @@ describe("Health Reports workspace", () => {
 
   it("loads only the report aggregate when the real workspace mounts", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 7, 20, 12));
+    vi.setSystemTime(new Date("2026-08-20T12:00:00+09:00"));
     const reports = vi.spyOn(healthApi, "reports")
       .mockResolvedValue(report("2026-07-22", "2026-08-20"));
     const listDiet = vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
@@ -795,7 +795,7 @@ describe("Health Reports workspace", () => {
       .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("group", { name: "CRP (mg/L)" })).toBeInTheDocument();
     expect(screen.getByRole("img", {
-      name: `${new Date("2026-08-20T12:00:00Z").toLocaleString()}: 0.123456789012345 mg/L`,
+      name: `${new Date("2026-08-20T12:00:00Z").toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}: 0.123456789012345 mg/L`,
     })).toBeInTheDocument();
   });
 
