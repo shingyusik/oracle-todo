@@ -568,3 +568,21 @@ Legacy stored workspace preferences remain readable through the canonical key.
 `raven ui` serves the startup snapshot of the static artifact. `/api`, `/__raven`, and
 `/healthz` namespaces never use SPA fallback. Static files have bounded count, depth,
 individual size, and total size; symlinks/reparse points are rejected during artifact load.
+
+### Bounded data adapter reads
+
+`GET /api/v1/todo/items/page` returns `{items,next}` with CLI list filters plus
+`scope=list|archive|today`, `offset`, `limit`; today scope requires explicit `today`.
+`POST /api/v1/todo/routines/materialize` accepts `{}` and sweeps active routines.
+Single-routine materialization accepts optional `future_occurrences`; routine create/update
+also accept that target.
+
+`GET /api/v1/ledger/doctor` accepts `max_records`/`max_bytes` and returns read-only
+diagnostics. `/api/v1/ledger/export` accepts the same budgets plus `include_archived`
+and returns the service's structured snapshot. Master lists accept `query` before paging;
+entry get accepts `include_archived=true`.
+
+Health diet/event get accepts `include_archived=true`.
+`GET /api/v1/health/events/page` accepts `metrics_only`
+in addition to category/key/daily filters and returns `next_offset` (a final empty page
+may occur). Existing defaults and version guards remain unchanged.

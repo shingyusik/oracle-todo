@@ -206,7 +206,7 @@ pub(super) async fn materialize_routine(
     let Json(body) = body.map_err(validation_rejection)?;
     let now = local_today_string();
     let (routine, created) = with_service(&state, |service| {
-        let created = service.materialize_routine(&id, &now, Some(body.future_occurrences))?;
+        let created = service.materialize_routine(&id, &now, body.future_occurrences)?;
         Ok((service.get(&id)?, created))
     })?;
     Ok(Json(json!({"routine": routine, "created": created})))
@@ -244,37 +244,7 @@ pub(super) async fn list_items(
     State(state): State<ApiState>,
     Query(query): Query<ItemsQuery>,
 ) -> ApiResult<Json<Vec<TodoItem>>> {
-    let filter = ListFilter {
-        status: query
-            .status
-            .as_deref()
-            .and_then(non_empty)
-            .map(ItemStatus::from_str)
-            .transpose()
-            .map_err(TodoError::Validation)?,
-        item_type: query
-            .item_type
-            .as_deref()
-            .and_then(non_empty)
-            .map(ItemType::from_str)
-            .transpose()
-            .map_err(TodoError::Validation)?,
-        include_archived: query
-            .include_archived
-            .as_deref()
-            .and_then(non_empty)
-            .map(parse_bool)
-            .transpose()
-            .map_err(TodoError::Validation)?
-            .unwrap_or(false),
-        area_id: query.area_id.and_then(non_empty_string),
-        project_id: query.project_id.and_then(non_empty_string),
-        parent_id: query.parent_id.and_then(non_empty_string),
-        routine_id: query.routine_id.and_then(non_empty_string),
-        horizon: query.horizon.and_then(non_empty_string),
-        scheduled: query.scheduled.and_then(non_empty_string),
-        query: query.query.and_then(non_empty_string),
-    };
+    let filter = items_filter(query)?;
     let mut items = with_read_service(&state, |service| service.list_items(filter))?;
     items.sort_by(|left, right| {
         right
@@ -330,7 +300,7 @@ pub(super) async fn update_item(
                 review_cycle: body.review_cycle,
                 recurrence_rule: body.recurrence_rule,
                 materialization_policy: body.materialization_policy,
-                future_occurrences: None,
+                future_occurrences: body.future_occurrences,
                 area: body.area,
                 project_id: body.project_id,
                 parent_id: body.parent_id,
@@ -434,4 +404,83 @@ fn optional_reason(body: &[u8]) -> ApiResult<Option<String>> {
     serde_json::from_slice::<ReasonBody>(body)
         .map(|body| body.reason)
         .map_err(|_| TodoError::Validation("Invalid reason JSON body".into()).into())
+}
+
+pub(super) async fn materialize_all_routines(
+    State(state): State<ApiState>,
+    body: std::result::Result<Json<super::dto::ReasonBody>, JsonRejection>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let Json(_) = body.map_err(validation_rejection)?;
+    let today = local_today_string();
+    let created = with_service(&state, |service| service.materialize_routines(&today))?;
+    Ok(Json(json!({"created": created})))
+}
+
+fn items_filter(query: ItemsQuery) -> ApiResult<ListFilter> {
+    Ok(ListFilter {
+        status: query
+            .status
+            .as_deref()
+            .and_then(non_empty)
+            .map(ItemStatus::from_str)
+            .transpose()
+            .map_err(TodoError::Validation)?,
+        item_type: query
+            .item_type
+            .as_deref()
+            .and_then(non_empty)
+            .map(ItemType::from_str)
+            .transpose()
+            .map_err(TodoError::Validation)?,
+        include_archived: query
+            .include_archived
+            .as_deref()
+            .and_then(non_empty)
+            .map(parse_bool)
+            .transpose()
+            .map_err(TodoError::Validation)?
+            .unwrap_or(false),
+        area_id: query.area_id.and_then(non_empty_string),
+        project_id: query.project_id.and_then(non_empty_string),
+        parent_id: query.parent_id.and_then(non_empty_string),
+        routine_id: query.routine_id.and_then(non_empty_string),
+        horizon: query.horizon.and_then(non_empty_string),
+        scheduled: query.scheduled.and_then(non_empty_string),
+        query: query.query.and_then(non_empty_string),
+    })
+}
+pub(super) async fn paged_items(
+    State(state): State<ApiState>,
+    Query(query): Query<ItemsQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let offset = query.offset;
+    let limit = query.limit.unwrap_or(100);
+    let scope = match query.scope.as_deref().unwrap_or("list") {
+        "list" => ItemPageScope::List,
+        "archive" => ItemPageScope::Archive,
+        "today" => {
+            let today = query
+                .today
+                .as_deref()
+                .ok_or_else(|| TodoError::Validation("today is required".into()))?;
+            let date =
+                time::Date::parse(today, &time::format_description::well_known::Iso8601::DATE)
+                    .map_err(|_| TodoError::Validation("invalid today".into()))?;
+            ItemPageScope::Today(date)
+        }
+        _ => return Err(TodoError::Validation("invalid scope".into()).into()),
+    };
+    let mut filter = items_filter(query)?;
+    if matches!(scope, ItemPageScope::Archive) {
+        filter.include_archived = true;
+    }
+    let (items, next) = with_read_service(&state, |service| {
+        service.list_items_page(ItemPageQuery {
+            filter,
+            scope,
+            offset,
+            limit,
+        })
+    })?;
+    Ok(Json(json!({"items":items,"next":next})))
 }

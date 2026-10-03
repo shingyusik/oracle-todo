@@ -95,7 +95,7 @@ pub(super) struct EventProposeBody {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RoutineMaterializeBody {
-    pub future_occurrences: i64,
+    pub future_occurrences: Option<i64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -121,6 +121,7 @@ pub(super) struct PostponeBody {
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub(super) struct UpdateBody {
+    pub future_occurrences: Option<i64>,
     pub expected_updated_at: Option<String>,
     pub title: Option<String>,
     pub note: Option<String>,
@@ -153,6 +154,11 @@ fn nullable_priority<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Deserialize)]
 pub(super) struct ItemsQuery {
+    #[serde(default)]
+    pub offset: u32,
+    pub limit: Option<u32>,
+    pub scope: Option<String>,
+    pub today: Option<String>,
     pub routine_id: Option<String>,
     pub status: Option<String>,
     #[serde(rename = "type")]

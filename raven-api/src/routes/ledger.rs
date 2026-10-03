@@ -39,6 +39,8 @@ const MAX_BODY_BYTES: usize = 128 * 1024;
 
 pub fn router() -> Router<RavenApiState> {
     Router::new()
+        .route("/doctor", get(doctor))
+        .route("/export", get(export))
         .route("/entries", get(list_entries).post(create_entry))
         .route("/entries/:id", get(get_entry).patch(update_entry))
         .route("/entries/:id/archive", post(archive_entry))
@@ -81,6 +83,7 @@ pub fn router() -> Router<RavenApiState> {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MasterPageQuery {
+    query: Option<String>,
     #[serde(default)]
     offset: u32,
     #[serde(default = "default_limit")]
@@ -601,8 +604,19 @@ async fn list_entries(
 async fn get_entry(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
+    query: Result<Query<EntryReadQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let entry = ledger(&state, false, move |service| service.get_entry(&id)).await?;
+    let query = query_value(query)?;
+    let entry = ledger(&state, false, move |service| {
+        if query.include_archived {
+            service.entry_including_archived(&id)?.ok_or_else(|| {
+                ledger_engine::application::error::LedgerError::NotFound("entry".into())
+            })
+        } else {
+            service.get_entry(&id)
+        }
+    })
+    .await?;
     Ok(Json(json!(entry)))
 }
 
@@ -990,7 +1004,7 @@ macro_rules! page_handler {
 }
 
 macro_rules! master_page_handler {
-    ($name:ident, $active:ident, $all:ident) => {
+    ($name:ident, $search:ident) => {
         async fn $name(
             State(state): State<RavenApiState>,
             query: Result<Query<MasterPageQuery>, QueryRejection>,
@@ -998,11 +1012,7 @@ macro_rules! master_page_handler {
             let query = query_value(query)?;
             let page = checked_page(query.offset, query.limit)?;
             let result = ledger(&state, false, move |service| {
-                if query.include_inactive {
-                    service.$all(page)
-                } else {
-                    service.$active(page)
-                }
+                service.$search(page, query.include_inactive, query.query.as_deref())
             })
             .await?;
             Ok(Json(json!(PageBody {
@@ -1012,26 +1022,10 @@ macro_rules! master_page_handler {
         }
     };
 }
-master_page_handler!(
-    list_currencies,
-    currencies_page,
-    currencies_including_inactive_page
-);
-master_page_handler!(
-    list_account_categories,
-    account_categories_page,
-    account_categories_including_inactive_page
-);
-master_page_handler!(
-    list_accounts,
-    accounts_page,
-    accounts_including_inactive_page
-);
-master_page_handler!(
-    list_categories,
-    transaction_categories_page,
-    transaction_categories_including_inactive_page
-);
+master_page_handler!(list_currencies, search_currencies_page);
+master_page_handler!(list_account_categories, search_account_categories_page);
+master_page_handler!(list_accounts, search_accounts_page);
+master_page_handler!(list_categories, search_transaction_categories_page);
 page_handler!(account_balances, account_balances_page);
 
 async fn audit(
@@ -1219,4 +1213,71 @@ mod tests {
             assert_eq!(ranges, (current, previous));
         }
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EntryReadQuery {
+    #[serde(default)]
+    include_archived: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiagnosticQuery {
+    max_records: Option<usize>,
+    max_bytes: Option<usize>,
+}
+
+async fn doctor(
+    State(state): State<RavenApiState>,
+    query: Result<Query<DiagnosticQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = query_value(query)?;
+    let mut options = ledger_engine::application::doctor::DoctorOptions::default();
+    if let Some(v) = query.max_records {
+        options.max_records = v;
+    }
+    if let Some(v) = query.max_bytes {
+        options.max_bytes = v;
+    }
+    let mut report = ledger(&state, false, move |service| {
+        service.doctor_with_options(options)
+    })
+    .await?;
+    // SQLite integrity diagnostics may contain storage internals; preserve stable codes only.
+    for issue in &mut report.issues {
+        if issue.code == "database_integrity" {
+            issue.message = "Database integrity check failed".into();
+        }
+    }
+    Ok(Json(json!(report)))
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExportQuery {
+    #[serde(default)]
+    include_archived: bool,
+    max_records: Option<usize>,
+    max_bytes: Option<usize>,
+}
+async fn export(
+    State(state): State<RavenApiState>,
+    query: Result<Query<ExportQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = query_value(query)?;
+    let mut options = ledger_engine::application::export::ExportOptions {
+        include_archived: query.include_archived,
+        ..Default::default()
+    };
+    if let Some(v) = query.max_records {
+        options.max_records = v;
+    }
+    if let Some(v) = query.max_bytes {
+        options.max_bytes = v;
+    }
+    Ok(Json(json!(
+        ledger(&state, false, move |service| service.export(options)).await?
+    )))
 }

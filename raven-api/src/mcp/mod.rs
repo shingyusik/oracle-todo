@@ -1,5 +1,6 @@
 mod access;
 mod catalog;
+mod receipts;
 mod schema;
 
 pub use access::{McpAccessConfig, McpAccessConfigError};
@@ -65,6 +66,7 @@ struct McpAdapter {
     api: Router,
     authorization: axum::http::HeaderValue,
     catalog: Arc<Vec<catalog::Spec>>,
+    receipt_path: std::path::PathBuf,
 }
 
 impl McpAdapter {
@@ -72,7 +74,13 @@ impl McpAdapter {
         // This credential never leaves the process. The MCP listener authenticates separately.
         let token = UiSessionToken::generate()?.cookie_value();
         config.auth = AuthMode::bearer(SecretToken::new(&token)?);
+        let receipt_path = config
+            .todo_db
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("retry.sqlite");
         Ok(Self {
+            receipt_path,
             api: crate::router(config)?,
             authorization: format!("Bearer {token}").parse()?,
             catalog: Arc::new(catalog::build()),
@@ -90,6 +98,68 @@ impl McpAdapter {
                 false,
             );
         }
+        let mut args = args;
+        let has_timeout = args.get("timeout_seconds").is_some();
+        let timeout = args
+            .as_object_mut()
+            .unwrap()
+            .remove("timeout_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(120);
+        if args.get("request_key").is_none() && has_timeout {
+            return failure(
+                "validation_error",
+                "timeout_seconds requires request_key.",
+                false,
+            );
+        }
+        if let Some(key) = args.as_object_mut().unwrap().remove("request_key") {
+            let key = key.as_str().unwrap().to_owned();
+            let payload = receipts::fingerprint(name, &args);
+            let path = self.receipt_path.clone();
+            let claim_key = key.clone();
+            let claim_payload = payload.clone();
+            let claim = tokio::task::spawn_blocking(move || {
+                receipts::claim(&path, &claim_key, &claim_payload)
+            })
+            .await;
+            match claim {
+                Ok(Ok(receipts::Claim::Replay(result))) => return result,
+                Ok(Ok(receipts::Claim::Conflict)) => {
+                    return failure(
+                        "request_key_conflict",
+                        "Request key belongs to different input. Use its original tool and input.",
+                        false,
+                    );
+                }
+                Ok(Ok(receipts::Claim::Pending)) => return receipts::unknown(),
+                Ok(Ok(receipts::Claim::New)) => {}
+                _ => return receipts::unknown(),
+            }
+            let result = match tokio::time::timeout(
+                std::time::Duration::from_secs(timeout),
+                self.execute(spec, name, args),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => return receipts::unknown(),
+            };
+            let path = self.receipt_path.clone();
+            let cached = result.clone();
+            let saved = tokio::task::spawn_blocking(move || {
+                receipts::finish(&path, &key, &payload, &cached)
+            })
+            .await;
+            return match saved {
+                Ok(Ok(())) => result,
+                _ => receipts::unknown(),
+            };
+        }
+        self.execute(spec, name, args).await
+    }
+
+    async fn execute(&self, spec: &catalog::Spec, name: &str, args: Value) -> CallToolResult {
         if matches!(
             name,
             "health_diet_image_create" | "health_diet_image_update" | "health_diet_image_get"
@@ -370,7 +440,7 @@ impl ServerHandler for McpAdapter {
     fn get_info(&self) -> ServerConfig {
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build());
         info.server_info = Implementation::new("raven", env!("CARGO_PKG_VERSION"));
-        info.instructions = Some("Raven personal engine. Read tool input schemas and choices before acting. Search existing records, select exact IDs, then read the record before editing. ToDo options(id) provides current UI status actions and edit fields. Follow pagination. Never guess dynamic choices. Preserve expected_updated_at for guarded mutations. Regular create calls are not idempotent: after a lost response, search before retrying. Transfers reuse operation_key. Daily metrics use health_daily_upsert only. Permanent account-category purge requires user authorization and preview confirmation.".into());
+        info.instructions = Some("Raven personal engine. Read tool input schemas and choices before acting. Search existing records, select exact IDs, then read the record before editing. ToDo options(id) provides current UI status actions and edit fields. Follow pagination. Never guess dynamic choices. Preserve expected_updated_at for guarded mutations. Regular creates accept request_key for durable identical retries; without a key, search after a lost response. Pending receipts never re-execute. Transfers reuse operation_key. Daily metrics use health_daily_upsert only. Permanent account-category purge requires user authorization and preview confirmation.".into());
         info
     }
 

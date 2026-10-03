@@ -46,6 +46,7 @@ pub fn router() -> Router<RavenApiState> {
         .route("/diet/:id/restore", post(restore_diet))
         .route("/diet/:id/image", get(diet_image_read))
         .route("/events", get(list_events).post(create_event))
+        .route("/events/page", get(list_events_page))
         .route("/events/:id", get(get_event).patch(update_event))
         .route("/events/:id/archive", post(archive_event))
         .route("/events/:id/restore", post(restore_event))
@@ -91,6 +92,8 @@ struct EventListQuery {
     metric_key: Option<String>,
     #[serde(default)]
     daily_only: bool,
+    #[serde(default)]
+    metrics_only: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -571,8 +574,17 @@ async fn list_diet(
 async fn get_diet(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
+    query: Result<Query<RecordReadQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let item = health(&state, false, move |service| service.get_diet(&id)).await?;
+    let query = query_value(query)?;
+    let item = health(&state, false, move |service| {
+        if query.include_archived {
+            service.get_diet_including_archived(&id)
+        } else {
+            service.get_diet(&id)
+        }
+    })
+    .await?;
     Ok(Json(json!(item)))
 }
 
@@ -668,12 +680,21 @@ async fn update_event(
 async fn get_event(
     State(state): State<RavenApiState>,
     Path(id): Path<String>,
+    query: Result<Query<RecordReadQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let item = health(&state, false, move |service| service.get_event(&id)).await?;
+    let query = query_value(query)?;
+    let item = health(&state, false, move |service| {
+        if query.include_archived {
+            service.get_event_including_archived(&id)
+        } else {
+            service.get_event(&id)
+        }
+    })
+    .await?;
     Ok(Json(json!(item)))
 }
 
-async fn list_events(
+async fn list_events_page(
     State(state): State<RavenApiState>,
     query: Result<Query<EventListQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
@@ -685,9 +706,17 @@ async fn list_events(
     if let Some(metric_key) = query.metric_key {
         events = events.with_metric_key(metric_key)?;
     }
+    if query.metrics_only {
+        events = events.with_class(health_engine::application::ports::EventClass::Metric);
+    }
     events = events.daily_only(query.daily_only);
     let items = health(&state, false, move |service| service.list_events(events)).await?;
-    Ok(Json(json!({"items": items})))
+    let next_offset = if items.len() == usize::from(query.limit) {
+        query.offset.checked_add(u32::from(query.limit))
+    } else {
+        None
+    };
+    Ok(Json(json!({"items": items,"next_offset":next_offset})))
 }
 
 async fn upsert_daily_metrics(
@@ -1030,4 +1059,19 @@ const fn default_table_limit() -> u16 {
 
 const fn default_filter_mode() -> FilterMode {
     FilterMode::And
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordReadQuery {
+    #[serde(default)]
+    include_archived: bool,
+}
+
+async fn list_events(
+    state: State<RavenApiState>,
+    query: Result<Query<EventListQuery>, QueryRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Json(page) = list_events_page(state, query).await?;
+    Ok(Json(json!({"items":page["items"]})))
 }

@@ -509,9 +509,27 @@ async fn diet_photo_round_trips_through_existing_media_handlers() {
         b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
     ];
     let image = STANDARD.encode(png);
-    let result = adapter.call("health_diet_image_create",json!({"metadata":{"occurred_at":"2026-10-02T09:00:00+09:00","meal_type":"breakfast","food_name":"아침 식사"},"content_type":"image/png","image_base64":image})).await;
+    let result = adapter.call("health_diet_image_create",json!({"metadata":{"occurred_at":"2026-10-02T09:00:00+09:00","meal_type":"breakfast","food_name":"아침 식사"},"content_type":"image/png","image_base64":image,"request_key":"photo"})).await;
     assert_eq!(result.is_error, Some(false), "{result:?}");
     let item = result.structured_content.unwrap();
+    let media = serde_json::to_value(&item["media_id"]).unwrap();
+    let media_id = media
+        .as_str()
+        .or_else(|| media["id"].as_str())
+        .expect("media reference");
+    let audit = adapter
+        .call(
+            "health_audit",
+            json!({"record_type":"media_file","id":media_id}),
+        )
+        .await;
+    assert_eq!(audit.is_error, Some(false), "{audit:?}");
+    assert!(
+        !audit.structured_content.unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     let photo = adapter
         .call("health_diet_image_get", json!({"id":item["id"]}))
         .await;
@@ -530,4 +548,351 @@ async fn diet_photo_round_trips_through_existing_media_handlers() {
         invalid.structured_content.unwrap()["code"],
         "validation_error"
     );
+}
+
+#[tokio::test]
+async fn keyed_create_replays_after_restart_and_rejects_changed_payload() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    let conn = todo_engine::infrastructure::sqlite::connect(cfg.todo_db.to_str().unwrap()).unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&conn).unwrap();
+    drop(conn);
+    let adapter = McpAdapter::new(cfg.clone()).unwrap();
+    let args = json!({"title":"Retry me","actor":"user","request_key":"SHI-138.retry"});
+    let first = adapter.call("todo_task_create", args.clone()).await;
+    assert_eq!(first.is_error, Some(false), "{first:?}");
+    let again = McpAdapter::new(cfg.clone())
+        .unwrap()
+        .call("todo_task_create", args.clone())
+        .await;
+    assert_eq!(first.structured_content, again.structured_content);
+    let conflict = adapter
+        .call(
+            "todo_task_create",
+            json!({"title":"Different","request_key":"SHI-138.retry"}),
+        )
+        .await;
+    assert_eq!(
+        conflict.structured_content.unwrap()["code"],
+        "request_key_conflict"
+    );
+    let list = adapter
+        .call("todo_list", json!({"limit":1}))
+        .await
+        .structured_content
+        .unwrap();
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    let pending_args = json!({"title":"Pending"});
+    let fingerprint = receipts::fingerprint("todo_task_create", &pending_args);
+    assert!(matches!(
+        receipts::claim(&adapter.receipt_path, "pending", &fingerprint).unwrap(),
+        receipts::Claim::New
+    ));
+    let pending = adapter
+        .call(
+            "todo_task_create",
+            json!({"title":"Pending","request_key":"pending"}),
+        )
+        .await;
+    assert!(pending.structured_content.unwrap()["committed"].is_null());
+    let count = adapter
+        .call("todo_list", json!({}))
+        .await
+        .structured_content
+        .unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(count, 1);
+    assert!(!cfg.ledger_db.exists());
+}
+
+#[tokio::test]
+async fn concurrent_create_receipts_allow_one_domain_write() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    let conn = todo_engine::infrastructure::sqlite::connect(cfg.todo_db.to_str().unwrap()).unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&conn).unwrap();
+    drop(conn);
+    let adapter = McpAdapter::new(cfg).unwrap();
+    let args = json!({"title":"Concurrent","request_key":"same"});
+    let (a, b) = tokio::join!(
+        adapter.call("todo_task_create", args.clone()),
+        adapter.call("todo_task_create", args)
+    );
+    assert!(a.is_error == Some(false) || b.is_error == Some(false));
+    let list = adapter
+        .call("todo_list", json!({}))
+        .await
+        .structured_content
+        .unwrap();
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn postponed_routine_task_stays_missed_and_follow_up_is_independent() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    let conn = todo_engine::infrastructure::sqlite::connect(cfg.todo_db.to_str().unwrap()).unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&conn).unwrap();
+    drop(conn);
+    let adapter = McpAdapter::new(cfg).unwrap();
+    let routine = adapter
+        .call(
+            "todo_routine_create",
+            json!({"title":"Daily","recurrence_rule":"RRULE:FREQ=DAILY","future_occurrences":2}),
+        )
+        .await;
+    assert_eq!(routine.is_error, Some(false), "{routine:?}");
+    let routine = routine.structured_content.unwrap();
+    assert_eq!(
+        adapter
+            .call("todo_routines_materialize", json!({}))
+            .await
+            .is_error,
+        Some(false)
+    );
+    let generated = adapter
+        .call(
+            "todo_list",
+            json!({"routine_id":routine["id"],"status":"active"}),
+        )
+        .await
+        .structured_content
+        .unwrap();
+    let task = &generated["items"][0];
+    let today = task["scheduled"].as_str().unwrap();
+    let next = time::Date::parse(today, &time::format_description::well_known::Iso8601::DATE)
+        .unwrap()
+        .next_day()
+        .unwrap()
+        .to_string();
+    let postponed = adapter
+        .call(
+            "todo_transition",
+            json!({"id":task["id"],"action":"postpone","today":today,"scheduled":next}),
+        )
+        .await;
+    assert_eq!(postponed.is_error, Some(false), "{postponed:?}");
+    let result = postponed.structured_content.unwrap();
+    assert_eq!(result["source"]["status"], "missed");
+    assert_eq!(result["follow_up"]["status"], "active");
+    assert!(result["follow_up"]["routine_id"].is_null());
+    assert!(result["follow_up"]["occurrence_key"].is_null());
+    assert_ne!(result["source"]["id"], result["follow_up"]["id"]);
+    let all = adapter.call("todo_routines_materialize", json!({})).await;
+    assert_eq!(all.is_error, Some(false), "{all:?}");
+    let original = adapter
+        .call("todo_get", json!({"id":task["id"]}))
+        .await
+        .structured_content
+        .unwrap();
+    assert_eq!(original["status"], "missed");
+    let future = adapter
+        .call(
+            "todo_list",
+            json!({"routine_id":routine["id"],"status":"active"}),
+        )
+        .await
+        .structured_content
+        .unwrap();
+    assert!(!future["items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn ledger_diagnostics_export_and_archived_reads_use_services() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    ledger_engine::infrastructure::sqlite::SqliteLedgerRepository::open(&cfg.ledger_db).unwrap();
+    let adapter = McpAdapter::new(cfg).unwrap();
+    for (name, args) in [
+        (
+            "ledger_category_create",
+            json!({"name":"Food","kind":"expense"}),
+        ),
+        (
+            "ledger_currency_create",
+            json!({"code":"KRW","name":"Won","symbol":"W","decimal_places":0}),
+        ),
+        ("ledger_account_category_create", json!({"name":"Cash"})),
+        (
+            "ledger_account_create",
+            json!({"name":"Wallet","category":"Cash","currency":"KRW","opening_balance":"0"}),
+        ),
+    ] {
+        let r = adapter.call(name, args).await;
+        assert_eq!(r.is_error, Some(false), "{r:?}");
+    }
+    let r=adapter.call("ledger_entry_create",json!({"date":"2026-10-03","content":"Archive probe","category":"Food","account":"Wallet","currency":"KRW","entry_type":"expense","amount":"1","request_key":"ledger.retry"})).await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let id = r.structured_content.unwrap()["id"].clone();
+    assert_eq!(
+        adapter
+            .call("ledger_entry_archive", json!({"id":id}))
+            .await
+            .is_error,
+        Some(false)
+    );
+    assert_eq!(
+        adapter
+            .call("ledger_entry_get", json!({"id":id}))
+            .await
+            .is_error,
+        Some(true)
+    );
+    assert_eq!(
+        adapter
+            .call("ledger_entry_get", json!({"id":id,"include_archived":true}))
+            .await
+            .is_error,
+        Some(false)
+    );
+    let entries = adapter
+        .call(
+            "ledger_entry_list",
+            json!({"include_archived":true,"content":"probe"}),
+        )
+        .await;
+    assert_eq!(
+        entries.structured_content.unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let masters = adapter
+        .call("ledger_currency_list", json!({"query":"krw","limit":1}))
+        .await;
+    assert_eq!(
+        masters.structured_content.unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let doctor = adapter
+        .call("ledger_doctor", json!({"max_records":1}))
+        .await;
+    assert_eq!(doctor.is_error, Some(false), "{doctor:?}");
+    let export = adapter
+        .call("ledger_export", json!({"include_archived":true}))
+        .await;
+    assert_eq!(export.is_error, Some(false), "{export:?}");
+    assert_eq!(export.structured_content.unwrap()["restore_capable"], true);
+}
+
+#[tokio::test]
+async fn keyed_timeout_leaves_pending_receipt_and_never_reexecutes() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut adapter = McpAdapter::new(config(&temp)).unwrap();
+    adapter.api = Router::new().route(
+        "/api/v1/todo/tasks/propose",
+        axum::routing::post(|| async {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            axum::Json(json!({"id":"would-be-created"}))
+        }),
+    );
+    let args = json!({"title":"Slow","request_key":"timeout","timeout_seconds":1});
+    let result = adapter.call("todo_task_create", args.clone()).await;
+    let error = result.structured_content.unwrap();
+    assert_eq!(error["code"], "request_outcome_unknown");
+    assert!(error["committed"].is_null());
+    let retry = adapter.call("todo_task_create", args).await;
+    assert_eq!(
+        retry.structured_content.unwrap()["code"],
+        "request_outcome_unknown"
+    );
+    let invalid = adapter
+        .call(
+            "todo_task_create",
+            json!({"title":"Slow","timeout_seconds":120}),
+        )
+        .await;
+    assert_eq!(
+        invalid.structured_content.unwrap()["code"],
+        "validation_error"
+    );
+}
+
+#[tokio::test]
+async fn historical_metric_keys_and_archived_versions_remain_readable() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    health_engine::infrastructure::sqlite::SqliteHealthRepository::open(&cfg.health_db).unwrap();
+    health_engine::infrastructure::media::LocalMediaStore::new(&cfg.health_media_dir).unwrap();
+    let adapter = McpAdapter::new(cfg.clone()).unwrap();
+    // Construct an old non-daily fixture in a disposable store. No live store or new metric creation policy is used.
+    let created = adapter.call("health_daily_upsert",json!({"metrics":[{"occurred_at":"2020-01-01T09:00:00+09:00","details":{"kind":"lab","key":"crp","name":"CRP","value":12,"unit":"mg/L"}}]})).await;
+    assert_eq!(created.is_error, Some(false), "{created:?}");
+    let item = created.structured_content.unwrap()["items"][0].clone();
+    let conn = rusqlite::Connection::open(&cfg.health_db).unwrap();
+    conn.execute("UPDATE health_events SET metric_key='historical_lab',name='Historical lab',daily_upsert=0,attributes_json=replace(replace(attributes_json,'crp','historical_lab'),'CRP','Historical lab') WHERE id=?1",[item["id"].as_str().unwrap()]).unwrap();
+    drop(conn);
+    let page = adapter
+        .call(
+            "health_event_list",
+            json!({"metrics_only":true,"category":"lab","metric_key":"historical_lab","limit":1}),
+        )
+        .await;
+    let page = page.structured_content.unwrap();
+    assert_eq!(page["items"][0]["id"], item["id"]);
+    assert_eq!(page["next_offset"], 1);
+    let empty=adapter.call("health_event_list",json!({"metrics_only":true,"category":"lab","metric_key":"historical_lab","offset":1,"limit":1})).await.structured_content.unwrap();
+    assert!(empty["items"].as_array().unwrap().is_empty());
+    assert!(empty["next_offset"].is_null());
+    let archived = adapter
+        .call(
+            "health_event_archive",
+            json!({"id":item["id"],"expected_updated_at":item["updated_at"]}),
+        )
+        .await;
+    assert_eq!(archived.is_error, Some(false), "{archived:?}");
+    assert_eq!(
+        adapter
+            .call("health_event_get", json!({"id":item["id"]}))
+            .await
+            .is_error,
+        Some(true)
+    );
+    let read = adapter
+        .call(
+            "health_event_get",
+            json!({"id":item["id"],"include_archived":true}),
+        )
+        .await;
+    assert_eq!(read.is_error, Some(false), "{read:?}");
+    let read = read.structured_content.unwrap();
+    assert_eq!(
+        adapter
+            .call(
+                "health_event_restore",
+                json!({"id":item["id"],"expected_updated_at":read["updated_at"]})
+            )
+            .await
+            .is_error,
+        Some(false)
+    );
+}
+
+#[tokio::test]
+async fn new_data_reads_do_not_initialize_missing_stores_or_receipts() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    let adapter = McpAdapter::new(cfg.clone()).unwrap();
+    for (name, args) in [
+        ("todo_list", json!({"scope":"today","today":"2026-10-03"})),
+        ("ledger_doctor", json!({})),
+        ("ledger_export", json!({"include_archived":true})),
+        ("ledger_entry_list", json!({"include_archived":true})),
+        ("health_event_list", json!({"metrics_only":true})),
+    ] {
+        let result = adapter.call(name, args).await;
+        assert_eq!(result.is_error, Some(true), "{name}: {result:?}");
+        let text = serde_json::to_string(&result).unwrap();
+        assert!(!text.contains(temp.path().to_str().unwrap()));
+    }
+    assert!(!cfg.todo_db.exists());
+    assert!(!cfg.ledger_db.exists());
+    assert!(!cfg.health_db.exists());
+    assert!(!adapter.receipt_path.exists());
 }

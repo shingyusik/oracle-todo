@@ -20,11 +20,12 @@ jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tower = { version = "0.5", features = ["util"] }
 sha2 = "0.10"
+rusqlite = "0.32"
 subtle = "2.6"
 thiserror = "2"
 time = { version = "0.3", features = ["parsing", "serde"] }
 todo-engine = { path = "../todo-engine" }
-tokio = { version = "1", features = ["net", "rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
 

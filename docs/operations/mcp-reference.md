@@ -5,7 +5,7 @@
 `raven mcp` serves Streamable HTTP at `/mcp`, bound to `127.0.0.1:3003` by default.
 It exposes UI domain operations through the existing in-process API router and application
 services. Mutations retain validation, lifecycle, atomicity and audit policy. No separate
-API process, UI session cookie or database is required.
+API process or UI session cookie is required. Keyed creates use durable local receipts.
 
 ## Start
 
@@ -120,10 +120,42 @@ to alphabetical, visible groups. Grouping can repeat a record across rows; dedup
 Omitted Ledger sorts use the UI defaults: transactions by date descending, accounts/categories
 by name ascending. An explicit empty sort list is rejected by Ledger.
 
+`todo_list` exposes CLI list filters with `scope` (`list`, `archive`, `today`), paging,
+and historical statuses/types; `scope=today` requires caller-local `today`. `status=active`
+selects pending work. Follow `next` as the next offset. Creation accepts ToDo `actor` for
+project/goal/routine/task/event. Routine creation and update accept `future_occurrences`;
+`todo_routine_materialize` can omit it to preserve the saved target. Use
+`todo_routines_materialize` to sweep all active routines using the server's local date.
+
+`ledger_entry_list` supports date, type, account, category, currency, content and archived
+filters. `ledger_entry_get(include_archived=true)` reads recovery records. Master lists
+accept `query` and `include_inactive`, applying name/code matching before paging.
+`ledger_doctor` performs bounded read-only diagnostics; `ledger_export` returns a structured
+snapshot without a file destination. Both accept positive `max_records`/`max_bytes` budgets;
+MCP input byte budgets are at most 8 MiB and all responses remain capped at 8 MiB. Large
+exports should use the CLI. Export `include_archived=true` produces a restore-capable snapshot.
+
+`health_event_list` accepts `category`, `metric_key`, `daily_only`, `metrics_only` and paging.
+Use `metrics_only=true` for CLI metric history including older lab/symptom keys. Follow
+`next_offset` until null (a final empty page is possible). Diet, bowel and medication list
+filters are available through `health_search` scope filters. `health_audit` also accepts
+`media_file`. Historical metric show/archive/restore use existing event tools and guards.
+Diet/event get tools accept `include_archived=true` to read versions for recovery.
+
 ## Mutations and images
 
-Regular creation is not idempotent. After a timeout or lost response, search for the result
-before retrying. Transfer creation requires a stable UUID `operation_key`; reuse it on retry.
+Regular create tools accept optional `request_key` (1..128 ASCII letters, digits, `-_.:`).
+Reuse the same key, tool and input after an uncertain response. Receipts persist in the
+configured home's `retry.sqlite`, separately from CLI receipts. They store an input digest
+and the result, without storing create arguments or image bytes. Completed results, including
+errors, replay after restart. Changed input returns `request_key_conflict`; use a new key for
+corrected input after a known failure. Pending receipts return `request_outcome_unknown`
+with `committed: null` and `retryable: false` and never execute again. Inspect records to
+reconcile an interrupted create before choosing another key. Do not delete receipts to retry.
+`timeout_seconds` requires a key, defaults to 120, and accepts 1..3600. A timeout leaves a
+pending receipt because a blocking service write may still complete. Creates without a key
+retain their existing behavior; search after a lost response before retrying.
+Transfer creation requires a stable UUID `operation_key`; reuse it on retry.
 Respect errors' `committed` and `retryable` fields. A committed cleanup failure must not be
 treated as a rolled-back mutation. Lifecycle operations preserve each service's policy.
 

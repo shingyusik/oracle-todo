@@ -1938,6 +1938,7 @@ dependencies = [
  "ledger-engine",
  "reqwest",
  "rmcp",
+ "rusqlite",
  "rustix",
  "serde",
  "serde_json",

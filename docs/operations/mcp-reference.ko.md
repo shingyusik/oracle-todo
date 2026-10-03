@@ -5,7 +5,7 @@
 `raven mcp`는 기본 `127.0.0.1:3003`의 `/mcp`에서 Streamable HTTP를 제공합니다.
 UI의 도메인 작업을 프로세스 내부의 기존 API 라우터와 서비스로 처리합니다.
 검증·생명주기·원자성·감사 기록 정책을 그대로 적용합니다. 별도 API 프로세스나
-UI 세션 쿠키, 추가 데이터베이스는 필요하지 않습니다.
+UI 세션 쿠키는 필요하지 않습니다. 키를 지정한 생성은 로컬 영수증을 저장합니다.
 
 ## 실행
 
@@ -118,9 +118,39 @@ planner는 `context.from`·`context.to`, linked는 `context.parent_type`·`conte
 Ledger 정렬을 생략하면 UI 기본값인 거래 날짜 내림차순·계좌 및 분류 이름 오름차순을 적용합니다.
 명시적으로 빈 정렬 배열을 전달하면 Ledger가 거부합니다.
 
+`todo_list`는 CLI 목록 필터·이력 타입·상태와 페이징을 제공합니다. `scope`는
+`list`, `archive`, `today`이며 오늘 조회에는 사용자 로컬 `today`가 필요합니다.
+`status=active`로 진행 중 항목을 선택하고 `next`를 다음 offset으로 사용합니다.
+ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지원합니다.
+`todo_routine_materialize`는 저장된 목표를 유지하도록 목표 인수를 생략할 수 있으며,
+`todo_routines_materialize`는 서버 로컬 날짜로 모든 활성 루틴을 생성합니다.
+
+`ledger_entry_list`는 날짜·타입·계정·분류·통화·내용·보관 필터를 지원합니다.
+`ledger_entry_get(include_archived=true)`로 보관 거래를 읽습니다. 기준 데이터 목록의
+`query`, `include_inactive`는 페이징 전에 적용됩니다. `ledger_doctor`는 읽기 전용 진단,
+`ledger_export`는 파일 경로 없이 구조화된 스냅샷을 반환합니다. 양수 `max_records`,
+`max_bytes`를 지정할 수 있으며 MCP 바이트 예산·응답은 최대 8 MiB입니다.
+큰 내보내기는 CLI를 사용합니다. `include_archived=true` 내보내기는 복구 가능한 스냅샷입니다.
+
+`health_event_list`는 `category`, `metric_key`, `daily_only`, `metrics_only`와 페이징을
+지원합니다. `metrics_only=true`로 과거 lab/symptom 키를 포함한 지표 이력을 조회합니다.
+`next_offset`이 null일 때까지 조회하며 마지막 빈 페이지가 있을 수 있습니다.
+식단·배변·투약 목록 필터는 `health_search`로 조회하고 매체 감사는
+`health_audit(record_type=media_file)`로 읽습니다. 과거 지표 상세·보관·복구는 이벤트 도구와
+버전 가드를 사용합니다. 식단·이벤트 상세의 `include_archived=true`로 보관된 레코드의
+버전도 조회할 수 있습니다.
+
 ## 변경·재시도·사진
 
-일반 생성은 멱등하지 않습니다. 응답 유실이나 timeout 뒤에는 저장 결과를 검색한 후 재시도합니다.
+일반 생성 도구는 선택적 `request_key`를 받습니다(ASCII 영문·숫자·`-_.:`, 1~128자).
+같은 키·도구·입력으로 재시도하면 결과를 재사용합니다. 설정된 홈의 `retry.sqlite`에 CLI와
+분리된 영수증을 저장하며 입력 원문·사진 대신 입력 해시와 결과를 보관합니다. 완료된 오류도
+재사용하므로 알려진 실패 뒤 입력을 수정할 때는 새 키를 사용합니다. 다른 입력은
+`request_key_conflict`입니다. 보류 영수증은 재실행하지 않고 `request_outcome_unknown`,
+`committed: null`, `retryable: false`를 반환합니다. 중단된 생성은 조회로 확인한 후 새 키를
+결정하고 재시도를 위해 영수증을 삭제하지 않습니다. `timeout_seconds`는 키가 필요하며
+기본 120초, 1~3600초입니다. 타임아웃 뒤에도 서비스 쓰기가 완료될 수 있어 보류로 남습니다.
+키 없는 생성은 기존 동작을 유지하며 응답 유실 뒤 먼저 검색합니다.
 이체 생성은 안정적인 UUID `operation_key`가 필요하며 재시도에도 같은 키를 사용합니다.
 오류의 `committed`·`retryable`을 확인합니다. 반영된 변경의 미디어 정리 실패를 롤백으로
 해석하지 않습니다. 생명주기는 기존 서비스 정책을 따릅니다.

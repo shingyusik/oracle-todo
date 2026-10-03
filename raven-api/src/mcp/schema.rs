@@ -100,6 +100,15 @@ pub(super) fn todo_fields(kind: &str, update: bool) -> Vec<(&'static str, Value)
         ],
         _ => unreachable!("catalog only contains UI create types"),
     });
+    if !update && kind != "area" {
+        fields.push(("actor", choices(&["agent", "user", "system"])));
+    }
+    if kind == "routine" {
+        fields.push((
+            "future_occurrences",
+            integer(1, todo_engine::domain::MAX_FUTURE_OCCURRENCES),
+        ));
+    }
     if update {
         if kind == "task" {
             fields.push(("parent_id", id()));
