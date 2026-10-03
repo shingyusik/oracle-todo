@@ -29,9 +29,14 @@ help는 데이터 홈 없이 실행되며 저장소나 로그를 초기화하지
 | `raven health-check` | 저장소·미디어의 상태와 스키마를 읽기 전용으로 확인 |
 | `raven import todo [--source-home <path>]` | 원본 `todo.sqlite`를 안전하게 복사. 기본 원본 홈은 `$HOME/.todo-engine` |
 | `raven api` | Bearer 인증 HTTP API 실행 |
+| `raven mcp [--port <u16>]` | Access 인증 Streamable HTTP MCP 실행. 루프백 `/mcp`, 기본 포트 `3003` |
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | 루프백 UI와 쿠키 인증 API 실행 |
 
 `--ui-path`가 없으면 `RAVEN_UI_PATH`에서 UI 파일 경로를 읽습니다.
+
+MCP에는 `--public-origin`·`--access-issuer`·`--access-audience` 또는 환경 변수
+`RAVEN_MCP_PUBLIC_ORIGIN`·`RAVEN_MCP_ACCESS_ISSUER`·`RAVEN_MCP_ACCESS_AUDIENCE`가 필요합니다.
+Tunnel·인증·도구 사용은 [원격 MCP 참고서](mcp-reference.ko.md)를 확인하세요.
 
 `RAVEN_UI_PUBLIC_ORIGIN`은 Cloudflare Access를 통한 공개 UI 접근을 설정합니다.
 정규화된 HTTPS origin 하나만 허용합니다. 호스트는 소문자여야 하며, 선택적으로 지정하는

@@ -162,6 +162,9 @@ addition to the Access assertion. API tokens, Access JWTs or assertions, and Rav
 cookies must not appear in console output, JSONL logs, proxy logs, shell history, or saved
 verification evidence.
 
+Remote AI access uses a separate loopback `raven mcp` listener and Cloudflare Access application.
+See [remote MCP](mcp-reference.md) for startup, Tunnel routing and client authentication.
+
 ## ToDo import
 
 ```bash

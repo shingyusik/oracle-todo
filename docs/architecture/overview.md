@@ -21,6 +21,13 @@ Raven UI
   → owning service
   → SQLite record + audit event
   → typed JSON
+
+Remote MCP client
+  → Cloudflare Access + Tunnel
+  → loopback /mcp + Access JWT verification
+  → typed tool input validation
+  → in-process authenticated /api/v1 router
+  → owning service + SQLite record + audit event
 ```
 
 Domain mutations do not originate in CLI handlers, HTTP handlers, Dashboard projection
@@ -40,9 +47,9 @@ frontend → /api/v1
 ```
 
 - `raven-cli` owns the executable, data-home resolution, logging, command routing, API
-  startup, UI startup, and ToDo import.
+  startup, UI/MCP startup, and ToDo import.
 - `raven-api` composes domain routers, authentication, error normalization, preferences,
-  and the read-only Dashboard.
+  the read-only Dashboard, and the MCP transport/tool adapter.
 - `frontend` is one static Next.js application served with the API by `raven ui`.
 
 ## Data isolation
@@ -68,6 +75,9 @@ remain within the Health highlights section.
 ## Security boundary
 
 - Standalone API mode requires one bearer token source.
+- MCP is loopback-only, validates Cloudflare Access RS256 signatures, issuer, audience and
+  expiry, and removes external credentials before SDK dispatch. Tool calls reuse existing
+  HTTP handlers with a process-private token; neither arbitrary HTTP paths nor SQL are tools.
 - Cleartext API binding is loopback-only unless the explicit unsafe override is set.
 - UI mode is loopback-only and creates an unpredictable session for each launch.
 - The bootstrap response sets an HTTP-only `SameSite=Strict` cookie.

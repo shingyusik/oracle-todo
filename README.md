@@ -1,7 +1,7 @@
 # Raven
 
 Raven is a local-first personal engine for planning, finance, and health records. One
-structured CLI, one authenticated HTTP API, and one UI expose three policy-enforced Rust
+structured CLI, authenticated HTTP API, remote MCP, and UI expose three policy-enforced Rust
 engines:
 
 ```text
@@ -9,9 +9,10 @@ raven todo ...
 raven ledger ...
 raven health ...
 raven ui
+raven mcp
 ```
 
-Each engine owns its service policy, SQLite database, and audit history. CLI and HTTP
+Each engine owns its service policy, SQLite database, and audit history. CLI, HTTP and MCP
 adapters call those services; they do not write domain tables directly.
 
 ## Core model
@@ -201,6 +202,11 @@ More detail is in [the data-model reference](docs/architecture/data-model.md).
   Cleanup failures are surfaced; committed mutations are never reported as rolled back.
 
 ## API and UI
+
+`raven mcp` exposes UI domain tools through Cloudflare Access and a dedicated Tunnel hostname.
+It binds to `127.0.0.1:3003`, verifies Access JWT signatures and reuses existing services and
+audit policy. See [remote MCP setup](docs/operations/mcp-reference.md)
+([한국어](docs/operations/mcp-reference.ko.md)) for required configuration and client authentication.
 
 `raven api` serves the composed API on `127.0.0.1:3002` by default. It requires exactly one
 bearer-token source:

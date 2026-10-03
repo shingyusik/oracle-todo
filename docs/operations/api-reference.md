@@ -3,6 +3,9 @@
 Raven serves one HTTP API below `/api/v1`. CLI and API adapters call the same domain
 services.
 
+`raven mcp` provides a separate authenticated `/mcp` listener for AI clients; its endpoint
+does not expose HTTP API routes. See [remote MCP](mcp-reference.md).
+
 ## Authentication and bind
 
 Standalone `raven api` requires exactly one:
@@ -116,13 +119,17 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 
 | Method | Relative route |
 | --- | --- |
-| `GET` | `/health`, `/items`, `/items/archive` (bounded `{items,next}` archive pages) |
+| `GET` | `/health`, `/items`, `/items/:id`, `/options`, `/items/archive` (bounded `{items,next}` archive pages) |
 | Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
 | `PATCH` | `/items/:id` |
 | `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive` |
 
 Example full route: `GET /api/v1/todo/items`. Item history uses `GET /items/:id/history?offset=0&limit=50` and returns `{items,next}`.
+
+`GET /items/:id` returns the full record. `GET /options?type=task` returns the same choices
+as CLI `todo options`; `id=<item-id>` supplies current lifecycle actions and editable fields.
+When both `type` and `id` are supplied, their item types must match. Reads do not initialize stores.
 
 `POST /items/:id/postpone` requires caller-local `today` and a target `scheduled` date.
 The target may be today only when the source schedule is earlier than today; otherwise it

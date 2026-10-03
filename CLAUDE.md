@@ -4,10 +4,10 @@
 
 `Raven` is a local-first personal engine written in Rust 2024.
 
-- One `raven` executable exposes `todo`, `ledger`, `health`, `api`, and `ui`.
+- One `raven` executable exposes `todo`, `ledger`, `health`, `api`, `ui`, and `mcp`.
 - `todo.sqlite`, `ledger.sqlite`, and `health.sqlite` are independent sources of truth.
 - Every domain mutation goes through its application service and writes audit history.
-- CLI and HTTP are adapters; neither may bypass service policy.
+- CLI, HTTP and MCP are adapters; none may bypass service policy.
 - The UI Dashboard shows ToDo analytics, Ledger highlights, and Health Journal trends
   with a diet-tag Bristol comparison heatmap. Ledger and Health Journal do not
   have duplicate Overview pages.
@@ -22,8 +22,8 @@ do no I/O and never depend on another engine.
 
 | Package | Responsibility |
 | --- | --- |
-| `raven-cli` | Native `raven` binary, paths, logging, dispatch, import, API/UI startup |
-| `raven-api` | Auth, `/api/v1` composition, safe errors, Dashboard, UI session/static serving |
+| `raven-cli` | Native `raven` binary, paths, logging, dispatch, import, API/UI/MCP startup |
+| `raven-api` | Auth, `/api/v1` composition, safe errors, Dashboard, UI session/static serving, MCP adapter |
 | `todo-engine` | ToDo item graph, recurrence, lifecycle, SQLite, reusable adapters |
 | `ledger-engine` | Money/master data, entries, transfers, reports, audit, SQLite |
 | `health-engine` | Diet/media, health events, reports, record inspection, audit, SQLite |
@@ -37,6 +37,7 @@ do no I/O and never depend on another engine.
 | Models and invariants | `docs/architecture/data-model.md` |
 | Layer boundaries | `docs/architecture/overview.md`, `docs/architecture/layers.md` |
 | CLI/API | `docs/operations/cli-reference.md`, `docs/operations/api-reference.md` |
+| Remote MCP | `docs/operations/mcp-reference.md` |
 | Home, setup, logging | `docs/operations/{setup,data-home,logging-and-rotation}.md` |
 | Verification | `docs/operations/verification-and-smoke.md` |
 
@@ -48,6 +49,7 @@ cargo run -p raven-cli -- health-check
 cargo run -p raven-cli -- todo pending
 cargo run -p raven-cli -- ledger --help
 cargo run -p raven-cli -- health --help
+cargo run -p raven-cli -- mcp --help
 cargo run -p raven-cli -- ui --ui-path frontend/out --no-open
 cargo fmt --check
 cargo test --workspace
@@ -68,6 +70,8 @@ npm --prefix npm/raven test
   requires exact `RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true`.
 - UI artifact: `--ui-path` or `RAVEN_UI_PATH`.
 - Public UI origin: optional canonical HTTPS `RAVEN_UI_PUBLIC_ORIGIN`; UI remains loopback-only.
+- MCP: loopback port `3003`; requires `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER`
+  and `RAVEN_MCP_ACCESS_AUDIENCE`; validates Cloudflare Access JWT signatures and application claims.
 
 ## Gotchas
 

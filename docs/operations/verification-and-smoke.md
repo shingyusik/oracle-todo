@@ -18,6 +18,18 @@ The release binary is `target/release/raven` (`raven.exe` on Windows). The UI ar
 
 ## Throwaway-home rule
 
+MCP regression checks use temporary stores and disposable signing keys:
+
+```bash
+cargo test -p raven-api --lib mcp
+cargo test -p raven-cli --test mcp_cli
+```
+
+External acceptance also requires the selected client's authenticated `initialize`,
+`tools/list`, search, choices and guarded mutation through the actual Tunnel/Access
+configuration, plus denial without credentials. Use a throwaway Raven home for mutations.
+The source includes no operational Access credentials or ready-made external deployment.
+
 Never run mutation, import, migration, archive/restore, or purge smoke checks against live
 Raven or source ToDo data.
 

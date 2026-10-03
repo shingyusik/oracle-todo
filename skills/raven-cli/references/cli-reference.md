@@ -30,9 +30,14 @@ See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry work
 | `raven health-check` | Read-only health/schema report for all stores and media |
 | `raven import todo [--source-home <path>]` | Safely copy a source `todo.sqlite`; default source home is `$HOME/.todo-engine` |
 | `raven api` | Serve bearer-authenticated HTTP API |
+| `raven mcp [--port <u16>]` | Serve Access-authenticated Streamable HTTP MCP at loopback `/mcp`; default port `3003` |
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | Serve loopback UI and cookie-authenticated API |
 
 `RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
+
+MCP requires `--public-origin`, `--access-issuer` and `--access-audience`, or their
+`RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER` and `RAVEN_MCP_ACCESS_AUDIENCE` environment
+values. See [remote MCP](mcp-reference.md) for Tunnel, authentication and tool usage.
 
 `RAVEN_UI_PUBLIC_ORIGIN` enables the Cloudflare Access UI mode and must contain one canonical
 HTTPS origin. The host must be lowercase; an optional port must be decimal `1..=65535` without

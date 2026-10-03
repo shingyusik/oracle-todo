@@ -14,8 +14,8 @@ translate transport input and output only.
 
 | Package | Important modules | Responsibility |
 | --- | --- | --- |
-| `raven-cli` | `cli`, `commands`, `config`, `logging` | `raven` parser, shared paths, engine dispatch, import, API/UI process startup |
-| `raven-api` | `auth`, `routes`, `dto`, `state`, `server` | Authenticated `/api/v1`, error contract, Dashboard composition, static UI session |
+| `raven-cli` | `cli`, `commands`, `config`, `logging` | `raven` parser, shared paths, engine dispatch, import, API/UI/MCP process startup |
+| `raven-api` | `auth`, `routes`, `dto`, `state`, `server`, `mcp` | Authenticated `/api/v1`, error contract, Dashboard composition, static UI session, MCP adapter |
 | `todo-engine` | `domain`, `application`, `infrastructure`, `interfaces` | ToDo item graph, recurrence, status policy, SQLite, reusable CLI/API adapters |
 | `ledger-engine` | `domain`, `application`, `infrastructure` | Money and master data, entries, transfers, reports, audit, SQLite |
 | `health-engine` | `domain`, `application`, `infrastructure` | Diet, media, health events, Reports, record inspection, audit, SQLite |
@@ -48,6 +48,10 @@ when a file operation cannot finish.
 `raven-cli` and `raven-api` instantiate services from paths. They may map errors and shape
 DTOs but do not implement domain policy. Dashboard projection functions are read-only and
 never initialize a missing database.
+
+The MCP adapter translates strict tools to the existing in-process HTTP router, including
+media operations. Domain services retain all mutation and audit policy. Discovery shares
+ToDo CLI choices and UI lookups; scope-specific query schemas restrict filter/sort/group fields.
 
 ## Visibility and tests
 
