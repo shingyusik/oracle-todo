@@ -58,7 +58,16 @@ pub(super) fn finish(
     result: &CallToolResult,
 ) -> anyhow::Result<()> {
     let conn = open(path)?;
-    let changed = conn.execute("UPDATE mcp_receipts SET result_json=?3 WHERE request_key=?1 AND fingerprint=?2 AND result_json IS NULL", params![key,fingerprint,serde_json::to_string(result)?])?;
+    let safe_retry = result.is_error == Some(true)
+        && result
+            .structured_content
+            .as_ref()
+            .is_some_and(|error| error["committed"] == false && error["retryable"] == true);
+    let changed = if safe_retry {
+        conn.execute("DELETE FROM mcp_receipts WHERE request_key=?1 AND fingerprint=?2 AND result_json IS NULL", params![key,fingerprint])?
+    } else {
+        conn.execute("UPDATE mcp_receipts SET result_json=?3 WHERE request_key=?1 AND fingerprint=?2 AND result_json IS NULL", params![key,fingerprint,serde_json::to_string(result)?])?
+    };
     anyhow::ensure!(changed == 1, "receipt unavailable");
     Ok(())
 }

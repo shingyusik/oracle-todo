@@ -22,6 +22,8 @@ pub struct ApiErrorBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub committed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub record_id: Option<Uuid>,
 }
 
@@ -34,6 +36,7 @@ enum ErrorKind {
     HeaderTooLarge,
     UnsupportedMediaType,
     Conflict,
+    Busy,
     NotFound,
     Internal,
     CleanupPending { record_id: String },
@@ -106,6 +109,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let request_id = Uuid::new_v4();
         let mut committed = None;
+        let mut retryable = None;
         let mut record_id = None;
         let (status, code, message, fields) = match self.kind {
             ErrorKind::Unauthorized => (
@@ -120,6 +124,11 @@ impl IntoResponse for ApiError {
                 INVALID_REQUEST,
                 invalid_fields(field),
             ),
+            ErrorKind::Busy => {
+                committed = Some(false);
+                retryable = Some(true);
+                (StatusCode::CONFLICT, "conflict", CONFLICT, Map::new())
+            }
             ErrorKind::Conflict => (StatusCode::CONFLICT, "conflict", CONFLICT, Map::new()),
             ErrorKind::PayloadTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -178,6 +187,7 @@ impl IntoResponse for ApiError {
                 fields,
                 request_id,
                 committed,
+                retryable,
                 record_id,
             }),
         )
@@ -207,7 +217,10 @@ impl From<LedgerError> for ApiError {
             LedgerError::Validation { field, .. } => Self::validation(Some(field)),
             LedgerError::ConfirmationMismatch => Self::validation(None),
             LedgerError::NotFound(_) => Self::not_found(),
-            LedgerError::Conflict(_) | LedgerError::Busy(_) => Self::conflict(),
+            LedgerError::Conflict(_) => Self::conflict(),
+            LedgerError::Busy(_) => Self {
+                kind: ErrorKind::Busy,
+            },
             LedgerError::Storage(_) | LedgerError::Migration(_) => {
                 Self::internal(anyhow::anyhow!("ledger engine failure"))
             }
@@ -222,7 +235,10 @@ impl From<HealthError> for ApiError {
             HealthError::UnsupportedMedia => Self::unsupported_media_type(),
             HealthError::MediaTooLarge => Self::payload_too_large(),
             HealthError::NotFound(_) => Self::not_found(),
-            HealthError::Conflict(_) | HealthError::Busy(_) => Self::conflict(),
+            HealthError::Conflict(_) => Self::conflict(),
+            HealthError::Busy(_) => Self {
+                kind: ErrorKind::Busy,
+            },
             HealthError::Storage(_) | HealthError::Migration(_) | HealthError::Cleanup { .. } => {
                 Self::internal(anyhow::anyhow!("health engine failure"))
             }

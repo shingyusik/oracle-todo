@@ -792,7 +792,7 @@ async fn keyed_timeout_leaves_pending_receipt_and_never_reexecutes() {
             axum::Json(json!({"id":"would-be-created"}))
         }),
     );
-    let args = json!({"title":"Slow","request_key":"timeout","timeout_seconds":1});
+    let args = json!({"title":"Slow","request_key":"timeout","timeout_seconds":1.0});
     let result = adapter.call("todo_task_create", args.clone()).await;
     let error = result.structured_content.unwrap();
     assert_eq!(error["code"], "request_outcome_unknown");
@@ -895,4 +895,117 @@ async fn new_data_reads_do_not_initialize_missing_stores_or_receipts() {
     assert!(!cfg.ledger_db.exists());
     assert!(!cfg.health_db.exists());
     assert!(!adapter.receipt_path.exists());
+}
+
+#[tokio::test]
+async fn health_categories_match_domain_and_condition_is_a_metric_key() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    health_engine::infrastructure::sqlite::SqliteHealthRepository::open(&cfg.health_db).unwrap();
+    health_engine::infrastructure::media::LocalMediaStore::new(&cfg.health_media_dir).unwrap();
+    let adapter = McpAdapter::new(cfg).unwrap();
+    let spec = adapter
+        .catalog
+        .iter()
+        .find(|s| s.tool.name == "health_event_list")
+        .unwrap();
+    for category in ["weight", "bowel", "sleep", "lab", "symptom", "medication"] {
+        assert!(
+            serde_json::from_value::<health_engine::domain::HealthCategory>(json!(category))
+                .is_ok()
+        );
+        assert!(spec.validator.is_valid(&json!({"category":category})));
+    }
+    let invalid = adapter
+        .call("health_event_list", json!({"category":"overall_condition"}))
+        .await;
+    assert_eq!(
+        invalid.structured_content.unwrap()["code"],
+        "validation_error"
+    );
+    let created=adapter.call("health_daily_upsert",json!({"metrics":[{"occurred_at":"2026-10-03T09:00:00+09:00","details":{"kind":"overall_condition","score":7}}]})).await;
+    assert_eq!(created.is_error, Some(false), "{created:?}");
+    let id = created.structured_content.unwrap()["items"][0]["id"].clone();
+    let page = adapter
+        .call(
+            "health_event_list",
+            json!({"category":"symptom","metric_key":"overall_condition","metrics_only":true}),
+        )
+        .await;
+    assert_eq!(page.is_error, Some(false), "{page:?}");
+    assert_eq!(page.structured_content.unwrap()["items"][0]["id"], id);
+}
+
+#[tokio::test]
+async fn safely_uncommitted_busy_create_retries_same_key_then_replays_success() {
+    use axum::response::IntoResponse;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let temp = tempfile::tempdir().unwrap();
+    let mut adapter = McpAdapter::new(config(&temp)).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    adapter.api = Router::new().route(
+        "/api/v1/todo/tasks/propose",
+        axum::routing::post(move || {
+            let observed = observed.clone();
+            async move {
+                if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                    crate::ApiError::from(ledger_engine::application::error::LedgerError::Busy(
+                        "private database path".into(),
+                    ))
+                    .into_response()
+                } else {
+                    axum::Json(json!({"id":"created-once"})).into_response()
+                }
+            }
+        }),
+    );
+    let args = json!({"title":"Retry safe","request_key":"safe-retry"});
+    let first = adapter.call("todo_task_create", args.clone()).await;
+    let error = first.structured_content.unwrap();
+    assert_eq!(error["committed"], false);
+    assert_eq!(error["retryable"], true);
+    assert!(!error.to_string().contains("private database"));
+    let second = adapter.call("todo_task_create", args.clone()).await;
+    assert_eq!(second.is_error, Some(false));
+    assert_eq!(
+        second.structured_content.as_ref().unwrap()["id"],
+        "created-once"
+    );
+    let third = adapter.call("todo_task_create", args).await;
+    assert_eq!(second.structured_content, third.structured_content);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn uncertain_committed_and_nonretryable_receipts_never_release_claims() {
+    for error in [
+        json!({"committed":null,"retryable":true}),
+        json!({"retryable":true}),
+        json!({"committed":true,"retryable":true}),
+        json!({"committed":false,"retryable":false}),
+        json!({"committed":false}),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("retry.sqlite");
+        assert!(matches!(
+            receipts::claim(&path, "key", "digest").unwrap(),
+            receipts::Claim::New
+        ));
+        let result = CallToolResult::structured_error(error);
+        receipts::finish(&path, "key", "digest", &result).unwrap();
+        assert!(matches!(
+            receipts::claim(&path, "key", "digest").unwrap(),
+            receipts::Claim::Replay(_)
+        ));
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("retry.sqlite");
+    receipts::claim(&path, "key", "digest").unwrap();
+    let result = CallToolResult::structured(json!({"committed":false,"retryable":true}));
+    receipts::finish(&path, "key", "digest", &result).unwrap();
+    assert!(matches!(
+        receipts::claim(&path, "key", "digest").unwrap(),
+        receipts::Claim::Replay(_)
+    ));
 }

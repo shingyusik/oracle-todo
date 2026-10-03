@@ -133,7 +133,9 @@ ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지�
 큰 내보내기는 CLI를 사용합니다. `include_archived=true` 내보내기는 복구 가능한 스냅샷입니다.
 
 `health_event_list`는 `category`, `metric_key`, `daily_only`, `metrics_only`와 페이징을
-지원합니다. `metrics_only=true`로 과거 lab/symptom 키를 포함한 지표 이력을 조회합니다.
+지원합니다. `category`는 weight/bowel/sleep/lab/symptom/medication이며 전체 컨디션은
+`category=symptom, metric_key=overall_condition`으로 조회합니다.
+`metrics_only=true`로 과거 lab/symptom 키를 포함한 지표 이력을 조회합니다.
 `next_offset`이 null일 때까지 조회하며 마지막 빈 페이지가 있을 수 있습니다.
 식단·배변·투약 목록 필터는 `health_search`로 조회하고 매체 감사는
 `health_audit(record_type=media_file)`로 읽습니다. 과거 지표 상세·보관·복구는 이벤트 도구와
@@ -144,8 +146,9 @@ ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지�
 
 일반 생성 도구는 선택적 `request_key`를 받습니다(ASCII 영문·숫자·`-_.:`, 1~128자).
 같은 키·도구·입력으로 재시도하면 결과를 재사용합니다. 설정된 홈의 `retry.sqlite`에 CLI와
-분리된 영수증을 저장하며 입력 원문·사진 대신 입력 해시와 결과를 보관합니다. 완료된 오류도
-재사용하므로 알려진 실패 뒤 입력을 수정할 때는 새 키를 사용합니다. 다른 입력은
+분리된 영수증을 저장하며 입력 원문·사진 대신 입력 해시와 결과를 보관합니다. 확실한 미커밋(`committed=false`)이며 재시도 가능(`retryable=true`)한 오류는 CLI처럼 영수증을
+해제하므로 같은 키로 다시 시도할 수 있습니다. 그 외 완료된 오류는 재사용하며 알려진 실패 뒤
+입력을 수정할 때는 새 키를 사용합니다. 영수증이 남아 있는 키의 다른 입력은
 `request_key_conflict`입니다. 보류 영수증은 재실행하지 않고 `request_outcome_unknown`,
 `committed: null`, `retryable: false`를 반환합니다. 중단된 생성은 조회로 확인한 후 새 키를
 결정하고 재시도를 위해 영수증을 삭제하지 않습니다. `timeout_seconds`는 키가 필요하며

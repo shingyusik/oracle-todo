@@ -586,3 +586,7 @@ Health diet/event get accepts `include_archived=true`.
 `GET /api/v1/health/events/page` accepts `metrics_only`
 in addition to category/key/daily filters and returns `next_offset` (a final empty page
 may occur). Existing defaults and version guards remain unchanged.
+
+Database-busy responses from Ledger/Health retain HTTP 409 and the generic conflict code,
+with `committed: false` and `retryable: true`. Ordinary conflicts do not carry that safe-retry
+classification; internal/uncertain errors must not be treated as rolled back.

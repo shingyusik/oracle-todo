@@ -179,3 +179,29 @@ async fn router_creation_has_no_filesystem_side_effects() {
     assert_eq!(body(response).await, json!({"status": "ok"}));
     assert!(!home.exists());
 }
+
+#[tokio::test]
+async fn busy_errors_alone_preserve_definite_safe_retry_classification() {
+    for error in [
+        ApiError::from(LedgerError::Busy("private/path SELECT secret".into())),
+        ApiError::from(HealthError::Busy("private/path SELECT secret".into())),
+    ] {
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let value = body(response).await;
+        assert_eq!(value["committed"], false);
+        assert_eq!(value["retryable"], true);
+        assert_eq!(value["code"], "conflict");
+        assert!(!value.to_string().contains("private/path"));
+    }
+    for error in [
+        ApiError::from(LedgerError::Conflict("private/path".into())),
+        ApiError::from(HealthError::Conflict("private/path".into())),
+        ApiError::from(LedgerError::Storage("private/path".into())),
+        ApiError::from(HealthError::Storage("private/path".into())),
+    ] {
+        let value = body(error.into_response()).await;
+        assert_ne!(value["committed"], false);
+        assert_ne!(value["retryable"], true);
+    }
+}

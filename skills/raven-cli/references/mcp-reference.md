@@ -136,7 +136,9 @@ MCP input byte budgets are at most 8 MiB and all responses remain capped at 8 Mi
 exports should use the CLI. Export `include_archived=true` produces a restore-capable snapshot.
 
 `health_event_list` accepts `category`, `metric_key`, `daily_only`, `metrics_only` and paging.
-Use `metrics_only=true` for CLI metric history including older lab/symptom keys. Follow
+Categories are weight/bowel/sleep/lab/symptom/medication; query overall condition with
+`category=symptom, metric_key=overall_condition`. Use `metrics_only=true` for CLI metric
+history including older lab/symptom keys. Follow
 `next_offset` until null (a final empty page is possible). Diet, bowel and medication list
 filters are available through `health_search` scope filters. `health_audit` also accepts
 `media_file`. Historical metric show/archive/restore use existing event tools and guards.
@@ -148,7 +150,10 @@ Regular create tools accept optional `request_key` (1..128 ASCII letters, digits
 Reuse the same key, tool and input after an uncertain response. Receipts persist in the
 configured home's `retry.sqlite`, separately from CLI receipts. They store an input digest
 and the result, without storing create arguments or image bytes. Completed results, including
-errors, replay after restart. Changed input returns `request_key_conflict`; use a new key for
+errors, replay after restart, except definitely uncommitted retryable errors
+(`committed=false`, `retryable=true`), which release the receipt just like the CLI so the
+same key can retry. Missing/unknown commitment never permits re-execution.
+Changed input while a receipt exists returns `request_key_conflict`; use a new key for
 corrected input after a known failure. Pending receipts return `request_outcome_unknown`
 with `committed: null` and `retryable: false` and never execute again. Inspect records to
 reconcile an interrupted create before choosing another key. Do not delete receipts to retry.

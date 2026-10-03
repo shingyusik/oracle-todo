@@ -419,15 +419,7 @@ pub(super) fn build() -> Vec<Spec> {
     events.extend([
         (
             "category",
-            choices(&[
-                "weight",
-                "bowel",
-                "sleep",
-                "lab",
-                "symptom",
-                "medication",
-                "overall_condition",
-            ]),
+            choices(&["weight", "bowel", "sleep", "lab", "symptom", "medication"]),
         ),
         ("metric_key", text()),
         ("daily_only", boolean()),

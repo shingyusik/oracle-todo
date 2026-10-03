@@ -104,7 +104,7 @@ impl McpAdapter {
             .as_object_mut()
             .unwrap()
             .remove("timeout_seconds")
-            .and_then(|v| v.as_u64())
+            .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|n| n as u64)))
             .unwrap_or(120);
         if args.get("request_key").is_none() && has_timeout {
             return failure(
