@@ -132,6 +132,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         </div>
         <TreeSidebar
           controller={controller}
+          mobile={mobile}
           ariaLabel={workbenchCopy.navigation.shellLabel}
           onNavigate={mobile ? () => closeNavigation() : undefined}
         />

@@ -1595,13 +1595,13 @@ export function useWorkbenchController(): WorkbenchController {
     ensureTodoReferenceData,
     resolveTodoItem: (itemId) => todoItemSnapshots.current.get(itemId) ?? null,
     todoTableLookups: (scope) => todoLookups[scope] ?? null,
-    selectTab: (tabId: WorkbenchTabId) => {
+    selectTab: (tabId: WorkbenchTabId, mainTabId?: WorkbenchSelection["mainTabId"]) => {
       pendingTaskCreation.current = false;
       const currentSelection = selectionStateRef.current;
       const nextSelection =
         tabId === "workspace" || tabId === "planner"
           ? toggleTodoGroupExpansion(currentSelection, tabId)
-          : resolveSelection(tabId, currentSelection);
+          : resolveSelection(tabId, mainTabId ? { ...currentSelection, mainTabId } : currentSelection);
       requestSelection(nextSelection);
     },
     navigateDashboard,

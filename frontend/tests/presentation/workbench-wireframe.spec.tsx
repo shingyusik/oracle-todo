@@ -1696,6 +1696,40 @@ describe("WorkbenchPageClient", () => {
     expect(main).not.toHaveAttribute("aria-hidden");
   });
 
+  it.each([
+    ["Ledger", null, "Accounts"],
+    ["Ledger", null, "Reports"],
+    ["Health Journal", null, "Reports"],
+    ["ToDo", "Workspace", "Tasks"],
+    ["ToDo", "Planner", "Weekly"],
+  ])("keeps mobile %s groups open until a leaf is selected (%s / %s)", async (parent, group, leaf) => {
+    useMobileViewport();
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "Open Raven navigation" }));
+    const drawer = screen.getByRole("dialog", { name: "Raven navigation drawer" });
+    const dashboard = within(drawer).getByRole("button", { name: "Dashboard" });
+    const parentButton = within(drawer).getByRole("button", { name: parent });
+    await user.click(parentButton);
+    expect(screen.getByRole("dialog", { name: "Raven navigation drawer" })).toBe(drawer);
+    expect(parentButton).toHaveAttribute("aria-expanded", "true");
+    expect(dashboard).toHaveAttribute("aria-current", "page");
+    await user.click(parentButton);
+    expect(parentButton).toHaveAttribute("aria-expanded", "false");
+    expect(dashboard).toHaveAttribute("aria-current", "page");
+    await user.click(parentButton);
+    if (group) {
+      await user.click(within(drawer).getByRole("button", { name: group }));
+      expect(dashboard).toHaveAttribute("aria-current", "page");
+    }
+    const leafButton = within(drawer).getByRole("button", { name: leaf });
+    expect(leafButton).not.toHaveAttribute("aria-current");
+    await user.click(leafButton);
+    expect(screen.queryByRole("dialog", { name: "Raven navigation drawer" })).toBeNull();
+    expect(leafButton).toHaveAttribute("aria-current", "page");
+    expect(parentButton).toHaveAttribute("data-active", "true");
+  });
+
   it("opens Ledger and Health Journal at their default leaves one at a time", async () => {
     const user = userEvent.setup();
     render(<WorkbenchPageClient />);

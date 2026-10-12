@@ -10,6 +10,10 @@ served by `raven ui` from the same origin as the authenticated API.
 - Ledger: Transactions, Accounts, Categories, Reports
 - Health Journal: Diet / Bowel / Medication / Health Metrics / Reports
 
+On mobile, parent menu items expand or collapse their children without changing the current
+page or closing the drawer. Selecting a leaf opens that page and closes the drawer.
+Dashboard opens directly because it has no children.
+
 Dashboard shows ToDo analytics only. Ledger and Health Journal start directly at their
 operational views.
 
