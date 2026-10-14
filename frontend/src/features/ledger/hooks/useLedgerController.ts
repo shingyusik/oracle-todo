@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDataChanges } from "@/lib/data-changes";
 
 import {
   ledgerApi,
@@ -596,6 +597,13 @@ export function useLedgerController(): LedgerController {
     () => runReports(state.reportSelection),
     [runReports, state.reportSelection],
   );
+
+  useDataChanges("ledger", async () => {
+    await Promise.all([
+      refresh(),
+      state.reportStatus !== "idle" ? runReports(state.reportSelection) : Promise.resolve(),
+    ]);
+  });
 
   function updateTableTabs(
     scope: LedgerTableScopeId,

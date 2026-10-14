@@ -21,6 +21,7 @@ type AccountDetailProps = {
   row: AccountRow;
   onBack(): void;
   onDeleted(): void;
+  onDirtyChange?(dirty: boolean): void;
 };
 
 type AccountDraft = {
@@ -41,7 +42,7 @@ type DraftAction =
   | { type: "change"; name: keyof AccountDraft; value: string; group: boolean }
   | { type: "undo" | "redo" | "close-group" };
 
-export function AccountDetail({ controller, row, onBack, onDeleted }: AccountDetailProps) {
+export function AccountDetail({ controller, row, onBack, onDeleted, onDirtyChange }: AccountDetailProps) {
   const initialDraft = accountDraft(row);
   const [history, dispatch] = useReducer(historyReducer, initialDraft, (present) => ({
     past: [], present, future: [], group: null,
@@ -57,6 +58,10 @@ export function AccountDetail({ controller, row, onBack, onDeleted }: AccountDet
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const draft = history.present;
   const dirty = !sameDraft(draft, baseline);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
   const activeAccountTypes = controller.state.accountCategories.filter(({ active }) => active);
   const activeCurrencies = controller.state.currencies.filter(({ active }) => active);
 

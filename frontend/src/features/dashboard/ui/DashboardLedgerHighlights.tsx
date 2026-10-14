@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useDataChanges } from "@/lib/data-changes";
 import { ChartDonut } from "@/lib/chart-ui";
 
 import type { ReportSelection } from "@/features/ledger/api/ledger-api";
@@ -39,6 +40,7 @@ export function DashboardLedgerHighlights({
   const [status, setStatus] = React.useState<"loading" | "loaded" | "error">("loading");
   const [currencyId, setCurrencyId] = React.useState("");
   const [retry, setRetry] = React.useState(0);
+  useDataChanges("ledger", () => setRetry((value) => value + 1));
   const inFlight = React.useRef<{
     key: string;
     promise: Promise<LedgerReportData>;

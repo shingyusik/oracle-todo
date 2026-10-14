@@ -750,7 +750,7 @@ describe("AccountDetail", () => {
     expect(within(screen.getByLabelText("Currency")).getByRole("option", { name: /USD/ })).toBeDisabled();
   });
 
-  it("resolves an opened account from refreshed rows and returns to the table when it disappears", async () => {
+  it.each([false, true])("resolves refreshed accounts and protects disappearing edit drafts (dirty=%s)", async (dirty) => {
     const user = userEvent.setup();
     const { rerender } = render(<AccountsPanel controller={accountsController()} />);
 
@@ -765,9 +765,13 @@ describe("AccountDetail", () => {
     await waitFor(() => expect(screen.getByLabelText("Current balance"))
       .toHaveTextContent("7.77 USD"));
 
+    if (dirty) await user.type(screen.getByLabelText("Account name"), " draft");
     rerender(<AccountsPanel controller={accountsController({ ...refreshed, accounts: [], balances: [] })} />);
-    expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Wallet details" })).toBeNull();
+    if (dirty) expect(screen.getByLabelText("Account name")).toHaveValue("Wallet draft");
+    else {
+      expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Wallet details" })).toBeNull();
+    }
   });
 
   it("keeps detail open from the unfiltered account projection after saving out of the active name filter", async () => {

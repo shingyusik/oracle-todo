@@ -81,7 +81,7 @@ export function HealthMetricsPanel({
       const next = current.filter((date) => activeDates.has(date));
       return next.length === current.length ? current : next;
     });
-    if (detailRow && !activeDates.has(detailRow.date)) {
+    if (detailRow && !activeDates.has(detailRow.date) && !detailHistory.dirty) {
       setDetailRow(null);
       restoreDetailFocus();
     }

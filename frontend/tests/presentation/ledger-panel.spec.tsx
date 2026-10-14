@@ -633,6 +633,57 @@ describe("LedgerPanel", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps an unfinished transaction form through external Ledger refresh and failure", async () => {
+    let notify!: (event: MessageEvent<string>) => void;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+    mockLedgerLoads();
+    function LiveLedger() {
+      return <LedgerPanel controller={useLedgerController()} />;
+    }
+    const view = render(<LiveLedger />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add transaction" }));
+    const content = await screen.findByLabelText("Content");
+    await user.type(content, "Unfinished transaction");
+    const calls = vi.mocked(ledgerApi.queryTable).mock.calls.length;
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["ledger"]}' })));
+    expect(vi.mocked(ledgerApi.queryTable).mock.calls.length).toBeGreaterThan(calls);
+    expect(screen.getByLabelText("Content")).toBe(content);
+    expect(content).toHaveValue("Unfinished transaction");
+    vi.mocked(ledgerApi.queryTable).mockRejectedValue(new Error("offline"));
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["ledger"]}' })));
+    expect(screen.getByLabelText("Content")).toHaveValue("Unfinished transaction");
+    view.unmount();
+  });
+
+  it("keeps a report period selected while an external table refresh is pending", async () => {
+    let notify!: (event: MessageEvent<string>) => void;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+    mockLedgerLoads();
+    const fixture = reportAnalysisState();
+    vi.spyOn(await import("@/features/ledger/api/ledger-report-loader"), "loadLedgerReport")
+      .mockResolvedValue({ comparison: fixture.comparison!, summary: fixture.summary,
+        categoryBreakdown: fixture.categoryBreakdown, trend: fixture.trend!, balances: fixture.balances });
+    const hook = renderHook(() => useLedgerController());
+    await act(() => hook.result.current.ensureTable!("ledger.transactions"));
+    await act(() => hook.result.current.runReports({ period: "current_month" }));
+    const pending = deferred<Awaited<ReturnType<typeof ledgerApi.queryTable>>>();
+    vi.mocked(ledgerApi.queryTable).mockReturnValueOnce(pending.promise);
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["ledger"]}' })));
+    await act(() => hook.result.current.runReports({ period: "previous_month" }));
+    await act(async () => pending.resolve({ items: [], nextOffset: null }));
+    expect(hook.result.current.state.reportSelection).toEqual({ period: "previous_month" });
+    hook.unmount();
+  });
+
   it("opens Account settings only from Accounts and restores trigger focus after Escape", async () => {
     const user = userEvent.setup();
     const ledger = controller();
@@ -654,6 +705,31 @@ describe("LedgerPanel", () => {
     expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
     rerender(<LedgerPanel controller={ledger} leafTabId="reports" />);
     expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
+  });
+
+  it("keeps a transaction edit draft if an external change archives its record", async () => {
+    let notify!: (event: MessageEvent<string>) => void;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+    mockLedgerLoads();
+    vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [transactionOccurrence("expense-1", "expense-1", "Lunch")], nextOffset: null });
+    vi.mocked(ledgerApi.listEntries).mockResolvedValue({ items: [transactionEntry("expense-1", "Lunch")], nextOffset: null });
+    function LiveLedger() { return <LedgerPanel controller={useLedgerController()} />; }
+    const view = render(<LiveLedger />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Open details for Lunch/ }));
+    const content = screen.getByLabelText("Content");
+    await user.clear(content);
+    await user.type(content, "Unfinished edit");
+    vi.mocked(ledgerApi.listEntries).mockResolvedValue({ items: [], nextOffset: null });
+    vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["ledger"]}' })));
+    expect(screen.getByLabelText("Content")).toBe(content);
+    expect(content).toHaveValue("Unfinished edit");
+    view.unmount();
   });
 
   it("keeps the production Account settings dialog open while its save is pending", async () => {

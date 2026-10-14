@@ -252,6 +252,37 @@ function deferred<T>() {
 describe("HealthPanel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("refreshes external Health rows while preserving an unfinished diet form", async () => {
+    let notify!: (event: MessageEvent<string>) => void;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+    const query = vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({ tags: [] });
+    vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
+    function LiveHealth() {
+      const health = useHealthController();
+      return <HealthPanel controller={health} />;
+    }
+    const view = render(<LiveHealth />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add diet entry" }));
+    const food = await screen.findByLabelText("Food");
+    await user.type(food, "Unfinished meal");
+    query.mockResolvedValue({ items: tableOccurrences("health.diet", loadedState), nextOffset: null });
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["health"]}' })));
+    await waitFor(() => expect(screen.getByText("Bibimbap")).toBeInTheDocument());
+    expect(screen.getByLabelText("Food")).toBe(food);
+    expect(food).toHaveValue("Unfinished meal");
+    query.mockRejectedValue(new Error("offline"));
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["health"]}' })));
+    expect(screen.getByLabelText("Food")).toHaveValue("Unfinished meal");
+    view.unmount();
   });
 
   it("uses Diet as the default and fallback leaf and has no Overview", () => {
@@ -263,6 +294,31 @@ describe("HealthPanel", () => {
 
     render(<HealthPanel controller={controller()} leafTabId={"missing" as never} />);
     expect(screen.getAllByRole("heading", { name: "Diet" })).toHaveLength(2);
+  });
+
+  it("keeps a diet edit draft if an external change archives its record", async () => {
+    let notify!: (event: MessageEvent<string>) => void;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+    const query = vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: tableOccurrences("health.diet", loadedState), nextOffset: null });
+    vi.spyOn(healthApi, "tableLookups").mockResolvedValue({ tags: [] });
+    const references = vi.spyOn(healthApi, "listDiet").mockResolvedValue([diet]);
+    function LiveHealth() { return <HealthPanel controller={useHealthController()} />; }
+    const view = render(<LiveHealth />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("row", { name: /Open details for Bibimbap/ }));
+    const food = screen.getByLabelText("Food");
+    await user.clear(food);
+    await user.type(food, "Unfinished edit");
+    references.mockResolvedValue([]);
+    query.mockResolvedValue({ items: [], nextOffset: null });
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["health"]}' })));
+    expect(screen.getByLabelText("Food")).toBe(food);
+    expect(food).toHaveValue("Unfinished edit");
+    view.unmount();
   });
 
   it("mounts Reports with one default 30-day request", async () => {

@@ -20,6 +20,7 @@ import { DestructiveConfirmationDialog } from "@/features/workbench/ui/Destructi
 
 export function CategoriesPanel({ controller }: { controller: LedgerController }) {
   const [selectedDetailRow, setSelectedDetailRow] = useState<CategoryRow | null>(null);
+  const detailDirty = useRef(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<string[]>([]);
@@ -65,11 +66,11 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (
-      selectedDetailRow &&
-      controller.hasReferenceData?.("ledger.categories") &&
-      !controller.state.categories.some(({ id, active }) => id === selectedDetailRow.id && active)
-    ) setSelectedDetailRow(null);
+    if (selectedDetailRow && !detailDirty.current
+      && controller.hasReferenceData?.("ledger.categories")
+      && !controller.state.categories.some(({ id, active }) => id === selectedDetailRow.id && active)) {
+      setSelectedDetailRow(null);
+    }
   }, [activeRows, controller, selectedDetailRow]);
 
   function returnToList() {
@@ -84,6 +85,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         row={selectedDetail}
         onBack={returnToList}
         onDeleted={returnToList}
+        onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
       />
     );
   }
@@ -195,7 +197,7 @@ function resolveCategoryDetail(
 ): CategoryRow | null {
   if (!controller.hasReferenceData?.("ledger.categories")) return fallback;
   const category = controller.state.categories.find(({ id, active }) => id === fallback.id && active);
-  if (!category) return null;
+  if (!category) return fallback;
   const parent = controller.state.categories.find(({ id }) => id === category.parentId);
   return {
     ...fallback,

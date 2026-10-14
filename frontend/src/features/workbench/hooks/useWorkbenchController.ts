@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDataChanges } from "@/lib/data-changes";
 
 import {
   type LeafTabId,
@@ -846,8 +847,10 @@ export function useWorkbenchController(): WorkbenchController {
   const [plannerCreationContext, setPlannerCreationContext] =
     useState<PlannerCreationContext | null>(null);
   const [detailItem, setDetailItem] = useState<WorkspaceItemModel | null>(null);
+  const detailSnapshot = useRef<WorkspaceItemModel | null>(null);
   const detailOpenGeneration = useRef(0);
   const setDetailPage = (item: WorkspaceItemModel | null) => {
+    detailSnapshot.current = item;
     if (item) todoItemSnapshots.current.set(item.id, item);
     detailOpenGeneration.current += 1;
     setDetailItem(item);
@@ -969,18 +972,27 @@ export function useWorkbenchController(): WorkbenchController {
       todoReferenceLoaded.current = true;
       setWorkspaceItems((current) => ({
         ...current,
+        status: "loaded",
         allItems,
         tagOptions: collectTagOptions(allItems),
         relatedItems: buildRelatedItems(allItems),
       }));
       return true;
-    }).catch(() => false).finally(() => {
+    }).catch(() => {
+      if (generation === todoReferenceGeneration.current
+        && selectionStateRef.current.leafTabId === "dashboard") {
+        setWorkspaceItems((current) => current.status === "loading"
+          ? { ...current, status: "error" }
+          : current);
+      }
+      return false;
+    }).finally(() => {
       if (pendingTodoReference.current === request) pendingTodoReference.current = null;
     });
     pendingTodoReference.current = request;
     return request;
   };
-  const reloadInitializedTodoTables = (): void => {
+  const reloadInitializedTodoTables = async (): Promise<void> => {
     todoReferenceLoaded.current = false;
     todoReferenceGeneration.current += 1;
     pendingTodoReference.current = null;
@@ -992,10 +1004,18 @@ export function useWorkbenchController(): WorkbenchController {
     setTodoTablePages(invalidated);
     initializedTodoTables.current.clear();
     if (targets.length === 0) return;
-    for (const target of targets) void ensureTodoTable(target);
+    await Promise.all(targets.map(ensureTodoTable));
   };
 
+  useDataChanges("todo", async () => {
+    const reloadReferences = todoReferenceLoaded.current
+      || selectionStateRef.current.leafTabId === "dashboard";
+    await reloadInitializedTodoTables();
+    if (reloadReferences) await ensureTodoReferenceData();
+  });
+
   const applySharedItem = (updated: WorkspaceItemModel) => {
+    if (detailSnapshot.current?.id === updated.id) detailSnapshot.current = updated;
     rememberTodoItems([updated]);
     setWorkspaceItems((current) => ({
       ...current,
@@ -1004,6 +1024,11 @@ export function useWorkbenchController(): WorkbenchController {
       tagOptions: mergeTagOptions(current.tagOptions, updated.tags),
     }));
   };
+
+  // Background reads must not advance the optimistic lock of an open editor.
+  const expectedTodoVersion = (itemId: string) => detailSnapshot.current?.id === itemId
+    ? detailSnapshot.current.updated_at ?? undefined
+    : todoItemSnapshots.current.get(itemId)?.updated_at ?? undefined;
 
   const removeSharedItem = (itemId: string) => {
     setWorkspaceItems((current) => {
@@ -1212,10 +1237,12 @@ export function useWorkbenchController(): WorkbenchController {
 
   useEffect(() => {
     if (selection.leafTabId === "dashboard") {
+      const generation = todoReferenceGeneration.current;
       setWorkspaceItems({ ...emptyWorkspaceItems, status: "loading" });
 
       void fetchAllWorkspaceItems()
         .then((allItems) => {
+          if (generation !== todoReferenceGeneration.current) return;
           rememberTodoItems(allItems);
           todoReferenceLoaded.current = true;
           const leaf = selectionStateRef.current.leafTabId;
@@ -1232,7 +1259,8 @@ export function useWorkbenchController(): WorkbenchController {
             });
         })
         .catch(() => {
-          if (selectionStateRef.current.leafTabId === "dashboard") {
+          if (generation === todoReferenceGeneration.current
+            && selectionStateRef.current.leafTabId === "dashboard") {
             setWorkspaceItems({ ...emptyWorkspaceItems, status: "error" });
           }
         });
@@ -1738,7 +1766,7 @@ export function useWorkbenchController(): WorkbenchController {
     openDetailView: (item) => setDetailPage(item),
     patchWorkspaceItem: (itemId, patch) =>
       enqueueItemMutation(itemId, async () => {
-        const updated = await patchItem(itemId, { ...patch, expected_updated_at: todoItemSnapshots.current.get(itemId)?.updated_at ?? undefined });
+        const updated = await patchItem(itemId, { ...patch, expected_updated_at: expectedTodoVersion(itemId) });
         setDetailItem((current) => (current?.id === updated.id ? updated : current));
         applySharedItem(updated);
       }),
@@ -2083,6 +2111,7 @@ export function useWorkbenchController(): WorkbenchController {
       itemTransitionStates[itemId] ?? idleWorkspaceItemTransitionState,
     materializeRoutine: async (itemId, window) => {
       const { routine, created } = await postMaterializeRoutine(itemId, window);
+      if (detailSnapshot.current?.id === routine.id) detailSnapshot.current = routine;
       // Generated tasks belong in `items` only where the tab already lists tasks;
       // the routines tab lists routines, so injecting them there would corrupt it.
       const listsTasks =
@@ -2113,7 +2142,7 @@ export function useWorkbenchController(): WorkbenchController {
       const itemId = detailItem.id;
       const originatingGeneration = detailOpenGeneration.current;
       await enqueueItemMutation(itemId, async () => {
-        const updated = await patchItem(itemId, { ...patch, expected_updated_at: todoItemSnapshots.current.get(itemId)?.updated_at ?? undefined });
+        const updated = await patchItem(itemId, { ...patch, expected_updated_at: expectedTodoVersion(itemId) });
         setDetailItem((current) =>
           detailOpenGeneration.current === originatingGeneration && current?.id === updated.id
             ? updated

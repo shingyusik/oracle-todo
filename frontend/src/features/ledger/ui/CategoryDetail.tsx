@@ -22,6 +22,7 @@ type CategoryDetailProps = {
   row: CategoryRow;
   onBack(): void;
   onDeleted(): void;
+  onDirtyChange?(dirty: boolean): void;
 };
 
 type CategoryDraft = {
@@ -42,7 +43,7 @@ type DraftAction =
   | { type: "reset"; present: CategoryDraft }
   | { type: "undo" | "redo" | "close-group" };
 
-export function CategoryDetail({ controller, row, onBack, onDeleted }: CategoryDetailProps) {
+export function CategoryDetail({ controller, row, onBack, onDeleted, onDirtyChange }: CategoryDetailProps) {
   const initialDraft = categoryDraft(row);
   const [history, dispatch] = useReducer(historyReducer, initialDraft, (present) => ({
     past: [], present, future: [], group: null,
@@ -59,6 +60,10 @@ export function CategoryDetail({ controller, row, onBack, onDeleted }: CategoryD
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const draft = history.present;
   const dirty = !sameDraft(draft, baseline);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
   const parents = categoryParentOptions(controller.state.categories, draft.kind, row.id);
   const hasActiveChildren = controller.state.categories.some(
     (category) => category.active && category.parentId === row.id,

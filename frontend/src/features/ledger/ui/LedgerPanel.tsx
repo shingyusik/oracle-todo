@@ -130,6 +130,7 @@ function TransactionsPanel({
   setTombstonedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
   const [editing, setEditing] = useState<TransactionRow | null>(null);
+  const detailDirty = useRef(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -165,8 +166,8 @@ function TransactionsPanel({
   const resolvedEditing = editing === null
     ? null
     : controller.hasReferenceData?.("ledger.transactions")
-      ? projectTransactionRows(legacyEntries).find(({ id }) => id === editing.id) ?? null
-      : referenceRows.find(({ id }) => id === editing.id) ?? null;
+      ? projectTransactionRows(legacyEntries).find(({ id }) => id === editing.id) ?? (detailDirty.current ? editing : null)
+      : referenceRows.find(({ id }) => id === editing.id) ?? (detailDirty.current ? editing : null);
   const displayedEntries = legacyEntries.length > 0
     ? legacyEntries
     : activeRows.flatMap(({ detailEntry, transferEntry }) =>
@@ -185,12 +186,8 @@ function TransactionsPanel({
   }, [visibleRows]);
 
   useEffect(() => {
-    if (
-      editing && !resolvedEditing
-    ) {
-      setEditing(null);
-    }
-  }, [resolvedEditing, editing]);
+    if (editing && !resolvedEditing) setEditing(null);
+  }, [editing, resolvedEditing]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => current.includes(id)
@@ -234,6 +231,7 @@ function TransactionsPanel({
       <TransactionDetail
         controller={controller}
         row={resolvedEditing}
+        onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
         onBack={() => setEditing(null)}
         onArchived={() => {
           setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));

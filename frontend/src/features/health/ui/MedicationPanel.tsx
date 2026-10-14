@@ -104,7 +104,7 @@ export function MedicationPanel({
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (detailRow && !activeIds.has(detailRow.id)) {
+    if (detailRow && !activeIds.has(detailRow.id) && !detailHistory.dirty) {
       setDetailRow(null);
       restoreDetailFocus();
     }

@@ -3,6 +3,7 @@
 import { RavenApiError } from "@/lib/raven-api";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDataChanges } from "@/lib/data-changes";
 
 import {
   healthApi,
@@ -825,6 +826,11 @@ export function useHealthController(): HealthController {
     () => runReports(reportSelection.current),
     [runReports],
   );
+
+  useDataChanges("health", async () => {
+    await refresh();
+    if (state.reportStatus !== "idle") await runReports(reportSelection.current);
+  });
 
   const refreshMetrics = useCallback(() => refreshScope("health.metrics"), [refreshScope]);
   const refreshMedication = useCallback(

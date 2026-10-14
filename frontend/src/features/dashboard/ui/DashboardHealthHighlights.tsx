@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useDataChanges } from "@/lib/data-changes";
 
 import { healthApi } from "@/features/health/api/health-api";
 import { resolveHealthReportRange, type HealthReport } from "@/features/health/model/health-reports";
@@ -14,6 +15,7 @@ export function DashboardHealthHighlights({ mutationEpoch = 0, onNavigate }: {
   const [data, setData] = React.useState<HealthReport | null>(null);
   const [status, setStatus] = React.useState<"loading" | "loaded" | "error">("loading");
   const [retry, setRetry] = React.useState(0);
+  useDataChanges("health", () => setRetry((value) => value + 1));
 
   React.useEffect(() => {
     let active = true;

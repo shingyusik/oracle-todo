@@ -605,7 +605,7 @@ describe("CategoriesPanel", () => {
     expect(screen.getByRole("button", { name: "Delete selected" })).toBeDisabled();
   });
 
-  it("opens detail from the active projection and returns when the category disappears", async () => {
+  it.each([false, true])("opens active category details and protects disappearing edit drafts (dirty=%s)", async (dirty) => {
     const user = userEvent.setup();
     const ledger = categoriesController();
     const { rerender } = render(<CategoriesPanel controller={ledger} />);
@@ -626,7 +626,9 @@ describe("CategoriesPanel", () => {
     rerender(<CategoriesPanel controller={ledger} />);
     await user.click(screen.getByRole("button", { name: "Open details for Food, Expense, No parent" }));
     ledger.state = { ...ledger.state, categories: ledger.state.categories.filter(({ id }) => id !== "category-food") };
+    if (dirty) await user.type(screen.getByLabelText("Category name"), " draft");
     rerender(<CategoriesPanel controller={ledger} />);
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Food details" })).toBeNull());
+    if (dirty) expect(screen.getByLabelText("Category name")).toHaveValue("Food draft");
+    else await waitFor(() => expect(screen.queryByRole("region", { name: "Food details" })).toBeNull());
   });
 });

@@ -73,6 +73,68 @@ describe("useWorkbenchController", () => {
     expect(result.current.panel.title).toBe("Dashboard");
   });
 
+  it("reloads external ToDo changes without closing creation or replacing the detail snapshot", async () => {
+    let notify!: (event: MessageEvent<string>) => void;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    let records = [todoTableRecord("first")];
+    const patches: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        patches.push(JSON.parse(String(init.body)));
+        return Promise.resolve(new Response(JSON.stringify(records[0]), { headers: { "content-type": "application/json" } }));
+      }
+      const value = url === "/api/v1/todo/table/query"
+        ? { items: records.map((record) => ({ key: record.id, group_key: null, group_label: null, record })), next_offset: null }
+        : url.startsWith("/api/v1/todo/table/lookups") ? { items: [] }
+          : url.startsWith("/api/v1/preferences/") ? null : records;
+      return Promise.resolve(new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } }));
+    }));
+    const hook = renderHook(() => useWorkbenchController());
+    await waitFor(() => expect(hook.result.current.workspaceItems.status).toBe("loaded"));
+    act(() => hook.result.current.selectTab("tasks"));
+    const target = { surface: "workspace", scope: "workspace.task" } as const;
+    await act(() => hook.result.current.ensureTodoTable(target));
+    act(() => hook.result.current.openCreationDialog());
+    records = [...records, todoTableRecord("external")];
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["todo"]}' })));
+    await waitFor(() => expect(hook.result.current.todoTablePage(target).items).toHaveLength(2));
+    expect(hook.result.current.creationDialogOpen).toBe(true);
+    const original = hook.result.current.todoTablePage(target).items[0].record;
+    act(() => hook.result.current.openDetailView(original));
+    records = records.map((record) => ({ ...record, title: "Changed elsewhere", updated_at: "2026-08-22T02:00:00Z" }));
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["todo"]}' })));
+    await waitFor(() => expect(hook.result.current.todoTablePage(target).items[0].record.title).toBe("Changed elsewhere"));
+    expect(hook.result.current.detailItem).toBe(original);
+    await act(() => hook.result.current.patchWorkspaceItem(original.id, { title: "My draft" }));
+    expect(patches[0].expected_updated_at).toBe(original.updated_at);
+    hook.unmount();
+  });
+
+  it.each([false, true])("keeps an SSE dashboard resync newer than a delayed initial read (failed=%s)", async (failed) => {
+    let notify!: (event: MessageEvent<string>) => void;
+    let finishInitial!: (response: Response) => void;
+    let calls = 0;
+    vi.stubGlobal("EventSource", class {
+      addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+      close() {}
+    });
+    const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/v1/todo/items" && ++calls === 1) return new Promise<Response>((resolve) => { finishInitial = resolve; });
+      if (url === "/api/v1/todo/items" && failed) return Promise.reject(new Error("offline"));
+      return Promise.resolve(json(url.startsWith("/api/v1/preferences/") ? null : [todoTableRecord("newest")]));
+    }));
+    const hook = renderHook(() => useWorkbenchController());
+    await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["todo"]}' })));
+    await act(async () => finishInitial(json([todoTableRecord("stale")])));
+    expect(hook.result.current.workspaceItems.status).toBe(failed ? "error" : "loaded");
+    expect(hook.result.current.workspaceItems.allItems.map(({ id }) => id)).toEqual(failed ? [] : ["newest"]);
+    hook.unmount();
+  });
+
   it("pages ToDo table rows independently, dedupes occurrences, and retries the same offset", async () => {
     const record = {
       id: "task-1", type: "task", title: "Ship", status: "active", tags: [],

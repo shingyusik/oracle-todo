@@ -21,6 +21,7 @@ import { DestructiveConfirmationDialog } from "@/features/workbench/ui/Destructi
 
 export function AccountsPanel({ controller }: { controller: LedgerController }) {
   const [selectedDetailRow, setSelectedDetailRow] = useState<AccountRow | null>(null);
+  const detailDirty = useRef(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -72,11 +73,11 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
       const next = current.filter((id) => activeAccountIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (
-      selectedDetailRow &&
-      controller.hasReferenceData?.("ledger.accounts") &&
-      !controller.state.accounts.some(({ id, active }) => id === selectedDetailRow.id && active)
-    ) setSelectedDetailRow(null);
+    if (selectedDetailRow && !detailDirty.current
+      && controller.hasReferenceData?.("ledger.accounts")
+      && !controller.state.accounts.some(({ id, active }) => id === selectedDetailRow.id && active)) {
+      setSelectedDetailRow(null);
+    }
   }, [activeRows, controller, selectedDetailRow]);
 
   function toggleSelection(id: string) {
@@ -132,6 +133,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         row={selectedDetail}
         onBack={returnToList}
         onDeleted={returnToList}
+        onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
       />
     );
   }
@@ -213,7 +215,7 @@ function resolveAccountDetail(
 ): AccountRow | null {
   if (!controller.hasReferenceData?.("ledger.accounts")) return fallback;
   const account = controller.state.accounts.find(({ id, active }) => id === fallback.id && active);
-  if (!account) return null;
+  if (!account) return fallback;
   const accountType = controller.state.accountCategories.find(
     ({ id, active }) => id === account.categoryId && active,
   );

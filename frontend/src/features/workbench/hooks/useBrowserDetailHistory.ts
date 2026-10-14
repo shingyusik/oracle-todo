@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type BrowserDetailHistory = {
   pendingBack: boolean;
+  readonly dirty?: boolean;
   setDirty(dirty: boolean): void;
   setDialogOpen(open: boolean): void;
   deferUntilRestored(action: () => void): boolean;
@@ -142,6 +143,7 @@ export function useBrowserDetailHistory<T>({
 
   return {
     pendingBack,
+    get dirty() { return dirtyRef.current; },
     setDirty,
     setDialogOpen,
     deferUntilRestored(action) {

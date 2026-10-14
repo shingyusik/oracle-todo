@@ -25,6 +25,7 @@ type TransactionDetailProps = {
   row: TransactionRow;
   onBack(): void;
   onArchived(): void;
+  onDirtyChange?(dirty: boolean): void;
 };
 
 type TransactionDraft = {
@@ -51,7 +52,7 @@ type DraftAction =
   | { type: "change"; name: keyof TransactionDraft; value: string; group: boolean }
   | { type: "undo" | "redo" | "close-group" };
 
-export function TransactionDetail({ controller, row, onBack, onArchived }: TransactionDetailProps) {
+export function TransactionDetail({ controller, row, onBack, onArchived, onDirtyChange }: TransactionDetailProps) {
   const initialDraft = transactionDraft(row, controller);
   const [history, dispatch] = useReducer(historyReducer, initialDraft, (present) => ({
     past: [],
@@ -68,6 +69,10 @@ export function TransactionDetail({ controller, row, onBack, onArchived }: Trans
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const draft = history.present;
   const dirty = !sameDraft(draft, baseline);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
   const transfer = row.kind === "transfer";
   const activeAccounts = controller.state.accounts.filter(({ active }) => active);
   const activeCurrencies = controller.state.currencies.filter(({ active }) => active);
