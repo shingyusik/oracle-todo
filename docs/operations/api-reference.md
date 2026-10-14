@@ -90,10 +90,29 @@ contents, tokens, sessions, or arbitrary metadata.
 | Method | Route | Behavior |
 | --- | --- | --- |
 | `GET` | `/api/v1/dashboard` | Combined ToDo, Ledger, Health, and recent activity |
+| `GET` | `/api/v1/changes` | Authenticated SSE notifications for changed data domains |
 | `GET` | `/api/v1/preferences/:key` | Read namespaced presentation state |
 | `PUT` | `/api/v1/preferences/:key` | Store an object-valued preference |
 
 Preference keys are `planner.v1`, `workspace.views.v1`, `ledger.views.v1`, and `health.views.v1`. Preferences live in `todo.sqlite` and cannot mutate domain tables.
+
+`/api/v1/changes` uses the same authentication as other API routes, including the UI
+session cookie. It returns `text/event-stream` with `Cache-Control: no-store`. Events use
+the name `changes` and a JSON payload such as `{"domains":["todo","health"]}`. Domain names
+are `todo`, `ledger`, and `health`; notifications contain no records, paths, or credentials.
+Each connection starts with all three domains so clients can resync after reconnecting.
+Idle connections receive a keepalive comment every 15 seconds.
+
+One shared watcher per API router checks each store's SQLite `data_version` every second
+while subscribers exist. Read-only monitoring does not create or migrate stores. Commits
+through other database connections, including CLI and separate MCP processes using the same
+home, trigger notifications. Rolled-back writes do not. The detection interval adds up to
+roughly one second before client reads; this is not an instantaneous commit stream.
+
+The UI shares one SSE connection and reloads affected tables, requested reference data, and
+reports. Open forms retain their drafts and detail snapshots, including when another client
+archives the edited record. Saving still follows the domain's validation and conflict rules.
+Multiple notifications during a controller refresh are combined into one trailing refresh.
 
 Dashboard returns HTTP `200` even when one domain cannot load. Each `todo`, `ledger`, and
 `health` member is independently:

@@ -33,6 +33,11 @@ Remote MCP client
 Domain mutations do not originate in CLI handlers, HTTP handlers, Dashboard projection
 code, or preference storage.
 
+The API watches its three SQLite stores through persistent read-only connections while SSE
+clients are subscribed. A shared one-second `data_version` check detects commits from other
+connections and processes. `/api/v1/changes` sends domain invalidations to the UI, which
+refreshes data without remounting open editors. Reconnecting clients resync all domains.
+
 ## Workspace composition
 
 ```text

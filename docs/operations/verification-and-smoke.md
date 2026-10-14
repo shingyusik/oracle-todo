@@ -35,6 +35,16 @@ cargo test -p raven-api --lib mcp
 cargo test -p raven-cli --test mcp_cli
 ```
 
+Automatic UI refresh checks cover independent CLI and MCP mutations, SSE authentication,
+WAL writes, rollback, missing stores, multiple subscribers, and reconnect synchronization:
+
+```bash
+cargo test -p raven-api --test changes
+cargo test -p raven-api --lib mcp_mutation_notifies_an_independent_ui_router
+cargo test -p raven-cli --test changes_cli
+npm --prefix frontend test -- tests/presentation/data-changes.spec.tsx tests/presentation/use-workbench-controller.spec.tsx tests/presentation/health-panel.spec.tsx tests/presentation/ledger-panel.spec.tsx
+```
+
 External acceptance also requires the selected client's authenticated `initialize`,
 `tools/list`, search, choices and guarded mutation through the actual Tunnel/Access
 configuration, plus denial without credentials. Use a throwaway Raven home for mutations.
