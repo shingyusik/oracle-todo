@@ -1084,3 +1084,10 @@ impl<T> TablePage<T> {
 fn validation(message: impl Into<String>) -> TodoError {
     TodoError::Validation(message.into())
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TableGroupSummary {
+    pub key: String,
+    pub label: String,
+    pub count: u64,
+}

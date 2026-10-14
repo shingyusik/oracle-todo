@@ -994,3 +994,122 @@ async fn inactive_master_pages_are_opt_in_bounded_and_reactivation_is_audited() 
         assert_eq!(events["items"][2]["after"]["active"], true);
     }
 }
+
+#[tokio::test]
+async fn table_groups_return_compact_candidates_for_each_ledger_scope() {
+    let (_temp, app) = app();
+    let response = post_json(
+        &app,
+        "/api/v1/ledger/entries",
+        json!({
+            "date":"2026-07-31", "content":"Private content", "category":"Food", "account":"Wallet",
+            "entry_type":"expense", "amount":"12000", "currency":"KRW"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    for (scope, group, total) in [
+        ("ledger.transactions", "account", 1),
+        ("ledger.accounts", "account_type", 2),
+        ("ledger.categories", "kind", 2),
+    ] {
+        let mut query = table_query(scope);
+        query["group_by"] = json!(group);
+        query["offset"] = json!(50);
+        query["limit"] = json!(1);
+        let response = post_json(&app, "/api/v1/ledger/table/groups", query.clone()).await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let value = body(response).await;
+        assert_eq!(value.as_object().unwrap().len(), 1);
+        let groups = value["groups"].as_array().unwrap();
+        assert_eq!(
+            groups
+                .iter()
+                .map(|group| group["count"].as_u64().unwrap())
+                .sum::<u64>(),
+            total
+        );
+        for group in groups {
+            assert_eq!(group.as_object().unwrap().len(), 3);
+        }
+        assert!(!value.to_string().contains("Private content"));
+        query["group_by"] = json!("none");
+        assert_eq!(
+            body(post_json(&app, "/api/v1/ledger/table/groups", query).await).await,
+            json!({"groups":[]})
+        );
+    }
+}
+
+#[tokio::test]
+async fn account_balance_by_id_ignores_duplicate_names_and_validates_missing_ids_safely() {
+    let (_temp, app) = app();
+    let mut ids = Vec::new();
+    for _ in 0..55 {
+        let response = post_json(
+            &app,
+            "/api/v1/ledger/accounts",
+            json!({
+                "name":"Duplicate", "category":"Cash", "currency":"KRW", "opening_balance":"100"
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        ids.push(body(response).await["id"].as_str().unwrap().to_string());
+    }
+    ids.sort();
+    let target = ids.last().unwrap();
+    let update = app
+        .clone()
+        .oneshot(
+            Request::patch(format!("/api/v1/ledger/accounts/{target}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"opening_balance":"2500"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/ledger/accounts/{target}/balance"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let value = body(response).await;
+    assert_eq!(value["account"]["id"], target.as_str());
+    assert_eq!(value["current_balance_minor"], 2500);
+    assert_eq!(value["currency_code"], "KRW");
+    assert_eq!(value["decimal_places"], 0);
+    assert_eq!(value.as_object().unwrap().len(), 4);
+    for (id, status, code) in [
+        (
+            "private-invalid-id",
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+        ),
+        (
+            "00000000-0000-4000-8000-000000000000",
+            StatusCode::NOT_FOUND,
+            "not_found",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/api/v1/ledger/accounts/{id}/balance"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        let value = body(response).await;
+        assert_eq!(value["code"], code);
+        assert!(!value.to_string().contains(id));
+    }
+}

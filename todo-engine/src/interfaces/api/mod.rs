@@ -54,6 +54,7 @@ fn routes(state: ApiState) -> Router {
         .route("/items/page", get(paged_items))
         .route("/options", get(item_options))
         .route("/table/query", post(query_table))
+        .route("/table/groups", post(table_groups))
         .route("/table/lookups", get(table_lookups))
         .route("/items/archive", get(archive_items))
         .route("/items/:id/history", get(item_history))

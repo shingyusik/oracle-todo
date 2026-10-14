@@ -642,3 +642,82 @@ async fn todo_mutation_and_validation_error_remain_nested_and_normalized() {
     assert_eq!(error["code"], "validation_error");
     assert!(error["request_id"].is_string());
 }
+
+#[tokio::test]
+async fn table_groups_return_compact_scoped_counts_and_validate_the_query() {
+    let (_temp, app) = test_app();
+    post_json(
+        &app,
+        "/api/v1/todo/tasks/propose",
+        json!({"title":"Selected", "tags":["focus","untagged"], "scheduled":"2026-08-22"}),
+    )
+    .await;
+    let mut query = table_query("workspace.task", json!({}));
+    query["group_by"] = json!("tag");
+    query["offset"] = json!(50);
+    query["limit"] = json!(1);
+    query["group_settings"]["hidden_group_keys"] = json!(["focus"]);
+    let response = post_json(&app, "/api/v1/todo/table/groups", query.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(response).await,
+        json!({"groups":[
+            {"key":todo_engine::application::table::canonical_group_value("untagged"), "label":"untagged", "count":1},
+            {"key":"focus", "label":"focus", "count":1}
+        ]})
+    );
+    query["scope"] = json!("planner.daily-today");
+    query["context"] = json!({"from":"2026-08-23","to":"2026-08-23"});
+    assert_eq!(
+        json_body(post_json(&app, "/api/v1/todo/table/groups", query.clone()).await).await,
+        json!({"groups":[]})
+    );
+    query["context"]["unknown"] = json!("private");
+    let response = post_json(&app, "/api/v1/todo/table/groups", query).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(response).await["code"], "validation_error");
+}
+
+#[tokio::test]
+async fn table_group_reads_never_create_missing_domain_stores_and_keep_errors_safe() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("private-missing-home");
+    let app = authenticated(
+        router(RavenApiConfig {
+            todo_db: home.join("todo.sqlite"),
+            ledger_db: home.join("ledger.sqlite"),
+            health_db: home.join("health.sqlite"),
+            health_media_dir: home.join("media"),
+            local_offset: time::UtcOffset::from_hms(9, 0, 0).unwrap(),
+            auth: AuthMode::UiSession {
+                token: "test".into(),
+            },
+        })
+        .unwrap(),
+    );
+    for (domain, scope, group, field) in [
+        ("todo", "workspace.task", "status", "updated"),
+        ("ledger", "ledger.transactions", "month", "date"),
+        ("health", "health.diet", "month", "date"),
+    ] {
+        let path = format!("/api/v1/{domain}/table/groups");
+        let mut query = table_query(scope, json!({}));
+        query["group_by"] = json!(group);
+        query["sorts"] = json!([{"field":field,"direction":"asc"}]);
+        let response = post_json(&app, &path, query.clone()).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{domain}"
+        );
+        let error = json_body(response).await;
+        assert_eq!(error["code"], "internal_error");
+        assert!(!error.to_string().contains("private-missing-home"));
+        assert!(!error.to_string().contains("sqlite"));
+        assert!(!home.exists());
+        query["group_settings"]["unexpected"] = json!(true);
+        let response = post_json(&app, &path, query).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{domain}");
+        assert!(!home.exists());
+    }
+}

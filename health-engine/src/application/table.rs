@@ -748,6 +748,10 @@ pub struct TablePage<T> {
 
 #[allow(private_bounds)]
 impl<R: HealthReadRepository, M: MediaStore> HealthService<R, M> {
+    pub fn table_groups(&self, query: &HealthTableQuery) -> HealthResult<Vec<TableGroupSummary>> {
+        self.repository.table_groups(query)
+    }
+
     pub fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>> {
         self.repository.query_table(query)
     }
@@ -767,4 +771,11 @@ pub(crate) fn rfc3339(value: OffsetDateTime) -> String {
     value
         .format(&time::format_description::well_known::Rfc3339)
         .expect("validated domain timestamp")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TableGroupSummary {
+    pub key: String,
+    pub label: String,
+    pub count: u64,
 }

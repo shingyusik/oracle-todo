@@ -132,6 +132,13 @@ impl TodoStore for SqliteTodoRepository {
         }
         Ok(events)
     }
+    fn table_groups(
+        &mut self,
+        query: &crate::application::table::TodoTableQuery,
+    ) -> TodoResult<Vec<crate::application::table::TableGroupSummary>> {
+        self.read_table_groups(query)
+    }
+
     fn query_table(
         &mut self,
         query: &crate::application::table::TodoTableQuery,

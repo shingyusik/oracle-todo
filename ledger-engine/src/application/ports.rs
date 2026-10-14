@@ -5,7 +5,7 @@ use serde_json::Value;
 use time::{Date, OffsetDateTime};
 
 use crate::application::error::{LedgerError, LedgerResult};
-use crate::application::table::{LedgerTableQuery, LedgerTableRow, TablePage};
+use crate::application::table::{LedgerTableQuery, LedgerTableRow, TableGroupSummary, TablePage};
 use crate::domain::{
     Account, AccountCategory, Currency, EntryType, LedgerEntry, TransactionCategory,
 };
@@ -365,6 +365,12 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         ))
     }
 
+    fn table_groups(&self, _query: &LedgerTableQuery) -> LedgerResult<Vec<TableGroupSummary>> {
+        Err(LedgerError::Storage(
+            "ledger table groups are not implemented by this repository".into(),
+        ))
+    }
+
     fn query_table(&self, _query: &LedgerTableQuery) -> LedgerResult<TablePage<LedgerTableRow>> {
         Err(LedgerError::Storage(
             "ledger table query is not implemented by this repository".to_string(),
@@ -421,6 +427,11 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         transfer_group_id: &str,
         include_archived: bool,
     ) -> LedgerResult<Vec<LedgerEntry>>;
+    fn get_account_balance_record(&self, _id: &str) -> LedgerResult<Option<AccountBalanceRecord>> {
+        Err(LedgerError::Storage(
+            "account balance lookup is not implemented by this repository".into(),
+        ))
+    }
     fn list_account_balance_records(&self, page: Page) -> LedgerResult<Vec<AccountBalanceRecord>>;
     fn summarize_entries(&self, start: Date, end: Date)
     -> LedgerResult<Vec<ReportAggregateRecord>>;

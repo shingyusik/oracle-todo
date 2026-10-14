@@ -750,6 +750,10 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         self.repository.analyze_table(query)
     }
 
+    pub fn table_groups(&self, query: &LedgerTableQuery) -> LedgerResult<Vec<TableGroupSummary>> {
+        self.repository.table_groups(query)
+    }
+
     pub fn query_table(&self, query: &LedgerTableQuery) -> LedgerResult<TablePage<LedgerTableRow>> {
         self.repository.query_table(query)
     }
@@ -783,4 +787,11 @@ fn validation(field: &'static str, message: &str) -> LedgerError {
         field,
         message: message.to_string(),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TableGroupSummary {
+    pub key: String,
+    pub label: String,
+    pub count: u64,
 }

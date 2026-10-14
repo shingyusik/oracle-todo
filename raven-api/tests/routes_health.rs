@@ -1550,3 +1550,45 @@ async fn committed_photo_replacement_reports_saved_record_when_cleanup_fails() {
     assert_eq!(saved["food_name"], "Saved replacement");
     assert_ne!(saved["media_id"], entry["media_id"]);
 }
+
+#[tokio::test]
+async fn table_groups_return_compact_candidates_for_each_health_scope() {
+    let (_temp, app) = app();
+    create_diet(&app).await;
+    post_health_event(
+        &app,
+        "2026-07-31T02:00:00Z",
+        json!({"kind":"bowel","bristol_scale":4,"blood_visible":true}),
+    )
+    .await;
+    post_health_event(
+        &app,
+        "2026-07-31T03:00:00Z",
+        json!({"kind":"medication","medication_name":"A","dose":2,"unit":"tablet"}),
+    )
+    .await;
+    post_daily(&app, json!({"metrics":[weight_metric(68.2,None)]})).await;
+    for scope in [
+        "health.diet",
+        "health.bowel",
+        "health.medication",
+        "health.metrics",
+    ] {
+        let mut query = health_table_query(scope);
+        query["group_by"] = json!("month");
+        query["offset"] = json!(50);
+        query["limit"] = json!(1);
+        query["group_settings"]["hidden_group_keys"] = json!(["2026-07"]);
+        let response = post_json(&app, "/api/v1/health/table/groups", query.clone()).await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        assert_eq!(
+            body(response).await,
+            json!({"groups":[{"key":"2026-07","label":"July 2026","count":1}]})
+        );
+        query["group_by"] = json!("none");
+        assert_eq!(
+            body(post_json(&app, "/api/v1/health/table/groups", query).await).await,
+            json!({"groups":[]})
+        );
+    }
+}

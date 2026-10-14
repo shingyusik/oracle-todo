@@ -705,6 +705,13 @@ fn account_balances_preserve_precision_for_an_inactive_currency() {
     assert_eq!(dollar_card.currency_code, "USD");
     assert_eq!(dollar_card.decimal_places, 2);
     assert_eq!(dollar_card.current_balance_minor, -1_234);
+    assert_eq!(
+        seeded
+            .service
+            .account_balance(dollar_card.account.id())
+            .unwrap(),
+        *dollar_card
+    );
 }
 
 #[test]
@@ -2145,4 +2152,134 @@ fn insert_raw_audit(
             ],
         )
         .unwrap();
+}
+
+#[test]
+fn account_balance_reads_one_id_after_fifty_duplicates_and_keeps_balance_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let mut ids = Vec::new();
+    for _ in 0..55 {
+        ids.push(
+            seeded
+                .service
+                .create_account(CreateAccount {
+                    name: "Duplicate".into(),
+                    category: "Cash".into(),
+                    currency: "KRW".into(),
+                    opening_balance: Money::from_minor_units(100),
+                    actor: "test".into(),
+                })
+                .unwrap()
+                .id()
+                .to_string(),
+        );
+    }
+    ids.sort();
+    let target = ids.last().unwrap();
+    let first_page = seeded
+        .service
+        .accounts_page(Page {
+            offset: 0,
+            limit: 50,
+        })
+        .unwrap();
+    assert!(
+        first_page
+            .items
+            .iter()
+            .all(|account| account.id() != target)
+    );
+    seeded
+        .service
+        .update_account(
+            target,
+            UpdateAccount {
+                opening_balance: Some(Money::from_minor_units(2500)),
+                actor: "test".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "movement",
+        target,
+        Some("Salary"),
+        EntryType::Income,
+        250,
+        "KRW",
+    );
+    let archived = create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "archived",
+        target,
+        Some("Salary"),
+        EntryType::Income,
+        100,
+        "KRW",
+    );
+    seeded.service.archive_entry(archived.id()).unwrap();
+    create_entry(
+        &mut seeded.service,
+        "2026-07-01",
+        "unrelated overflow",
+        "Wallet",
+        Some("Salary"),
+        EntryType::Income,
+        1,
+        "KRW",
+    );
+    Connection::open(&database)
+        .unwrap()
+        .execute(
+            "UPDATE accounts SET opening_balance_minor=9223372036854775807 WHERE name='Wallet'",
+            [],
+        )
+        .unwrap();
+    assert!(
+        seeded
+            .service
+            .account_balances_page(Page {
+                offset: 0,
+                limit: 500
+            })
+            .is_err()
+    );
+    let balance = seeded.service.account_balance(target).unwrap();
+    assert_eq!(balance.account.id(), target);
+    assert_eq!(balance.current_balance_minor, 2750);
+    assert_eq!(balance.currency_code, "KRW");
+    assert_eq!(balance.decimal_places, 0);
+    assert!(matches!(
+        seeded.service.account_balance("not-an-id"),
+        Err(LedgerError::Validation {
+            field: "account_id",
+            ..
+        })
+    ));
+    assert!(matches!(
+        seeded
+            .service
+            .account_balance("00000000-0000-4000-8000-000000000000"),
+        Err(LedgerError::NotFound(_))
+    ));
+    seeded
+        .service
+        .update_account(
+            target,
+            UpdateAccount {
+                active: Some(false),
+                actor: "test".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        seeded.service.account_balance(target),
+        Err(LedgerError::NotFound(_))
+    ));
 }

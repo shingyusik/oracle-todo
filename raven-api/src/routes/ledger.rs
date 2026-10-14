@@ -63,6 +63,7 @@ pub fn router() -> Router<RavenApiState> {
         )
         .route("/accounts", get(list_accounts).post(create_account))
         .route("/accounts/:id", patch(update_account))
+        .route("/accounts/:id/balance", get(account_balance))
         .route(
             "/transaction-categories",
             get(list_categories).post(create_category),
@@ -70,6 +71,7 @@ pub fn router() -> Router<RavenApiState> {
         .route("/transaction-categories/:id", patch(update_category))
         .route("/account-balances", get(account_balances))
         .route("/table/query", post(query_table))
+        .route("/table/groups", post(table_groups))
         .route("/table/analysis", post(analyze_table))
         .route("/table/lookups", get(table_lookups))
         .route("/audit/:record_type/:record_id", get(audit))
@@ -334,6 +336,15 @@ impl CompareQuery {
 struct TrendQuery {
     from: String,
     to: String,
+}
+
+async fn table_groups(
+    State(state): State<RavenApiState>,
+    body: Result<Json<TableQueryBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = validated_table_query(json_value(body)?)?;
+    let groups = ledger(&state, false, move |service| service.table_groups(&query)).await?;
+    Ok(Json(json!({"groups": groups})))
 }
 
 async fn query_table(
@@ -1026,6 +1037,14 @@ master_page_handler!(list_currencies, search_currencies_page);
 master_page_handler!(list_account_categories, search_account_categories_page);
 master_page_handler!(list_accounts, search_accounts_page);
 master_page_handler!(list_categories, search_transaction_categories_page);
+async fn account_balance(
+    State(state): State<RavenApiState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let balance = ledger(&state, false, move |service| service.account_balance(&id)).await?;
+    Ok(Json(json!(balance)))
+}
+
 page_handler!(account_balances, account_balances_page);
 
 async fn audit(

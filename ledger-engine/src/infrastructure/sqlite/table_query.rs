@@ -10,8 +10,8 @@ use crate::application::table::{
     CategoryTableFilterField, CategoryTableGroup, CategoryTableRecord, CategoryTableSortField,
     FilterMode, GroupSort, LedgerFilterOperator, LedgerTableFilter, LedgerTableFilterValue,
     LedgerTableGroup, LedgerTableQuery, LedgerTableRecord, LedgerTableRow, LedgerTableScope,
-    LedgerTableSort, RelativeDateUnit, SortDirection, TablePage, TransactionRowKind,
-    TransactionTableFilterField, TransactionTableGroup, TransactionTableRecord,
+    LedgerTableSort, RelativeDateUnit, SortDirection, TableGroupSummary, TablePage,
+    TransactionRowKind, TransactionTableFilterField, TransactionTableGroup, TransactionTableRecord,
     TransactionTableSortField,
 };
 use crate::domain::{EntryType, TransactionCategoryKind};
@@ -86,7 +86,7 @@ fn page_sql(query: &LedgerTableQuery) -> (String, Vec<Value>) {
     let mut values = Vec::new();
     let (base, group_key, group_label) = match query.scope() {
         LedgerTableScope::Transactions => transaction_base(query.group_settings().group_by()),
-        LedgerTableScope::Accounts => account_base(query.group_settings().group_by()),
+        LedgerTableScope::Accounts => account_base(query.group_settings().group_by(), true),
         LedgerTableScope::Categories => category_base(query.group_settings().group_by()),
     };
     let filters = filter_sql(query, &mut values);
@@ -106,6 +106,59 @@ fn page_sql(query: &LedgerTableQuery) -> (String, Vec<Value>) {
         LIMIT ? OFFSET ?"
     );
     (sql, values)
+}
+
+pub(super) fn table_groups(
+    connection: &Connection,
+    query: &LedgerTableQuery,
+) -> LedgerResult<Vec<TableGroupSummary>> {
+    let mut values = Vec::new();
+    let (base, key, label) = match query.scope() {
+        LedgerTableScope::Transactions => transaction_base(query.group_settings().group_by()),
+        LedgerTableScope::Accounts => account_base(
+            query.group_settings().group_by(),
+            query.filters().iter().any(|filter| {
+                matches!(
+                    filter,
+                    LedgerTableFilter::Accounts {
+                        field: AccountTableFilterField::CurrentBalance,
+                        ..
+                    }
+                )
+            }) || query.sorts().iter().any(|sort| {
+                matches!(
+                    sort,
+                    LedgerTableSort::Accounts {
+                        field: AccountTableSortField::CurrentBalance,
+                        ..
+                    }
+                )
+            }),
+        ),
+        LedgerTableScope::Categories => category_base(query.group_settings().group_by()),
+    };
+    if key == "''" {
+        return Ok(vec![]);
+    }
+    let filters = filter_sql(query, &mut values);
+    let occurrences = occurrence_sql(query, &key, &label);
+    let order = record_order_sql(query);
+    let sql = format!("WITH base AS ({base}), filtered AS (SELECT * FROM base WHERE {filters}), occurrences AS ({occurrences}),
+        ranked AS (SELECT group_key, group_label, ROW_NUMBER() OVER (ORDER BY {order}, logical_id ASC, group_key ASC, id ASC) occurrence_rank FROM occurrences)
+        SELECT group_key, MIN(group_label), COUNT(*) FROM ranked GROUP BY group_key ORDER BY MIN(occurrence_rank)");
+    connection
+        .prepare(&sql)
+        .map_err(storage_error)?
+        .query_map(params_from_iter(values), |row| {
+            Ok(TableGroupSummary {
+                key: row.get(0)?,
+                label: row.get(1)?,
+                count: row.get(2)?,
+            })
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)
 }
 
 pub(super) fn analyze_table(
@@ -221,7 +274,7 @@ fn transaction_base(group: LedgerTableGroup) -> (String, String, String) {
     (base.into(), key.into(), label.into())
 }
 
-fn account_base(group: LedgerTableGroup) -> (String, String, String) {
+fn account_base(group: LedgerTableGroup, include_balances: bool) -> (String, String, String) {
     let base = "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.account_category_id AS account_type_id,
         ac.name AS account_type_name, a.currency_id, c.code AS currency_code,
         a.opening_balance_minor + COALESCE(SUM(CASE e.entry_type
@@ -246,7 +299,15 @@ fn account_base(group: LedgerTableGroup) -> (String, String, String) {
         LedgerTableGroup::Accounts(AccountTableGroup::Currency) => ("currency_id", "currency_code"),
         _ => unreachable!("validated account group"),
     };
-    (base.into(), key.into(), label.into())
+    let base = if include_balances {
+        base.to_string()
+    } else {
+        "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.account_category_id AS account_type_id,
+         ac.name AS account_type_name, a.currency_id, c.code AS currency_code
+         FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id
+         JOIN currencies c ON c.id=a.currency_id WHERE a.active=1 AND a.deleted_at IS NULL".into()
+    };
+    (base, key.into(), label.into())
 }
 
 fn category_base(group: LedgerTableGroup) -> (String, String, String) {

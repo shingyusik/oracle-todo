@@ -94,14 +94,7 @@ fn page_sql(query: &HealthTableQuery) -> (String, Vec<Value>) {
     let hidden = hidden_sql(query, &mut values);
     let group_order = group_order(query, &mut values);
     let row_order = row_order(query);
-    let occurrences = if matches!(
-        query.group_settings().group_by(),
-        HealthTableGroup::Diet(DietTableGroup::Tag)
-    ) {
-        "SELECT filtered.*,CASE WHEN t.name IS NULL THEN 'untagged' WHEN t.name='untagged' OR substr(t.name,1,1)='\\' THEN '\\'||t.name ELSE t.name END group_key,COALESCE(t.name,'Untagged') group_label FROM filtered LEFT JOIN diet_entry_tags l ON l.diet_entry_id=filtered.id LEFT JOIN diet_tags t ON t.id=l.tag_id".to_string()
-    } else {
-        format!("SELECT filtered.*,{key} group_key,{label} group_label FROM filtered")
-    };
+    let occurrences = occurrence_sql(query, &key, &label);
     values.push(Value::Integer(i64::from(query.limit()) + 1));
     values.push(Value::Integer(i64::from(query.offset())));
     (
@@ -110,6 +103,52 @@ fn page_sql(query: &HealthTableQuery) -> (String, Vec<Value>) {
         ),
         values,
     )
+}
+
+fn occurrence_sql(query: &HealthTableQuery, key: &str, label: &str) -> String {
+    if matches!(
+        query.group_settings().group_by(),
+        HealthTableGroup::Diet(DietTableGroup::Tag)
+    ) {
+        "SELECT filtered.*,CASE WHEN t.name IS NULL THEN 'untagged' WHEN t.name='untagged' OR substr(t.name,1,1)='\\' THEN '\\'||t.name ELSE t.name END group_key,COALESCE(t.name,'Untagged') group_label FROM filtered LEFT JOIN diet_entry_tags l ON l.diet_entry_id=filtered.id LEFT JOIN diet_tags t ON t.id=l.tag_id".to_string()
+    } else {
+        format!("SELECT filtered.*,{key} group_key,{label} group_label FROM filtered")
+    }
+}
+
+pub(super) fn table_groups(
+    connection: &Connection,
+    query: &HealthTableQuery,
+) -> HealthResult<Vec<TableGroupSummary>> {
+    let mut values = Vec::new();
+    let (base, key, label) = base_sql(query.group_settings().group_by());
+    if key == "''"
+        && !matches!(
+            query.group_settings().group_by(),
+            HealthTableGroup::Diet(DietTableGroup::Tag)
+        )
+    {
+        return Ok(vec![]);
+    }
+    let filters = filters_sql(query, &mut values);
+    let occurrences = occurrence_sql(query, &key, &label);
+    let order = row_order(query);
+    let sql = format!("WITH base AS ({base}), filtered AS (SELECT * FROM base WHERE {filters}), occurrences AS ({occurrences}),
+        ranked AS (SELECT group_key, group_label, ROW_NUMBER() OVER (ORDER BY {order}, logical_id ASC, group_key ASC, id ASC) occurrence_rank FROM occurrences)
+        SELECT group_key, MIN(group_label), COUNT(*) FROM ranked GROUP BY group_key ORDER BY MIN(occurrence_rank)");
+    connection
+        .prepare(&sql)
+        .map_err(storage_error)?
+        .query_map(params_from_iter(values), |row| {
+            Ok(TableGroupSummary {
+                key: row.get(0)?,
+                label: row.get(1)?,
+                count: row.get(2)?,
+            })
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)
 }
 
 fn base_sql(group: HealthTableGroup) -> (String, String, String) {

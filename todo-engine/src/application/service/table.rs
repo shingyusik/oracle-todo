@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use time::Date;
 
@@ -13,6 +13,38 @@ impl TodoService {
         match &mut self.store {
             ServiceStore::Persistent(store) => store.query_table(query),
             ServiceStore::InMemory(items) => query_items(items.values().cloned(), query),
+        }
+    }
+
+    pub fn table_groups(&mut self, query: &TodoTableQuery) -> TodoResult<Vec<TableGroupSummary>> {
+        match &mut self.store {
+            ServiceStore::Persistent(store) => store.table_groups(query),
+            ServiceStore::InMemory(items) => {
+                let labels = items
+                    .values()
+                    .map(|item| (item.id.clone(), item.title.clone()))
+                    .collect::<HashMap<_, _>>();
+                let mut summaries = BTreeMap::<String, TableGroupSummary>::new();
+                for item in items
+                    .values()
+                    .filter(|item| in_context(item, query))
+                    .filter(|item| matches_filters(item, &labels, query))
+                {
+                    for (key, label) in
+                        group_values(item, &labels, query.group_settings().group_by())
+                    {
+                        summaries
+                            .entry(key.clone())
+                            .or_insert(TableGroupSummary {
+                                key,
+                                label,
+                                count: 0,
+                            })
+                            .count += 1;
+                    }
+                }
+                Ok(summaries.into_values().collect())
+            }
         }
     }
 
@@ -702,15 +734,14 @@ fn normalized_date(value: Option<&str>) -> Option<String> {
         .map(|date| date.to_string())
 }
 
-fn group_occurrences(
-    item: TodoItem,
+fn group_values(
+    item: &TodoItem,
     labels: &HashMap<String, String>,
-    query: &TodoTableQuery,
-) -> Vec<(Option<String>, Option<String>, TodoItem)> {
-    let group = query.group_settings().group_by();
-    let raw = match group {
+    group: TodoTableGroup,
+) -> Vec<(String, String)> {
+    match group {
         TodoTableGroup::Workspace(WorkspaceTableGroup::None)
-        | TodoTableGroup::Planner(PlannerTableGroup::None) => return vec![(None, None, item)],
+        | TodoTableGroup::Planner(PlannerTableGroup::None) => vec![],
         TodoTableGroup::Workspace(WorkspaceTableGroup::Tag)
         | TodoTableGroup::Planner(PlannerTableGroup::Tag) => {
             if item.tags.is_empty() {
@@ -754,8 +785,24 @@ fn group_occurrences(
         TodoTableGroup::Planner(PlannerTableGroup::Day) => {
             vec![date_group(item.scheduled.as_deref(), DateGroup::Day)]
         }
-    };
-    raw.into_iter()
+    }
+}
+
+fn group_occurrences(
+    item: TodoItem,
+    labels: &HashMap<String, String>,
+    query: &TodoTableQuery,
+) -> Vec<(Option<String>, Option<String>, TodoItem)> {
+    let group = query.group_settings().group_by();
+    if matches!(
+        group,
+        TodoTableGroup::Workspace(WorkspaceTableGroup::None)
+            | TodoTableGroup::Planner(PlannerTableGroup::None)
+    ) {
+        return vec![(None, None, item)];
+    }
+    group_values(&item, labels, group)
+        .into_iter()
         .filter(|(key, _)| !query.group_settings().hidden_group_keys().contains(key))
         .map(|(key, label)| (Some(key), Some(label), item.clone()))
         .collect()
