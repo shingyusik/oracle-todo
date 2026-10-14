@@ -8,11 +8,17 @@ use crate::config::{AuthMode, RavenApiConfig};
 #[derive(Clone)]
 pub struct RavenApiState {
     config: Arc<RavenApiConfig>,
+    pub(crate) changes: Arc<crate::changes::ChangeFeed>,
 }
 
 impl RavenApiState {
     pub(crate) fn new(config: RavenApiConfig) -> Self {
         Self {
+            changes: Arc::new(crate::changes::ChangeFeed::new([
+                config.todo_db.clone(),
+                config.ledger_db.clone(),
+                config.health_db.clone(),
+            ])),
             config: Arc::new(config),
         }
     }

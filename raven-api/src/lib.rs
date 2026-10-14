@@ -1,5 +1,6 @@
 mod auth;
 mod auth_permissions;
+mod changes;
 mod config;
 mod dto;
 mod error;
@@ -35,6 +36,7 @@ pub fn router(mut config: RavenApiConfig) -> anyhow::Result<Router> {
     auth::protect_mode(&mut config.auth);
     let state = RavenApiState::new(config);
     let api = Router::new()
+        .route("/v1/changes", get(changes::events))
         .route(
             "/v1/preferences",
             get(routes::preferences::invalid_route).put(routes::preferences::invalid_route),

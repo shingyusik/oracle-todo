@@ -201,6 +201,50 @@ async fn todo_mutation_uses_the_existing_service_and_audit() {
 }
 
 #[tokio::test]
+async fn mcp_mutation_notifies_an_independent_ui_router() {
+    use http_body_util::BodyExt;
+    let temp = tempfile::tempdir().unwrap();
+    let mut cfg = config(&temp);
+    let connection =
+        todo_engine::infrastructure::sqlite::connect(cfg.todo_db.to_str().unwrap()).unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&connection).unwrap();
+    drop(connection);
+    cfg.auth = crate::AuthMode::UiSession {
+        token: "test".into(),
+    };
+    let ui = crate::router(cfg.clone()).unwrap();
+    let mut body = ui
+        .oneshot(
+            Request::get("/api/v1/changes")
+                .header("cookie", "raven_session=test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .into_body();
+    tokio::time::timeout(std::time::Duration::from_secs(4), body.frame())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let adapter = McpAdapter::new(cfg).unwrap();
+    let created = adapter
+        .call("todo_task_create", json!({"title":"External MCP task"}))
+        .await;
+    assert_eq!(created.is_error, Some(false), "{created:?}");
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(4), body.frame())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let bytes = frame.into_data().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert!(text.contains("event: changes"), "{text}");
+    assert!(text.contains(r#"{"domains":["todo"]}"#), "{text}");
+}
+
+#[tokio::test]
 async fn missing_store_reads_do_not_create_stores_or_expose_paths() {
     let temp = tempfile::tempdir().unwrap();
     let cfg = config(&temp);
