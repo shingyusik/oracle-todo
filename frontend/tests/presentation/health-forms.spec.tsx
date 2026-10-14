@@ -1882,3 +1882,98 @@ describe("Health Journal forms", () => {
     expect(save).toHaveBeenCalledOnce();
   });
 });
+
+it("shows Metrics immediately, ignores a stale date response, and saves the selected date version", async () => {
+  const first = deferred<HealthEvent[]>();
+  const second = deferred<HealthEvent[]>();
+  const stale = metricEvent("old-weight", "2026-08-18T03:00:00Z", "weight", 80, "2026-08-18T04:00:00Z");
+  const selected = metricEvent("new-weight", "2026-08-19T03:00:00Z", "weight", 68, "2026-08-19T04:00:00Z");
+  const health = controller({ loadMetricsForDate: vi.fn((date) => {
+    if (date === "2026-08-18") return first.promise;
+    if (date === "2026-08-19") return second.promise;
+    return Promise.resolve([]);
+  }) });
+  render(<MetricsDialogHarness health={health} />);
+  expect(screen.getByRole("dialog", { name: "Add health metrics" })).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-18" } });
+  expect(screen.getByRole("status")).toHaveTextContent("Loading metrics for this date");
+  expect(screen.getByLabelText("Date")).toBeEnabled();
+  expect(screen.getByLabelText("Weight")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Close Add health metrics" })).toBeEnabled();
+  fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+  expect(health.saveMetrics).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-08-19" } });
+  await act(async () => second.resolve([selected]));
+  expect(screen.getByLabelText("Weight")).toHaveValue(68);
+  await act(async () => first.resolve([stale]));
+  expect(screen.getByLabelText("Date")).toHaveValue("2026-08-19");
+  expect(screen.getByLabelText("Weight")).toHaveValue(68);
+  fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "69" } });
+  fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+  await waitFor(() => expect(health.saveMetrics).toHaveBeenCalledWith({
+    metrics: [{ occurredAt: "2026-08-19T03:00:00.000Z",
+      details: { kind: "weight", value: 69, unit: "kg" }, expectedUpdatedAt: selected.updatedAt }],
+    archives: [],
+  }));
+  expect(health.ensureReferenceData).not.toHaveBeenCalled();
+});
+
+it("retries a failed Metrics date read without submitting or hiding Close", async () => {
+  const user = userEvent.setup();
+  const health = controller({ loadMetricsForDate: vi.fn()
+    .mockRejectedValueOnce(new Error("database-private-detail"))
+    .mockResolvedValueOnce([]) });
+  render(<MetricsDialogHarness health={health} />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not load metrics for this date.");
+  expect(screen.queryByText("database-private-detail")).toBeNull();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Close Add health metrics" })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "Retry date" }));
+  await waitFor(() => expect(screen.getByLabelText("Weight")).toBeEnabled());
+  expect(health.loadMetricsForDate).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(health.loadMetricsForDate!).mock.calls[1]).toEqual(
+    vi.mocked(health.loadMetricsForDate!).mock.calls[0],
+  );
+  expect(health.saveMetrics).not.toHaveBeenCalled();
+});
+
+it("closes Metrics while its date read is pending and ignores late completion", async () => {
+  const user = userEvent.setup();
+  const pending = deferred<HealthEvent[]>();
+  const onClose = vi.fn();
+  const health = controller({ loadMetricsForDate: vi.fn(() => pending.promise) });
+  render(<MetricsDialogHarness health={health} onClose={onClose} />);
+  await user.click(screen.getByRole("button", { name: "Close Add health metrics" }));
+  await act(async () => pending.resolve([]));
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Add health metrics" })).toHaveFocus();
+  expect(health.saveMetrics).not.toHaveBeenCalled();
+});
+
+it("shows Diet immediately, retries compact tags, and closes during reference loading", async () => {
+  const user = userEvent.setup();
+  const pending = deferred<boolean>();
+  const health = controller({ ensureQuickAddReferences: vi.fn()
+    .mockResolvedValueOnce(false).mockReturnValueOnce(pending.promise) });
+  const onClose = vi.fn();
+  render(<DietDialogHarness health={health} onClose={onClose} />);
+  expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeVisible();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not load references.");
+  await user.click(screen.getByRole("button", { name: "Retry" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Loading references");
+  await user.click(screen.getByRole("button", { name: "Close Add diet entry" }));
+  await act(async () => pending.resolve(true));
+  expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(health.ensureQuickAddReferences).toHaveBeenCalledTimes(2);
+  expect(health.ensureReferenceData).not.toHaveBeenCalled();
+});
+
+it("disables the Quick Add Metrics save button while the selected date is loading", () => {
+  const health = controller({ loadMetricsForDate: vi.fn(() => new Promise<HealthEvent[]>(() => {})) });
+  render(<MetricsForm controller={health} />);
+  expect(screen.getByRole("button", { name: "Save daily metrics" })).toBeDisabled();
+  fireEvent.submit(screen.getByRole("form", { name: "Daily metrics" }));
+  expect(health.saveMetrics).not.toHaveBeenCalled();
+});

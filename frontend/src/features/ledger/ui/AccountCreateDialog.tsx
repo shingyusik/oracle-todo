@@ -1,5 +1,7 @@
 "use client";
 
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
+
 import React from "react";
 import { createPortal } from "react-dom";
 
@@ -142,6 +144,7 @@ function AccountCreateDialogContent({
         <header className="dashboard-widget-header">
           <h2>Add account</h2>
         </header>
+        <ReferenceDataBoundary load={controller.ensureAccountFormReferences} onCancel={close} cancelLabel="Close Add account">
         <form aria-label="New account" onSubmit={submit}>
           <label className="field-label">
             Account name
@@ -210,6 +213,7 @@ function AccountCreateDialogContent({
             </button>
           </div>
         </form>
+        </ReferenceDataBoundary>
       </div>
     </div>
   );

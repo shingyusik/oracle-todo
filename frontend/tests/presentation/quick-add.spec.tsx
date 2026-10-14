@@ -44,6 +44,17 @@ function stubHealthLoaded(
     events: vi.spyOn(healthApi, "listEvents").mockImplementation(async (query) =>
       query?.dailyOnly ? metricsEntries : []),
     lookups: vi.spyOn(healthApi, "tableLookups").mockResolvedValue({}),
+    query: vi.spyOn(healthApi, "queryTable").mockImplementation(async (_scope, settings) => {
+      const rule = settings.filterRules.find((candidate) => candidate.type === "date");
+      const date = rule?.type === "date" ? rule.value : null;
+      const events = metricsEntries.filter((event) => event.occurredAt.slice(0, 10) === date);
+      return { items: events.length ? [{
+        key: `metrics:${date}`, scope: "health.metrics" as const, groupKey: null, groupLabel: null,
+        record: { kind: "metrics" as const, id: String(date), date: String(date), events,
+          weight: null, sleep: null, crp: null, calprotectin: null, condition: null,
+          note: "", createdAt: events[0].createdAt, updatedAt: events[0].updatedAt },
+      }] : [], nextOffset: null };
+    }),
   };
 }
 
@@ -142,10 +153,8 @@ describe("QuickAddDialog", () => {
     expect(health.events).not.toHaveBeenCalled();
   });
 
-  it("preloads existing Metrics and preserves its snapshot through mutation refresh", async () => {
+  it("loads only the selected Metrics date and preserves its optimistic snapshot through save", async () => {
     const user = userEvent.setup();
-    const tableQuery = vi.spyOn(healthApi, "queryTable");
-    const tableLookups = vi.spyOn(healthApi, "tableLookups");
     const weight: HealthEvent = {
       id: "weight-1",
       occurredAt: "2026-08-19T03:00:00Z",
@@ -171,12 +180,6 @@ describe("QuickAddDialog", () => {
       updatedAt: "2026-08-20T03:00:00Z",
     } as HealthEvent;
     const health = stubHealthLoaded([], [weight]);
-    let metricReads = 0;
-    health.events.mockImplementation(async (query) => {
-      if (!query?.dailyOnly) return [];
-      metricReads += 1;
-      return metricReads === 1 ? [weight] : [refreshedWeight];
-    });
     const save = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([refreshedWeight]);
     const onClose = vi.fn();
     render(<QuickAddDialog controller={workbenchController()} onClose={onClose} />);
@@ -193,9 +196,12 @@ describe("QuickAddDialog", () => {
       details: { kind: "weight", value: 70, unit: "kg" },
       expectedUpdatedAt: weight.updatedAt,
     }], archives: [] }));
-    await waitFor(() => expect(metricReads).toBe(2));
-    expect(tableQuery).not.toHaveBeenCalled();
-    expect(tableLookups).not.toHaveBeenCalled();
+    expect(health.query).toHaveBeenLastCalledWith("health.metrics", expect.objectContaining({
+      filterRules: [expect.objectContaining({ field: "date", operator: "is", value: "2026-08-19" })],
+      groupSettings: expect.objectContaining({ groupBy: "none" }),
+    }));
+    expect(health.events).not.toHaveBeenCalled();
+    expect(health.lookups).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 

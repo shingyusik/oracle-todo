@@ -25,6 +25,7 @@ import {
   type HealthReportSelection,
 } from "@/features/health/model/health-reports";
 import {
+  defaultHealthTableSettings,
   healthTableScopeIds,
   healthTableViewSettingsAdapter,
   type HealthTableScopeId,
@@ -104,6 +105,7 @@ export type HealthTablePagingController = {
   loadMore(scope: HealthTableScopeId): Promise<void>;
   ensureReferenceData(scope: HealthTableScopeId): Promise<boolean>;
   ensureQuickAddReferences?(scope: HealthTableScopeId): Promise<boolean>;
+  loadMetricsForDate?(date: string): Promise<HealthEvent[]>;
   hasReferenceData(scope: HealthTableScopeId): boolean;
 };
 
@@ -304,7 +306,7 @@ export function useHealthController(): HealthController {
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
       setState((current) => ({
-        ...setScopeLoadState(current, scope, "loaded"),
+        ...rememberTableRecords(setScopeLoadState(current, scope, "loaded"), result.items),
         tableLookups: { ...initialState.tableLookups!, ...current.tableLookups, [scope]: lookups },
       }));
       return true;
@@ -361,7 +363,7 @@ export function useHealthController(): HealthController {
       };
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
-      setState((state) => setScopeLoadState(state, scope, "loaded"));
+      setState((state) => rememberTableRecords(setScopeLoadState(state, scope, "loaded"), result.items));
     } catch {
       if (tablePagesRef.current[scope].generation !== generation) return;
       const next = {
@@ -703,11 +705,19 @@ export function useHealthController(): HealthController {
     dietFormReferencesRequest.current = request;
     return request;
   }, []);
+  const loadMetricsForDate = useCallback(async (date: string): Promise<HealthEvent[]> => {
+    const settings = defaultHealthTableSettings("health.metrics");
+    const page = await healthApi.queryTable("health.metrics", {
+      ...settings,
+      filterRules: [{ id: "metric-date", type: "date", field: "date", operator: "is", value: date }],
+      groupSettings: { ...settings.groupSettings, groupBy: "none" },
+    });
+    return page.items.flatMap((item) => item.scope === "health.metrics" ? item.record.events : []);
+  }, []);
   const ensureQuickAddReferences = useCallback((scope: HealthTableScopeId) => {
     if (scope === "health.diet") return loadDietFormReferences();
-    if (scope === "health.metrics") return loadReferenceData(scope);
     return Promise.resolve(true);
-  }, [loadDietFormReferences, loadReferenceData]);
+  }, [loadDietFormReferences]);
 
   const refreshScope = useCallback(async (scope: HealthTableScopeId) => {
     const requests: Promise<boolean>[] = [];
@@ -855,7 +865,8 @@ export function useHealthController(): HealthController {
     refreshMutation = refreshAfterMutation,
   ) {
     try {
-      await operation();
+      const record = await operation();
+      setState((current) => rememberMutationRecord(current, record));
     } catch (error) {
       if (error instanceof RavenApiError && error.committed === true) {
         try { await refreshMutation(); } finally {
@@ -946,6 +957,7 @@ export function useHealthController(): HealthController {
     loadMore,
     ensureReferenceData,
     ensureQuickAddReferences,
+    loadMetricsForDate,
     hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(
@@ -1034,10 +1046,15 @@ export function useHealthController(): HealthController {
       () => healthApi.upsertDailyMetrics(input),
       refreshAfterMetricsMutation,
     ),
-    saveMetrics: (input) => mutate(
-      () => healthApi.saveDailyMetrics(input),
-      refreshAfterMetricsMutation,
-    ),
+    saveMetrics: (input) => mutate(async () => {
+      const records = await healthApi.saveDailyMetrics(input);
+      if (input.archives.length > 0) setState((current) => ({
+        ...current,
+        metricsEntries: current.metricsEntries.filter((event) =>
+          !input.archives.some(({ id }) => id === event.id)),
+      }));
+      return records;
+    }, refreshAfterMetricsMutation),
   };
 }
 
@@ -1094,4 +1111,32 @@ function currentVersion(entries: { id: string; updatedAt: string }[], id: string
   const entry = entries.find((entry) => entry.id === id);
   if (!entry) throw new Error("Refresh this record before archiving.");
   return entry.updatedAt;
+}
+
+
+function mergeRecords<T extends { id: string }>(current: T[], incoming: T[]): T[] {
+  const records = new Map(current.map((entry) => [entry.id, entry]));
+  for (const entry of incoming) records.set(entry.id, entry);
+  return [...records.values()];
+}
+
+function rememberTableRecords(state: HealthState, items: HealthTableOccurrence[]): HealthState {
+  let next = state;
+  for (const item of items) {
+    const records = item.scope === "health.metrics" ? item.record.events
+      : item.scope === "health.diet" ? [item.record.entry] : [item.record.event];
+    for (const record of records) next = rememberMutationRecord(next, record);
+  }
+  return next;
+}
+
+function rememberMutationRecord(state: HealthState, value: unknown): HealthState {
+  if (Array.isArray(value)) return value.reduce(rememberMutationRecord, state);
+  if (!value || typeof value !== "object" || !("id" in value)) return state;
+  if ("foodName" in value) return { ...state, dietEntries: mergeRecords(state.dietEntries, [value as DietEntry]) };
+  if (!("category" in value)) return state;
+  const event = value as HealthEvent;
+  const field = event.category === "bowel" ? "bowelEntries"
+    : event.category === "medication" ? "medicationEntries" : "metricsEntries";
+  return { ...state, [field]: mergeRecords(state[field], [event]) };
 }

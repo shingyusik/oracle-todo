@@ -37,6 +37,7 @@ import {
   mapTransactionCategory,
   mapTransfer,
 } from "@/features/ledger/model/ledger-model";
+import { mapTableGroups } from "@/features/workbench/api/table-groups";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import { mapTransactionAnalysis } from "@/features/ledger/model/ledger-analysis";
 import { localCalendarDate } from "@/features/workbench/model/planner-model";
@@ -86,6 +87,11 @@ export type TransactionCategoryInput = {
 };
 
 export const ledgerApi = {
+  async tableGroups(scope: LedgerTableScope, settings: PlannerTableSettings,
+    referenceDate: Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date()) {
+    return mapTableGroups(await requestJson(`${ROOT}/table/groups`, jsonRequest("POST",
+      tableQueryBody(scope, settings, 0, referenceDate))));
+  },
   async analyzeTable(settings: PlannerTableSettings, referenceDate = new Date()) {
     return mapTransactionAnalysis(await requestJson(`${ROOT}/table/analysis`, jsonRequest("POST",
       tableQueryBody("ledger.transactions", settings, 0, referenceDate))));
@@ -255,6 +261,8 @@ export const ledgerApi = {
         active: input.active,
               })),
     )),
+  getAccountBalance: async (id: string): Promise<AccountBalance> =>
+    mapAccountBalance(await requestJson(`${ROOT}/accounts/${segment(id)}/balance`)),
   listAccountBalances: (query: PageQuery = {}) =>
     masterPage(`${ROOT}/account-balances`, query, mapAccountBalance),
   async previewMasterPurge(

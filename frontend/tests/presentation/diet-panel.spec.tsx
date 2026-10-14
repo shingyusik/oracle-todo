@@ -379,52 +379,44 @@ describe("DietPanel table", () => {
     expect(restored).toHaveAttribute("data-diet-occurrence", occurrence);
   });
 
-  it("opens only the latest Diet intent and invalidates it when the saved view changes", async () => {
+  it("opens Diet detail immediately and Add while compact tags are pending", async () => {
     const user = userEvent.setup();
     const health = controller();
-    const latest = deferred<boolean>();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(latest.promise);
-    let activeTabId = "view-a";
-    health.tableTabs = vi.fn(() => ({ tabs: [], activeTabId,
-      draftSettings: health.tableSettings("health.diet") }));
-    const view = render(<DietPanel controller={health} />);
-
+    const references = deferred<boolean>();
+    health.ensureQuickAddReferences = vi.fn(() => references.promise);
+    render(<DietPanel controller={health} />);
     await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    expect(screen.getByText("Diet entry details")).toBeInTheDocument();
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("button", { name: "Add diet entry" });
     await user.click(screen.getByRole("button", { name: "Add diet entry" }));
-    await act(async () => latest.resolve(true));
     expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeInTheDocument();
-    expect(screen.queryByText("Diet entry details")).toBeNull();
-
-    view.unmount();
-    const invalidated = deferred<boolean>();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(invalidated.promise);
-    const next = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("button", { name: "Add diet entry" }));
-    activeTabId = "view-b";
-    next.rerender(<DietPanel controller={health} />);
-    await act(async () => invalidated.resolve(true));
+    expect(screen.getByRole("status")).toHaveTextContent("Loading references");
+    expect(health.ensureQuickAddReferences).toHaveBeenCalledWith("health.diet");
+    await user.click(screen.getByRole("button", { name: "Close Add diet entry" }));
+    await act(async () => references.resolve(true));
     expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
-  it("invalidates a pending Diet action when the current view generation resets", async () => {
+  it("preserves an open Diet draft while the table generation changes", async () => {
     const user = userEvent.setup();
     const health = controller();
     const page = health.tablePage("health.diet");
     let generation = page.generation;
     health.tablePage = vi.fn(() => ({ ...page, generation }));
-    const pending = deferred<boolean>();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
     const view = render(<DietPanel controller={health} />);
-
     await user.click(screen.getByRole("button", { name: "Add diet entry" }));
+    await user.type(screen.getByLabelText("Food"), "Keep draft");
     generation += 1;
     view.rerender(<DietPanel controller={health} />);
-    await act(async () => pending.resolve(true));
-
-    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Food")).toHaveValue("Keep draft");
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
-  it("keeps a pending Diet action valid when an appended page retains its generation", async () => {
+  it("keeps an open Diet dialog while a page appends", async () => {
     const user = userEvent.setup();
     const health = controller();
     const page = health.tablePage("health.diet");
@@ -432,7 +424,7 @@ describe("DietPanel table", () => {
     health.tablePage = vi.fn(() => ({ ...page,
       items: appended ? [...page.items] : page.items }));
     const pending = deferred<boolean>();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
+    health.ensureQuickAddReferences = vi.fn(() => pending.promise);
     const view = render(<DietPanel controller={health} />);
 
     await user.click(screen.getByRole("button", { name: "Add diet entry" }));

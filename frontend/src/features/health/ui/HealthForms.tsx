@@ -495,10 +495,15 @@ export function MetricsForm({
   initialRow?: HealthMetricsRow;
   mode?: "create" | "edit";
 }) {
+  const [dateRecords, setDateRecords] = useState<HealthEvent[] | null>(null);
+  const [dateStatus, setDateStatus] = useState<"loading" | "loaded" | "error">(
+    mode === "create" && controller.loadMetricsForDate ? "loading" : "loaded",
+  );
+  const [dateAttempt, setDateAttempt] = useState(0);
   const rows = React.useMemo(() => deriveHealthMetricsGroups(
-    metricsEntries,
+    dateRecords ?? metricsEntries,
     defaultHealthTableSettings("health.metrics"),
-  ).flatMap((group) => group.rows), [metricsEntries]);
+  ).flatMap((group) => group.rows), [dateRecords, metricsEntries]);
   const [date, setDate] = useState(initialRow?.date ?? defaultLocalDate);
   const [weight, setWeight] = useState("");
   const [sleep, setSleep] = useState("");
@@ -518,6 +523,20 @@ export function MetricsForm({
   });
 
   React.useEffect(() => {
+    if (mode !== "create" || !controller.loadMetricsForDate) return;
+    let active = true;
+    setDateStatus("loading");
+    setDateRecords(null);
+    void controller.loadMetricsForDate(date).then((records) => {
+      if (!active) return;
+      setDateRecords(records);
+      setDateStatus("loaded");
+    }, () => { if (active) setDateStatus("error"); });
+    return () => { active = false; };
+  }, [controller.loadMetricsForDate, date, dateAttempt, mode]);
+
+  React.useEffect(() => {
+    if (dateStatus !== "loaded") return;
     const row = rows.find((candidate) => candidate.date === date)
       ?? (initialRow?.date === date ? initialRow : undefined);
     const selectedNewDate = selectedDateRef.current !== date;
@@ -532,11 +551,11 @@ export function MetricsForm({
     setCalprotectin(metricDraft(row?.calprotectin));
     setConditionScore(metricDraft(row?.condition));
     setConditionNote(row?.note ?? "");
-  }, [action.pending, date, initialRow, refreshRecovery, rows]);
+  }, [action.pending, date, dateStatus, initialRow, refreshRecovery, rows]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (refreshRecovery) return;
+    if (refreshRecovery || dateStatus !== "loaded") return;
     await action.run(async () => {
       const timestamp = localDateTimeToRfc3339(`${date}T12:00`);
       const row = snapshotRef.current;
@@ -647,6 +666,9 @@ export function MetricsForm({
       onSubmit={(event) => void submit(event)}
       aria-label="Daily metrics"
     >
+      {dateStatus === "loading" ? <p role="status">Loading metrics for this date…</p> : null}
+      {dateStatus === "error" ? <><p role="alert">Could not load metrics for this date.</p>
+        <button type="button" onClick={() => setDateAttempt((value) => value + 1)}>Retry date</button></> : null}
       <fieldset disabled={refreshRecovery || action.pending}>
       <label className="field-label">
         Date
@@ -657,6 +679,7 @@ export function MetricsForm({
           required
         />
       </label>
+      <fieldset disabled={dateStatus !== "loaded"} style={{ minWidth: 0, border: 0, padding: 0, margin: 0 }}>
       <label className="field-label">
           Weight
           <input
@@ -735,6 +758,7 @@ export function MetricsForm({
             }}
           />
       </label>
+      </fieldset>
       <FormResult action={action} />
       {dialogActions ? (
         <footer className="ledger-create-dialog-actions">
@@ -750,13 +774,13 @@ export function MetricsForm({
           <button
             type="submit"
             className="items-toolbar-button ledger-create-dialog-save"
-            disabled={action.pending || refreshRecovery}
+            disabled={action.pending || refreshRecovery || dateStatus !== "loaded"}
           >
             {action.pending ? "Saving…" : "Save"}
           </button>
         </footer>
       ) : (
-        <button type="submit" disabled={action.pending}>
+        <button type="submit" disabled={action.pending || refreshRecovery || dateStatus !== "loaded"}>
           {mode === "create" ? "Save daily metrics" : "Save health metrics"}
         </button>
       )}

@@ -36,7 +36,7 @@ import {
 } from "@/features/ledger/model/ledger-reports";
 import { LedgerPanel } from "@/features/ledger/ui/LedgerPanel";
 import { RavenApiError } from "@/lib/raven-api";
-import { loadTodoTableLookups, plannerTodoTableScope } from "@/features/workbench/api/table-api";
+import { loadTodoTableLookups, plannerTodoTableScope, queryTodoTableGroups } from "@/features/workbench/api/table-api";
 import { linkedItemGroups } from "@/features/workbench/model/linked-items";
 import {
   useBrowserDetailHistory,
@@ -44,23 +44,20 @@ import {
 } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import {
   buildPlannerGroupCandidates,
-  type PlannerGroupCandidate,
-  type PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import {
-  buildDailyPlannerSections,
   buildMonthlyPeriodGoalCardsModel,
   buildWeeklyPlannerModel,
   buildYearlyPeriodGoalCardsModel,
   clonePlannerTableSettings,
   type DailyPlannerSection,
   effectivePlannerFilterRules,
-  filterPlannerItemsByRules,
   type MonthlyPlannerWeekModel,
   type PeriodGoalBucketModel,
   type PeriodGoalCardModel,
   plannerFilterFieldsForTable,
   plannerSortFieldsForTable,
+  plannerTableVisibleRange,
   plannerWeekdayLabels,
   type PlannerGroupBy,
   type PlannerTableId,
@@ -787,7 +784,6 @@ function DetailView({
                 parentItem={detailItem}
                 childType={group.type}
                 childLabel={group.label}
-                items={group.items}
                 controller={controller}
                 onOpen={openLinkedItem}
               />
@@ -854,14 +850,12 @@ function LinkedItemTable({
   parentItem,
   childType,
   childLabel,
-  items,
   controller,
   onOpen,
 }: {
   parentItem: WorkspaceItemModel;
   childType: WorkspaceItemModel["type"];
   childLabel: string;
-  items: WorkspaceItemModel[];
   controller: WorkbenchController;
   onOpen(item: WorkspaceItemModel): void;
 }): React.ReactElement {
@@ -895,14 +889,6 @@ function LinkedItemTable({
   const lookups = controller.todoTableLookups(queryScope);
   const relatedItems = lookups?.relatedItems ?? controller.workspaceItems.relatedItems;
   const pageItems = page.items.map(({ record }) => record);
-  const candidateItems = items.length > 0 ? items : pageItems;
-  const filteredCandidateItems = filterPlannerItemsByRules(
-    candidateItems,
-    controller.workspaceItems.relatedItems,
-    effectivePlannerFilterRules(settings.filterRules, workspaceFilterFieldsForScope(scope)),
-    settings.filterMode,
-    page.referenceDate,
-  );
   const filterOptions: PlannerFilterOptions = {
     ...plannerFilterOptionsForLookups(lookups, pageItems, relatedItems),
     storedRelationLabels: {
@@ -923,8 +909,8 @@ function LinkedItemTable({
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: filteredCandidateItems,
-      relatedItems: controller.workspaceItems.relatedItems,
+      items: [],
+      relatedItems,
     }),
     filterOptions,
     activeControlsAriaLabel: `Active ${childLabel} controls`,
@@ -934,7 +920,10 @@ function LinkedItemTable({
       rules[0]?.field === "updated" &&
       rules[0]?.direction === "desc",
     update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
-    prepareGroup: controller.ensureTodoReferenceData,
+    groupCandidatesKey: JSON.stringify({ parentType: parentItem.type, parentId: parentItem.id, referenceDate: page.referenceDate, generation: page.generation }),
+    loadGroupCandidates: () => queryTodoTableGroups({ scope: queryScope,
+      context: { kind: "linked", parentType: parentItem.type as TodoItemType, parentId: parentItem.id }, settings,
+    }, page.referenceDate),
   };
   const viewVersion = JSON.stringify({
     activeTabId: tabs.activeTabId,
@@ -1140,7 +1129,6 @@ function YearlyPeriodPlanner({
         {todoTableHasBlockingError(periodPage.page) ? null : <PeriodGoalCarousel
           controller={controller}
           tableId="yearly.period-goals"
-          groupUniverseItems={periodGoalItems}
           occurrences={periodPage.page.items}
           ariaLabel="Year goal carousel"
           previousLabel="Previous year"
@@ -1170,7 +1158,6 @@ function YearlyPeriodPlanner({
             <PeriodGoalBucketCard
               controller={controller}
               tableId="yearly.month-goals"
-              groupUniverseItems={monthGoalItems}
               occurrences={monthPage.page.items}
               bucket={month}
               testId="yearly-month-card"
@@ -1223,7 +1210,6 @@ function MonthlyPeriodPlanner({
         {todoTableHasBlockingError(periodPage.page) ? null : <PeriodGoalCarousel
           controller={controller}
           tableId="monthly.period-goals"
-          groupUniverseItems={periodGoalItems}
           occurrences={periodPage.page.items}
           ariaLabel="Month goal carousel"
           previousLabel="Previous month"
@@ -1242,7 +1228,6 @@ function MonthlyPeriodPlanner({
               heading="Calendar"
               rawItems={calendarItems}
               referenceDate={calendarPage.page.referenceDate}
-              groupUniverseItems={calendarItems}
               creationContext={{
                 tableId: "monthly.calendar",
                 itemTypes: ["task", "event"],
@@ -1259,7 +1244,6 @@ function MonthlyPeriodPlanner({
               heading="Week Goals"
               rawItems={weekGoalItems}
               referenceDate={weekPage.page.referenceDate}
-              groupUniverseItems={weekGoalItems}
               creationContext={{
                 tableId: "monthly.week-goals",
                 itemTypes: ["goal"],
@@ -1290,7 +1274,6 @@ function MonthlyPeriodPlanner({
               calendarOccurrences={calendarPage.page.items}
               weekGoalOccurrences={weekPage.page.items}
               calendarUniverseItems={calendarItems}
-              weekGoalUniverseItems={weekGoalItems}
               openOverflowDate={openOverflowDate}
               onOpenOverflowChange={setOpenOverflowDate}
               key={calendarWeek.key}
@@ -1308,7 +1291,6 @@ function MonthlyPlannerWeekRow({
   controller,
   week,
   calendarUniverseItems,
-  weekGoalUniverseItems,
   calendarOccurrences,
   weekGoalOccurrences,
   openOverflowDate,
@@ -1317,7 +1299,6 @@ function MonthlyPlannerWeekRow({
   controller: WorkbenchController;
   week: MonthlyPlannerWeekModel;
   calendarUniverseItems: WorkspaceItemModel[];
-  weekGoalUniverseItems: WorkspaceItemModel[];
   calendarOccurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
   weekGoalOccurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
   openOverflowDate: string | null;
@@ -1354,7 +1335,6 @@ function MonthlyPlannerWeekRow({
         <PeriodGoalBucketCard
           controller={controller}
           tableId="monthly.week-goals"
-          groupUniverseItems={weekGoalUniverseItems}
           occurrences={weekGoalOccurrences}
           bucket={week}
           testId="monthly-week-card"
@@ -1517,7 +1497,6 @@ function MonthlyDayItems({
 function PeriodGoalCarousel({
   controller,
   tableId,
-  groupUniverseItems,
   ariaLabel,
   previousLabel,
   nextLabel,
@@ -1526,7 +1505,6 @@ function PeriodGoalCarousel({
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
-  groupUniverseItems: WorkspaceItemModel[];
   ariaLabel: string;
   previousLabel: string;
   nextLabel: string;
@@ -1550,7 +1528,6 @@ function PeriodGoalCarousel({
             <GoalGroupContent
               controller={controller}
               tableId={tableId}
-              groupUniverseItems={groupUniverseItems}
               occurrences={occurrences}
               goals={card.goals}
               emptyText="No goals found."
@@ -1573,14 +1550,12 @@ function PeriodGoalCarousel({
 function PeriodGoalBucketCard({
   controller,
   tableId,
-  groupUniverseItems,
   bucket,
   testId,
   occurrences,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
-  groupUniverseItems: WorkspaceItemModel[];
   bucket: PeriodGoalBucketModel;
   testId: string;
   occurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
@@ -1595,7 +1570,6 @@ function PeriodGoalBucketCard({
       <GoalGroupContent
         controller={controller}
         tableId={tableId}
-        groupUniverseItems={groupUniverseItems}
         occurrences={occurrences}
         goals={bucket.goals}
         emptyText="No goals found."
@@ -1607,14 +1581,12 @@ function PeriodGoalBucketCard({
 function GoalGroupContent({
   controller,
   tableId,
-  groupUniverseItems,
   goals,
   emptyText,
   occurrences,
 }: {
   controller: WorkbenchController;
   tableId: PlannerTableId;
-  groupUniverseItems: WorkspaceItemModel[];
   goals: WorkspaceItemModel[];
   emptyText: string;
   occurrences: ReturnType<WorkbenchController["todoTablePage"]>["items"];
@@ -1687,7 +1659,6 @@ function WeeklyPlanner({
           heading="Weekday grid"
           rawItems={dayGridItems}
           referenceDate={dayPage.page.referenceDate}
-          groupUniverseItems={dayGridItems}
           creationContext={{
             tableId: "weekly.day-grid",
             itemTypes: ["task", "event"],
@@ -1808,7 +1779,6 @@ function PlannerTableHeader({
   title,
   heading,
   rawItems,
-  groupUniverseItems = rawItems,
   referenceDate,
   creationContext,
 }: {
@@ -1817,11 +1787,14 @@ function PlannerTableHeader({
   title: string;
   heading: string;
   rawItems: WorkspaceItemModel[];
-  groupUniverseItems?: WorkspaceItemModel[];
   referenceDate: string;
   creationContext: PlannerCreationSourceContext;
 }) {
   const settings = controller.plannerTableSettings(tableId);
+  const groupDate = tableId.startsWith("yearly.") ? controller.planner.yearlyDate
+    : tableId.startsWith("monthly.") ? controller.planner.monthlyDate
+      : tableId.startsWith("weekly.") ? controller.planner.weeklyDate : controller.planner.dailyDate;
+  const groupPeriod = plannerTableVisibleRange(tableId, groupDate);
   const lookups = controller.todoTableLookups(plannerTodoTableScope(tableId));
   const relatedItems = lookups?.relatedItems ?? controller.workspaceItems.relatedItems;
   const filterOptions: PlannerFilterOptions = {
@@ -1836,28 +1809,11 @@ function PlannerTableHeader({
   const filterFields = plannerFilterFieldsForTable(tableId);
   const sortFields = plannerSortFieldsForTable(tableId);
   const groupOptions = plannerGroupOptionsForTable(tableId);
-  const referenceItems = plannerReferenceItemsForTable(
-    tableId,
-    controller.workspaceItems.allItems,
-    controller.planner.date,
-  );
-  const effectiveFilterRules = effectivePlannerFilterRules(
-    settings.filterRules,
-    filterFields,
-  );
-  const candidateItems = referenceItems.length > 0 ? referenceItems : groupUniverseItems;
-  const candidates = plannerTableGroupCandidates(
-    tableId,
-    settings.groupSettings,
-    filterPlannerItemsByRules(
-      candidateItems,
-      controller.workspaceItems.relatedItems,
-      effectiveFilterRules,
-      settings.filterMode,
-      referenceDate,
-    ),
-    controller.workspaceItems.relatedItems,
-  );
+  const effectiveFilterRules = effectivePlannerFilterRules(settings.filterRules, filterFields);
+  const candidates = buildPlannerGroupCandidates({ view: "daily",
+    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupSettings.groupBy),
+    items: [], relatedItems,
+  });
   const controlsAdapter: TableViewControlsAdapter = {
     scopeId: tableId,
     title,
@@ -1877,7 +1833,10 @@ function PlannerTableHeader({
     },
     missSuccessFocusTarget: tableId,
     update: (updater) => controller.updatePlannerTableSettings(tableId, updater),
-    prepareGroup: controller.ensureTodoReferenceData,
+    groupCandidatesKey: JSON.stringify({ period: groupPeriod, referenceDate, generation: controller.todoTablePage({ surface: "planner", tableId }).generation }),
+    loadGroupCandidates: () => queryTodoTableGroups({ scope: plannerTodoTableScope(tableId),
+      context: { kind: "planner", ...groupPeriod }, settings,
+    }, referenceDate),
     add: () => controller.openPlannerCreationDialog({
       ...creationContext,
       tableSettings: {
@@ -2265,48 +2224,6 @@ function effectivePlannerTableGroupValue(
   return plannerGroupOptionsForTable(tableId).some((option) => option.value === value)
     ? value
     : "none";
-}
-
-function plannerTableGroupCandidates(
-  tableId: PlannerTableId,
-  settings: PlannerGroupSettings,
-  items: WorkspaceItemModel[],
-  relatedItems: WorkspaceItemsModel["relatedItems"],
-): PlannerGroupCandidate[] {
-  return buildPlannerGroupCandidates({
-    view: tableId.split(".")[0] as "yearly" | "monthly" | "weekly" | "daily",
-    groupBy: effectivePlannerTableGroupValue(tableId, settings.groupBy),
-    items,
-    relatedItems,
-  });
-}
-
-function plannerReferenceItemsForTable(
-  tableId: PlannerTableId,
-  allItems: WorkspaceItemModel[],
-  plannerDate: string,
-): WorkspaceItemModel[] {
-  if (allItems.length === 0) return [];
-  if (tableId.startsWith("daily.")) {
-    const sections = buildDailyPlannerSections(allItems, plannerDate);
-    return sections[tableId.split(".")[1] as keyof typeof sections];
-  }
-  if (tableId.startsWith("weekly.")) {
-    const model = buildWeeklyPlannerModel(allItems, isoWeekStart(plannerDate));
-    if (tableId.endsWith("month-goals")) return model.monthGoals;
-    if (tableId.endsWith("week-goals")) return model.weekGoals;
-    return uniqueWorkspaceItems(model.days.flatMap((day) => day.items));
-  }
-  if (tableId.startsWith("monthly.")) {
-    const model = buildMonthlyPeriodGoalCardsModel(allItems, plannerDate);
-    if (tableId.endsWith("period-goals")) return uniqueWorkspaceItems(model.carousel.flatMap((card) => card.goals));
-    if (tableId.endsWith("week-goals")) return uniqueWorkspaceItems(model.weeks.flatMap((week) => week.goals));
-    return uniqueWorkspaceItems(model.weeks.flatMap((week) => week.days.flatMap((day) => day.items)));
-  }
-  const model = buildYearlyPeriodGoalCardsModel(allItems, plannerDate);
-  return uniqueWorkspaceItems(tableId.endsWith("period-goals")
-    ? model.carousel.flatMap((card) => card.goals)
-    : model.months.flatMap((month) => month.goals));
 }
 
 function plannerGroupOptions(
@@ -4744,16 +4661,6 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
   const columns = columnsForPanel(panel.id);
   const lookups = controller.todoTableLookups(scope);
   const relatedItems = lookups?.relatedItems ?? workspaceItems.relatedItems;
-  const candidateItems = workspaceItems.allItems.some((item) => item.type === scope.split(".")[1])
-    ? workspaceItems.allItems.filter((item) => item.type === scope.split(".")[1])
-    : page.items.map(({ record }) => record);
-  const filteredCandidateItems = filterPlannerItemsByRules(
-    candidateItems,
-    workspaceItems.relatedItems,
-    effectivePlannerFilterRules(settings.filterRules, workspaceFilterFieldsForScope(scope)),
-    settings.filterMode,
-    page.referenceDate,
-  );
   const tableWorkspaceItems = lookups ? {
     ...workspaceItems,
     tagOptions: lookups.tags,
@@ -4779,8 +4686,8 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
     candidates: buildPlannerGroupCandidates({
       view: "daily",
       groupBy: settings.groupSettings.groupBy,
-      items: filteredCandidateItems,
-      relatedItems: workspaceItems.relatedItems,
+      items: [],
+      relatedItems,
     }),
     filterOptions,
     activeControlsAriaLabel: "Active Workspace controls",
@@ -4790,7 +4697,8 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
       rules[0]?.field === "updated" &&
       rules[0]?.direction === "desc",
     update: (updater) => controller.updateWorkspaceTableSettings(scope, updater),
-    prepareGroup: controller.ensureTodoReferenceData,
+    groupCandidatesKey: JSON.stringify({ referenceDate: page.referenceDate, generation: page.generation }),
+    loadGroupCandidates: () => queryTodoTableGroups({ scope, context: { kind: "workspace" }, settings }, page.referenceDate),
     add: controller.openCreationDialog,
   };
 

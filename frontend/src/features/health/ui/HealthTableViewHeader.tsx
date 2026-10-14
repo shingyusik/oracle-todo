@@ -4,6 +4,7 @@ import {
   IconTrash as Trash2,
 } from "@tabler/icons-react";
 
+import { healthApi } from "@/features/health/api/health-api";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import {
   healthFilterFieldsForScope,
@@ -12,7 +13,6 @@ import {
   healthTableViewSettingsAdapter,
   type HealthTableScopeId,
 } from "@/features/health/model/health-table-views";
-import type { PlannerGroupCandidate } from "@/features/workbench/model/planner-group-settings";
 import {
   TableViewActivePills,
   TableViewControls,
@@ -27,7 +27,7 @@ const empty = {
 };
 
 export function HealthTableViewHeader({
-  controller, scope, title, headingId, fieldLabels, fieldOptions, candidates,
+  controller, scope, title, headingId, fieldLabels, fieldOptions,
   onAdd, addButtonRef, onArchiveSelected, archiveButtonRef, archiveDisabled,
 }: {
   controller: HealthController;
@@ -36,7 +36,6 @@ export function HealthTableViewHeader({
   headingId: string;
   fieldLabels: TableViewControlsAdapter["fieldLabels"];
   fieldOptions: Partial<Record<string, Option<string>[]>>;
-  candidates: PlannerGroupCandidate[];
   onAdd(): void;
   addButtonRef: React.RefObject<HTMLButtonElement>;
   onArchiveSelected(): void;
@@ -54,7 +53,8 @@ export function HealthTableViewHeader({
     fieldLabels,
     sortFields: healthSortFieldsForScope(scope),
     groupOptions: [...healthGroupOptionsForScope(scope)],
-    candidates,
+    candidates: [],
+    groupCandidatesKey: String(controller.tablePage(scope).generation),
     filterOptions: { tags: lookupTags, daily: { ...empty, tags: lookupTags }, fieldOptions },
     activeControlsAriaLabel: `Active ${title} controls`,
     dropdownIdPrefix: "health",
@@ -62,7 +62,7 @@ export function HealthTableViewHeader({
       healthTableViewSettingsAdapter.defaultSettings(scope).sortRules,
     ),
     update: (updater) => controller.updateTableSettings(scope, updater),
-    prepareGroup: () => controller.ensureReferenceData(scope),
+    loadGroupCandidates: () => healthApi.tableGroups(scope, { ...settings, filterRules: [], sortRules: healthTableViewSettingsAdapter.defaultSettings(scope).sortRules }),
   };
   const noun = title.toLowerCase();
   const addLabel = `Add ${noun} entry`;

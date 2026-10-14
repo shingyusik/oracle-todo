@@ -1,4 +1,6 @@
 "use client";
+
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -127,12 +129,14 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
 
   if (selectedDetail) {
     return (
+      <ReferenceDataBoundary load={controller.ensureAccountFormReferences} onCancel={returnToList}>
       <AccountDetail
         controller={controller}
         row={selectedDetail}
         onBack={returnToList}
         onDeleted={returnToList}
       />
+      </ReferenceDataBoundary>
     );
   }
 
@@ -144,14 +148,10 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         scope="ledger.accounts"
         title="Accounts"
         headingId="ledger-accounts-heading"
-        onAdd={() => void ensureReferences(controller).then((loaded) => {
-          if (loaded) setCreateOpen(true);
-        })}
+        onAdd={() => setCreateOpen(true)}
         addButtonRef={addButtonRef}
         addLabel="Add account"
-        onSettings={() => void ensureReferences(controller).then((loaded) => {
-          if (loaded) setSettingsOpen(true);
-        })}
+        onSettings={() => setSettingsOpen(true)}
         settingsButtonRef={settingsButtonRef}
         settingsLabel="Account settings"
         onArchiveSelected={() => {
@@ -165,9 +165,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={(row) => void ensureReferences(controller).then((loaded) => {
-          if (loaded) setSelectedDetailRow(row);
-        })}
+        onOpen={setSelectedDetailRow}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
         page={visibleTablePage(page, controller.state.error)}
@@ -211,9 +209,9 @@ function resolveAccountDetail(
   fallback: AccountRow,
   controller: LedgerController,
 ): AccountRow | null {
-  if (!controller.hasReferenceData?.("ledger.accounts")) return fallback;
-  const account = controller.state.accounts.find(({ id, active }) => id === fallback.id && active);
-  if (!account) return null;
+  const account = controller.state.accounts.find(({ id }) => id === fallback.id);
+  if (!account) return controller.hasReferenceData?.("ledger.accounts") ? null : fallback;
+  if (!account.active) return null;
   const accountType = controller.state.accountCategories.find(
     ({ id, active }) => id === account.categoryId && active,
   );
@@ -257,10 +255,6 @@ function visibleTablePage(
   globalError: string | null,
 ) {
   return globalError && page.moreStatus === "error" ? { ...page, nextOffset: null } : page;
-}
-
-function ensureReferences(controller: LedgerController): Promise<boolean> {
-  return controller.ensureReferenceData?.("ledger.accounts") ?? Promise.resolve(true);
 }
 
 function isAccountOccurrence(

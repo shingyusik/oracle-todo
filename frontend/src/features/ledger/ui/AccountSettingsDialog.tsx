@@ -1,4 +1,6 @@
 "use client";
+
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React from "react";
@@ -323,6 +325,7 @@ function AccountSettingsDialogContent({
         <header className="dashboard-widget-header">
           <h2>Account settings</h2>
         </header>
+        <ReferenceDataBoundary load={controller.ensureAccountFormReferences} onCancel={onClose} cancelLabel="Close">
         <div
           className="ledger-account-settings-tabs"
           role="tablist"
@@ -420,6 +423,7 @@ function AccountSettingsDialogContent({
             {pending ? "Saving…" : "Save"}
           </button>
         </div>
+        </ReferenceDataBoundary>
       </div>
       {deactivationTarget ? (
         <DestructiveConfirmationDialog

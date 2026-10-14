@@ -118,6 +118,17 @@ const loadedState: LedgerState = {
 };
 
 function controller(state: LedgerState = loadedState): LedgerController {
+  vi.spyOn(ledgerApi, "tableGroups").mockImplementation(async (scope, settings) => {
+    const candidateSettings = { ...settings, groupSettings: { ...settings.groupSettings,
+      hideEmpty: false, hiddenGroupKeys: [] } };
+    const groups = scope === "ledger.transactions"
+      ? deriveTransactionGroups(state.entries, candidateSettings, undefined, state.currencies)
+      : scope === "ledger.accounts"
+        ? deriveAccountGroups(state.accounts, state.balances, state.accountCategories, candidateSettings)
+        : deriveCategoryGroups(state.categories, candidateSettings);
+    return groups.map(({ key, label, rows }) => ({ key, label: scope === "ledger.transactions" && settings.groupSettings.groupBy === "entry_type"
+      ? (label ?? key).replace(/^./, (first) => first.toUpperCase()) : label ?? key, count: rows.length }));
+  });
   const views = createLedgerTableViews();
   const result: LedgerController = {
     state,
@@ -1542,6 +1553,21 @@ describe("LedgerPanel", () => {
     expect(within(groups).queryByText("Card")).toBeNull();
   });
 
+  it.each([
+    ["month", "2026-07", "2026-07", "July 2026"],
+    ["entry_type", "expense", "expense", "Expense"],
+  ] as const)("preserves transaction %s candidate labels from compact summaries", async (groupBy, key, label, expected) => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy,
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockResolvedValue([{ key, label, count: 250 }]);
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+
   it("distinguishes no active logical transactions from no view matches", () => {
     const archived = transactionEntry("archived", "Archived", {
       deletedAt: "2026-08-01T00:00:00Z",
@@ -2541,7 +2567,9 @@ describe("LedgerPanel", () => {
     })).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByText("Lunch")).toBeNull());
 
+    vi.spyOn(ledgerApi, "tableGroups").mockResolvedValue([]);
     await user.click(screen.getByRole("button", { name: "Group Transactions" }));
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
     expect(within(screen.getByRole("list", { name: "Groups" })).queryByText("Cash"))
       .toBeNull();
   });
@@ -4018,56 +4046,40 @@ describe("LedgerPanel", () => {
     expect(ledgerApi.tableLookups).toHaveBeenCalledWith("ledger.transactions");
   });
 
-  it("loads rich group candidates once when the Group panel first opens", async () => {
+  it("loads compact whole-dataset groups without reading rich reference collections", async () => {
     const user = userEvent.setup();
     vi.spyOn(ledgerApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
-    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({
-      accounts: [], categories: [], currencies: [],
-    });
-    const entries = vi.spyOn(ledgerApi, "listEntries")
-      .mockResolvedValue({ items: transactionEntries(), nextOffset: null });
-    const currencies = vi.spyOn(ledgerApi, "listCurrencies")
-      .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
-    const accounts = vi.spyOn(ledgerApi, "listAccounts")
-      .mockResolvedValue({ items: loadedState.accounts, nextOffset: null });
-    const categories = vi.spyOn(ledgerApi, "listTransactionCategories")
-      .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
+    vi.spyOn(ledgerApi, "tableLookups").mockResolvedValue({ accounts: [], categories: [], currencies: [] });
+    const collections = [vi.spyOn(ledgerApi, "listEntries"), vi.spyOn(ledgerApi, "listCurrencies"),
+      vi.spyOn(ledgerApi, "listAccounts"), vi.spyOn(ledgerApi, "listTransactionCategories")];
+    const summaries = vi.spyOn(ledgerApi, "tableGroups").mockResolvedValue([
+      { key: "account-cash", label: "Cash", count: 250 },
+    ]);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
 
-    function ProductionLedgerPanel() {
-      return <LedgerPanel controller={useLedgerController()} />;
-    }
+    function ProductionLedgerPanel() { return <LedgerPanel controller={useLedgerController()} />; }
     render(<ProductionLedgerPanel />);
     const group = await screen.findByRole("button", { name: "Group Transactions" });
     await user.click(group);
-    expect(await screen.findByRole("dialog", { name: "Group Transactions" }))
-      .toBeInTheDocument();
-    expect([entries, currencies, accounts, categories].map((spy) => spy.mock.calls.length))
-      .toEqual([1, 1, 1, 1]);
+    expect(screen.getByRole("dialog", { name: "Group Transactions" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Choose group property" }));
+    await user.click(screen.getByRole("option", { name: "Account" }));
+    expect(await screen.findByText("250")).toBeInTheDocument();
+    expect(summaries).toHaveBeenCalled();
+    expect(collections.every((spy) => spy.mock.calls.length === 0)).toBe(true);
 
     await user.keyboard("{Escape}");
+    const previousCalls = summaries.mock.calls.length;
     await user.click(group);
-    expect(await screen.findByRole("dialog", { name: "Group Transactions" }))
-      .toBeInTheDocument();
-    expect([entries, currencies, accounts, categories].map((spy) => spy.mock.calls.length))
-      .toEqual([1, 1, 1, 1]);
+    expect(screen.getByRole("dialog", { name: "Group Transactions" })).toBeInTheDocument();
+    await waitFor(() => expect(summaries).toHaveBeenCalledTimes(previousCalls + 1));
+    expect(collections.every((spy) => spy.mock.calls.length === 0)).toBe(true);
   });
 
   it("keeps a page-two account detail mounted after save reloads offset zero", async () => {
     const user = userEvent.setup();
     const updatedAccount = {
       ...loadedState.accounts[0]!, name: "Wallet", openingBalanceMinor: 2500,
-    };
-    const initialBalance = {
-      account: loadedState.accounts[0]!,
-      currencyCode: "KRW",
-      decimalPlaces: 0,
-      currentBalanceMinor: 0,
-    };
-    const updatedBalance = {
-      ...initialBalance,
-      account: updatedAccount,
-      currentBalanceMinor: 2500,
     };
     vi.spyOn(ledgerApi, "queryTable")
       .mockResolvedValue({ items: [accountOccurrence()], nextOffset: null });
@@ -4078,13 +4090,8 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: loadedState.currencies, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountCategories")
       .mockResolvedValue({ items: loadedState.accountCategories, nextOffset: null });
-    vi.spyOn(ledgerApi, "listAccounts")
-      .mockResolvedValueOnce({ items: loadedState.accounts, nextOffset: null })
-      .mockResolvedValue({ items: [updatedAccount], nextOffset: null });
-    vi.spyOn(ledgerApi, "listAccountBalances")
-      .mockResolvedValueOnce({ items: [initialBalance], nextOffset: 200 })
-      .mockResolvedValueOnce({ items: [], nextOffset: null })
-      .mockResolvedValue({ items: [updatedBalance], nextOffset: null });
+    vi.spyOn(ledgerApi, "listAccounts");
+    vi.spyOn(ledgerApi, "listAccountBalances");
     vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue(updatedAccount);
 
     function ProductionAccounts() {
@@ -4095,11 +4102,12 @@ describe("LedgerPanel", () => {
     fireEvent.click(accountRow);
     fireEvent.click(accountRow);
     expect(await screen.findByRole("region", { name: "Cash details" })).toBeInTheDocument();
-    expect(ledgerApi.listAccounts).toHaveBeenCalledOnce();
-    expect(ledgerApi.listAccountBalances).toHaveBeenNthCalledWith(2, {
-      limit: 200, offset: 200,
-    });
+    expect(ledgerApi.listAccounts).not.toHaveBeenCalled();
+    expect(ledgerApi.listAccountBalances).not.toHaveBeenCalled();
     vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+    vi.spyOn(ledgerApi, "getAccountBalance").mockResolvedValue({
+      account: updatedAccount, currencyCode: "KRW", decimalPlaces: 0, currentBalanceMinor: 2500,
+    });
     await user.clear(screen.getByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Wallet");
     await user.clear(screen.getByLabelText("Opening balance"));
@@ -4109,7 +4117,8 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("region", { name: "Wallet details" })).toBeInTheDocument();
     expect(screen.getByLabelText("Current balance")).toHaveTextContent("2500 KRW");
-    expect(ledgerApi.listAccountBalances).toHaveBeenCalledTimes(3);
+    expect(ledgerApi.listAccountBalances).not.toHaveBeenCalled();
+    expect(ledgerApi.getAccountBalance).toHaveBeenCalledWith(updatedAccount.id);
   });
 
   it("keeps a page-two transaction detail mounted after save reloads offset zero", async () => {
@@ -4225,52 +4234,70 @@ describe("LedgerPanel", () => {
     expect(screen.queryByText(emptyMessage)).toBeNull();
   });
 
-  it("suppresses duplicate Group preparation and stays closed after a safe failure", async () => {
-    const prepare = deferred<boolean>();
+  it("opens Group immediately and offers retry after a safe failure", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof ledgerApi.tableGroups>>>();
     const ledger = controller();
-    ledger.ensureReferenceData = vi.fn(() => prepare.promise);
-    render(
-      <LedgerTableViewHeader
-        controller={ledger}
-        scope="ledger.transactions"
-        title="Transactions"
-        headingId="transactions-heading"
-      />,
-    );
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    const summaries = vi.spyOn(ledgerApi, "tableGroups").mockReturnValueOnce(pending.promise)
+      .mockResolvedValue([{ key: "account-cash", label: "Cash", count: 250 }]);
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
     const group = screen.getByRole("button", { name: "Group Transactions" });
     fireEvent.click(group);
-    fireEvent.click(group);
-    expect(ledger.ensureReferenceData).toHaveBeenCalledOnce();
-    expect(group).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("dialog", { name: "Group Transactions" })).toBeInTheDocument();
+    expect(group).not.toHaveAttribute("aria-disabled", "true");
+    await act(async () => pending.reject(new Error("raw database storage failure")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load groups.");
+    expect(screen.queryByText(/raw database storage/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry groups" }));
+    expect(await screen.findByText("250")).toBeInTheDocument();
+    expect(summaries).toHaveBeenCalledTimes(2);
+    expect(ledger.ensureReferenceData).not.toHaveBeenCalled();
+  });
 
-    await act(async () => prepare.resolve(false));
-    expect(screen.queryByRole("dialog", { name: "Group Transactions" })).toBeNull();
-    expect(screen.queryByText(/storage|database|raw/i)).toBeNull();
+  it("refreshes open Group counts after a new table generation and ignores stale summaries", async () => {
+    const first = deferred<Awaited<ReturnType<typeof ledgerApi.tableGroups>>>();
+    const second = deferred<Awaited<ReturnType<typeof ledgerApi.tableGroups>>>();
+    const ledger = controller();
+    let generation = 1;
+    ledger.tablePage = () => ({ items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation });
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    const summaries = vi.spyOn(ledgerApi, "tableGroups").mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const view = render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    await waitFor(() => expect(summaries).toHaveBeenCalledOnce());
+    generation = 2;
+    view.rerender(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    await waitFor(() => expect(summaries).toHaveBeenCalledTimes(2));
+    await act(async () => second.resolve([{ key: "account-cash", label: "Cash", count: 250 }]));
+    expect(screen.getByText("250")).toBeVisible();
+    await act(async () => first.resolve([{ key: "account-cash", label: "Cash", count: 100 }]));
+    expect(screen.queryByText("100")).toBeNull();
+    expect(screen.getByText("250")).toBeVisible();
   });
 
   it.each(["Filter", "Sort"] as const)(
-    "keeps the %s menu open when stale Group preparation completes",
+    "keeps the %s menu open when stale Group summaries complete",
     async (menu) => {
-      const prepare = deferred<boolean>();
+      const pending = deferred<Awaited<ReturnType<typeof ledgerApi.tableGroups>>>();
       const ledger = controller();
-      ledger.ensureReferenceData = vi.fn(() => prepare.promise);
-      render(
-        <LedgerTableViewHeader
-          controller={ledger}
-          scope="ledger.transactions"
-          title="Transactions"
-          headingId="transactions-heading"
-        />,
-      );
+      ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+        ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+      } });
+      vi.spyOn(ledgerApi, "tableGroups").mockReturnValue(pending.promise);
+      render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+        title="Transactions" headingId="transactions-heading" />);
       fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
       fireEvent.click(screen.getByRole("button", { name: `${menu} Transactions` }));
-      expect(screen.getByRole("dialog", { name: `${menu} Transactions` }))
-        .toBeInTheDocument();
-
-      await act(async () => prepare.resolve(true));
-
-      expect(screen.getByRole("dialog", { name: `${menu} Transactions` }))
-        .toBeInTheDocument();
+      await act(async () => pending.resolve([{ key: "account-cash", label: "Cash", count: 250 }]));
+      expect(screen.getByRole("dialog", { name: `${menu} Transactions` })).toBeInTheDocument();
       expect(screen.queryByRole("dialog", { name: "Group Transactions" })).toBeNull();
     },
   );
@@ -4929,4 +4956,128 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(putCount).toBe(2));
     expect(result.current.tableViewSaveError).toBeNull();
   });
+});
+
+
+describe("responsive Ledger dialogs", () => {
+  it("opens transaction creation before form references resolve and never loads transaction history", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const ledger = controller();
+    ledger.ensureTransactionFormReferences = vi.fn(() => pending.promise);
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: "Add transaction" }));
+    const dialog = screen.getByRole("dialog", { name: "Add transaction" });
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Loading");
+    expect(ledger.ensureReferenceData).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Close Add transaction" }));
+    await act(async () => pending.resolve(true));
+    expect(screen.queryByRole("dialog", { name: "Add transaction" })).toBeNull();
+  });
+
+  it("loads account form choices without accounts or balances", async () => {
+    mockLedgerLoads();
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => {
+      await result.current.ensureAccountFormReferences!();
+    });
+    expect(ledgerApi.listCurrencies).toHaveBeenCalledOnce();
+    expect(ledgerApi.listAccountCategories).toHaveBeenCalledOnce();
+    expect(ledgerApi.listAccounts).not.toHaveBeenCalled();
+    expect(ledgerApi.listAccountBalances).not.toHaveBeenCalled();
+  });
+});
+
+
+it.each([
+  ["Add account", "Add account"],
+  ["Account settings", "Account settings"],
+] as const)("opens %s immediately while only account form choices load", async (button, dialogName) => {
+  const user = userEvent.setup();
+  const ledger = controller();
+  ledger.ensureAccountFormReferences = vi.fn(() => new Promise<boolean>(() => {}));
+  render(<LedgerPanel controller={ledger} leafTabId="accounts" />);
+  await user.click(screen.getByRole("button", { name: button }));
+  expect(within(screen.getByRole("dialog", { name: dialogName })).getByRole("status"))
+    .toHaveTextContent("Loading");
+  expect(ledger.ensureReferenceData).not.toHaveBeenCalled();
+});
+
+it("opens category creation immediately and waits for parent choices inside the dialog", async () => {
+  const user = userEvent.setup();
+  const ledger = controller();
+  ledger.ensureReferenceData = vi.fn(() => new Promise<boolean>(() => {}));
+  render(<LedgerPanel controller={ledger} leafTabId="categories" />);
+  await user.click(screen.getByRole("button", { name: "Add category" }));
+  expect(within(screen.getByRole("dialog", { name: "Add category" })).getByRole("status"))
+    .toHaveTextContent("Loading");
+  expect(ledger.ensureReferenceData).toHaveBeenCalledWith("ledger.categories");
+});
+
+it("preserves canonical transaction choice labels after editing without fetching history", async () => {
+  mockLedgerLoads();
+  const card = { ...loadedState.accounts[0]!, id: "account-card", name: "Card" };
+  vi.mocked(ledgerApi.listAccounts).mockResolvedValue({ items: [...loadedState.accounts, card], nextOffset: null });
+  const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+  vi.mocked(ledgerApi.listTransactionCategories).mockResolvedValue({ items: [...loadedState.categories, transit], nextOffset: null });
+  const initial = transactionEntry("expense-1", "Lunch");
+  vi.mocked(ledgerApi.queryTable).mockResolvedValue({
+    items: [transactionOccurrence("expense-1", "expense-1", "Lunch")], nextOffset: null,
+  });
+  const updated = { ...initial.entry, accountId: card.id, transactionCategoryId: transit.id };
+  vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue(updated);
+  const { result } = renderHook(() => useLedgerController());
+  await act(async () => {
+    await result.current.ensureTable!("ledger.transactions");
+    await result.current.ensureTransactionFormReferences!();
+  });
+  vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+  await act(async () => { await result.current.updateEntry(updated.id, { account: card.id, category: transit.id }); });
+  expect(result.current.state.entries[0]!.accountName).toBe("Card");
+  expect(result.current.state.entries[0]!.categoryName).toBe("Transit");
+  expect(ledgerApi.listEntries).not.toHaveBeenCalled();
+});
+
+it("closes a transaction detail when its remembered canonical record is archived", async () => {
+  const user = userEvent.setup();
+  const initial = transactionEntry("expense-1", "Lunch");
+  const ledger = controller({ ...loadedState, entries: [initial] });
+  ledger.hasReferenceData = vi.fn(() => false);
+  const view = render(<LedgerPanel controller={ledger} />);
+  await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+  const archived = { ...initial, entry: { ...initial.entry, deletedAt: "2026-10-14T00:00:00Z" } };
+  const next = controller({ ...loadedState, entries: [archived] });
+  next.hasReferenceData = vi.fn(() => false);
+  view.rerender(<LedgerPanel controller={next} />);
+  expect(screen.queryByRole("region", { name: "Lunch details" })).toBeNull();
+});
+
+it("retries a failed changed-account balance read without repeating the saved mutation", async () => {
+  mockLedgerLoads();
+  const updated = { ...loadedState.accounts[0]!, openingBalanceMinor: 2500 };
+  const save = vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue(updated);
+  const balance = vi.spyOn(ledgerApi, "getAccountBalance")
+    .mockRejectedValueOnce(new Error("temporary read failure"))
+    .mockResolvedValue({ account: updated, currencyCode: "KRW", decimalPlaces: 0, currentBalanceMinor: 3500 });
+  const { result } = renderHook(() => useLedgerController());
+  await act(async () => { await result.current.updateAccount(updated.id, { openingBalance: "2500" }); });
+  expect(result.current.state.error).toContain("Changes were saved");
+  await act(async () => { expect(await result.current.refresh()).toBe(true); });
+  expect(balance).toHaveBeenCalledTimes(2);
+  expect(result.current.state.balances[0]!.currentBalanceMinor).toBe(3500);
+  expect(result.current.state.error).toBeNull();
+  expect(save).toHaveBeenCalledOnce();
+});
+
+it("drops a failed balance retry when the account is deactivated", async () => {
+  mockLedgerLoads();
+  const updated = { ...loadedState.accounts[0]!, openingBalanceMinor: 2500 };
+  vi.spyOn(ledgerApi, "updateAccount").mockResolvedValueOnce(updated)
+    .mockResolvedValueOnce({ ...updated, active: false });
+  const balance = vi.spyOn(ledgerApi, "getAccountBalance").mockRejectedValue(new Error("temporary read failure"));
+  const { result } = renderHook(() => useLedgerController());
+  await act(async () => { await result.current.updateAccount(updated.id, { openingBalance: "2500" }); });
+  await act(async () => { await result.current.archiveAccount(updated.id); });
+  expect(balance).toHaveBeenCalledOnce();
+  expect(result.current.state.error).toBeNull();
 });

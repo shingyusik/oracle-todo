@@ -1,3 +1,4 @@
+import { mapTableGroups } from "@/features/workbench/api/table-groups";
 import type { PlannerFilterField, PlannerTableId, PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import {
   effectivePlannerFilterRules,
@@ -14,42 +15,25 @@ import type {
   WorkspaceItemModel,
   WorkspaceItemsModel,
 } from "@/features/workbench/model/workbench-model";
-import type { WorkspaceTableScopeId } from "@/features/workbench/model/workspace-table-views";
 import {
   apiPath, array, jsonRequest, nonEmptyString, nullableString, nullableTimestamp, type JsonObject,
   record, requestJson, safeInteger, string, timestamp,
 } from "@/lib/raven-api";
 
 export type TodoTablePage = { items: TodoTableOccurrence[]; nextOffset: number | null };
+type TodoTableQuery = { scope: TodoTableScope; context: TodoTableContext; settings: PlannerTableSettings; offset?: number };
+type TableReferenceDate = string | Pick<Date, "getFullYear" | "getMonth" | "getDate">;
+
+export async function queryTodoTableGroups(query: TodoTableQuery, referenceDate: TableReferenceDate = new Date()) {
+  return mapTableGroups(await requestJson("/api/v1/todo/table/groups",
+    jsonRequest("POST", tableQueryBody(query, referenceDate))));
+}
 
 export async function queryTodoTable(
-  query: { scope: TodoTableScope; context: TodoTableContext; settings: PlannerTableSettings; offset?: number },
-  referenceDate: string | Pick<Date, "getFullYear" | "getMonth" | "getDate"> = new Date(),
+  query: TodoTableQuery,
+  referenceDate: TableReferenceDate = new Date(),
 ): Promise<TodoTablePage> {
-  const value = await requestJson("/api/v1/todo/table/query", jsonRequest("POST", {
-    scope: query.scope,
-    offset: query.offset ?? 0,
-    limit: 50,
-    filter_mode: query.settings.filterMode,
-    filters: effectivePlannerFilterRules(
-      query.settings.filterRules,
-      Object.keys(plannerFilterFieldTypes) as PlannerFilterField[],
-    ).map((rule) => ({
-      field: rule.field, operator: rule.operator, value: tableFilterValue(rule.value, rule.operator),
-    })),
-    sorts: query.settings.sortRules.map((rule) => ({ field: rule.field, direction: rule.direction })),
-    group_by: query.settings.groupSettings.groupBy,
-    group_settings: {
-      sort: query.settings.groupSettings.sort,
-      hide_empty: query.settings.groupSettings.hideEmpty,
-      manual_order: query.settings.groupSettings.manualOrder,
-      hidden_group_keys: query.settings.groupSettings.hiddenGroupKeys,
-    },
-    context: contextBody(
-      query.context,
-      typeof referenceDate === "string" ? referenceDate : localCalendarDate(referenceDate),
-    ),
-  }));
+  const value = await requestJson("/api/v1/todo/table/query", jsonRequest("POST", tableQueryBody(query, referenceDate)));
   const page = record(value, "todo table page");
   const nextOffset = page.next_offset === null ? null : safeInteger(page.next_offset, "todo table page.next_offset");
   return { items: array(page.items, "todo table page.items").map(mapOccurrence), nextOffset };
@@ -123,4 +107,31 @@ function buildRelatedItems(items: TodoTableLookup[]): WorkspaceItemsModel["relat
     if (target) target[item.id] = item.title;
   }
   return maps;
+}
+
+function tableQueryBody(query: TodoTableQuery, referenceDate: TableReferenceDate): JsonObject {
+  return {
+    scope: query.scope,
+    offset: query.offset ?? 0,
+    limit: 50,
+    filter_mode: query.settings.filterMode,
+    filters: effectivePlannerFilterRules(
+      query.settings.filterRules,
+      Object.keys(plannerFilterFieldTypes) as PlannerFilterField[],
+    ).map((rule) => ({
+      field: rule.field, operator: rule.operator, value: tableFilterValue(rule.value, rule.operator),
+    })),
+    sorts: query.settings.sortRules.map((rule) => ({ field: rule.field, direction: rule.direction })),
+    group_by: query.settings.groupSettings.groupBy,
+    group_settings: {
+      sort: query.settings.groupSettings.sort,
+      hide_empty: query.settings.groupSettings.hideEmpty,
+      manual_order: query.settings.groupSettings.manualOrder,
+      hidden_group_keys: query.settings.groupSettings.hiddenGroupKeys,
+    },
+    context: contextBody(
+      query.context,
+      typeof referenceDate === "string" ? referenceDate : localCalendarDate(referenceDate),
+    ),
+  };
 }

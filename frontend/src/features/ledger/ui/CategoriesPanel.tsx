@@ -1,4 +1,6 @@
 "use client";
+
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -79,12 +81,14 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
 
   if (selectedDetail) {
     return (
+      <ReferenceDataBoundary load={controller.ensureReferenceData} scope="ledger.categories" onCancel={returnToList}>
       <CategoryDetail
         controller={controller}
         row={selectedDetail}
         onBack={returnToList}
         onDeleted={returnToList}
       />
+      </ReferenceDataBoundary>
     );
   }
 
@@ -138,9 +142,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         scope="ledger.categories"
         title="Categories"
         headingId="ledger-categories-heading"
-        onAdd={() => void ensureReferences(controller).then((loaded) => {
-          if (loaded) setCreateOpen(true);
-        })}
+        onAdd={() => setCreateOpen(true)}
         addButtonRef={addButtonRef}
         addLabel="Add category"
         onArchiveSelected={() => {
@@ -154,9 +156,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={(row) => void ensureReferences(controller).then((loaded) => {
-          if (loaded) setSelectedDetailRow(row);
-        })}
+        onOpen={setSelectedDetailRow}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
         page={visibleTablePage(page, controller.state.error)}
@@ -229,10 +229,6 @@ function visibleTablePage(
   globalError: string | null,
 ) {
   return globalError && page.moreStatus === "error" ? { ...page, nextOffset: null } : page;
-}
-
-function ensureReferences(controller: LedgerController): Promise<boolean> {
-  return controller.ensureReferenceData?.("ledger.categories") ?? Promise.resolve(true);
 }
 
 function isCategoryOccurrence(

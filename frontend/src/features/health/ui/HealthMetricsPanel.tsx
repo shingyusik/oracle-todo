@@ -36,17 +36,10 @@ export function HealthMetricsPanel({
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; date: string } | null>(null);
-  const interactionTokenRef = useRef(0);
   useEffect(() => { void controller.ensureTable("health.metrics"); }, [controller]);
   const page = controller.tablePage("health.metrics");
-  const activeViewId = controller.tableTabs("health.metrics").activeTabId;
-  useEffect(() => {
-    interactionTokenRef.current += 1;
-    return () => { interactionTokenRef.current += 1; };
-  }, [activeViewId, page.generation]);
   const entries = useMemo(() => controller.state.metricsEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.metricsEntries, tombstonedIds]);
-  const settings = controller.tableSettings("health.metrics");
   const groups = useMemo(() => occurrenceGroups(page.items.filter(isOccurrence)
     .filter(({ record }) => record.events.some(({ id }) => !tombstonedIds.has(id))), tombstonedIds),
   [page.items, tombstonedIds]);
@@ -54,12 +47,7 @@ export function HealthMetricsPanel({
     entries, defaultHealthTableSettings("health.metrics")).flatMap(({ rows }) => rows)), [entries]);
   const visibleRows = useMemo(() => uniqueRows(groups.flatMap(({ rows }) => rows)), [groups]);
   const selectedVisibleRows = visibleRows.filter(({ date }) => selectedDates.includes(date));
-  const candidates = useMemo(() => deriveHealthMetricsGroups(entries, {
-    ...defaultHealthTableSettings("health.metrics"),
-    groupSettings: { ...settings.groupSettings, hideEmpty: false, manualOrder: [], hiddenGroupKeys: [] },
-  }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
-    key, label: label!, count: uniqueRows(rows).length,
-  })), [entries, settings.groupSettings]);
+
   const currentDetailRow = detailRow ? resolveDetail(detailRow, entries) : null;
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenHealthMetricsDetailDate",
@@ -145,23 +133,15 @@ export function HealthMetricsPanel({
     if (await onRetryRefresh()) addButtonRef.current?.focus();
   }
 
-  function openCreateAfterReferences() {
-    const token = ++interactionTokenRef.current;
-    void controller.ensureReferenceData("health.metrics").then((ok) => {
-      if (!ok || token !== interactionTokenRef.current) return;
-      setDetailRow(null);
-      setCreateOpen(true);
-    });
+  function openCreate() {
+    setDetailRow(null);
+    setCreateOpen(true);
   }
 
-  function openDetailAfterReferences(row: HealthMetricsRow, occurrence: string) {
-    const token = ++interactionTokenRef.current;
-    void controller.ensureReferenceData("health.metrics").then((ok) => {
-      if (!ok || token !== interactionTokenRef.current) return;
-      setCreateOpen(false);
-      detailOriginRef.current = { occurrence, date: row.date };
-      setDetailRow(row);
-    });
+  function openDetail(row: HealthMetricsRow, occurrence: string) {
+    setCreateOpen(false);
+    detailOriginRef.current = { occurrence, date: row.date };
+    setDetailRow(row);
   }
 
   if (currentDetailRow) {
@@ -180,12 +160,12 @@ export function HealthMetricsPanel({
       headingId="health-metrics-heading"
       fieldLabels={{ weight: "Weight", sleep: "Sleep", crp: "CRP",
         calprotectin: "Calprotectin", condition: "Condition" }} fieldOptions={{}}
-      candidates={candidates} onAdd={openCreateAfterReferences} addButtonRef={addButtonRef}
+      onAdd={openCreate} addButtonRef={addButtonRef}
       onArchiveSelected={() => { setArchiveError(null); setArchiveTargets([...selectedVisibleRows]); }}
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleRows.length === 0 || archivePending} />
     <HealthMetricsTable groups={groups} activeRowCount={activeRows.length}
-      selectedDates={selectedDates} onOpen={openDetailAfterReferences}
+      selectedDates={selectedDates} onOpen={openDetail}
       onToggle={toggle} onToggleAll={toggleAll} page={page}
       onLoadMore={() => void controller.loadMore("health.metrics")}
       emptyMessage={emptyMessage(controller, page, "health metrics")} />
