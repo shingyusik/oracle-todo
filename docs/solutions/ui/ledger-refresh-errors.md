@@ -34,9 +34,14 @@ concurrent refreshes, and clearing errors after a full Ledger remount.
 ## Verification
 
 - Focused Ledger regressions: 6 passed after reproducing the duplicate-alert failure.
-- `npm --prefix frontend test`: all 1,498 tests in 57 files passed in the isolated worktree.
-- `npm --prefix frontend test -- tests/presentation/ledger-panel.spec.tsx tests/presentation/ledger-form.spec.tsx`: 163 passed in the final checkout.
-- `npm --prefix frontend run typecheck`: passed.
+- `npm --prefix frontend test`: all 1,539 tests in 60 files passed after integrating
+  upstream `main` at `d26bcd9`. The initial isolated fix passed 1,498 tests in 57 files.
+- Ledger panel, Accounts, Categories, and Quick Add integration regressions: 234 passed
+  after integration; the initial Ledger panel and form check passed 163 tests.
+- `npm --prefix frontend run typecheck`: passed after the production build.
+- `cargo fmt --check`: passed. `cargo check --workspace --jobs 2` could not reach project
+  checks: build-script linking selected Git's GNU `link.exe` instead of the MSVC linker.
+  No active MSVC C++ toolchain was found; Rust compilation remains unverified locally.
 - `npm --prefix frontend run build`: passed in the original checkout. A C:-drive worktree
   using a D:-drive `node_modules` junction failed Next.js module resolution; building with
   the original checkout's local dependencies passed.

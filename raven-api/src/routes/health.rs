@@ -52,6 +52,7 @@ pub fn router() -> Router<RavenApiState> {
         .route("/events/:id/restore", post(restore_event))
         .route("/metrics/daily", post(upsert_daily_metrics))
         .route("/table/query", post(query_table))
+        .route("/table/groups", post(table_groups))
         .route("/table/lookups", get(table_lookups))
         .route("/reports", get(reports))
         .route("/records", get(records))
@@ -263,6 +264,15 @@ struct TableLookupQuery {
 struct LookupOption {
     id: String,
     label: String,
+}
+
+async fn table_groups(
+    State(state): State<RavenApiState>,
+    body: Result<Json<TableQueryBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let query = validated_table_query(json_value(body)?)?;
+    let groups = health(&state, false, move |service| service.table_groups(&query)).await?;
+    Ok(Json(json!({"groups": groups})))
 }
 
 async fn query_table(

@@ -1390,3 +1390,108 @@ fn occurrence_key_is_unambiguous_for_delimiters_and_rejects_empty_groups() {
     assert_ne!(left.key(), right.key());
     assert!(HealthTableRow::new(Some(String::new()), Some(String::new()), record("id")).is_err());
 }
+
+#[test]
+fn table_groups_count_all_active_tag_occurrences_without_decoding_diet_details() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("health.sqlite");
+    let repository = SqliteHealthRepository::open(&database).unwrap();
+    let media = LocalMediaStore::new(directory.path().join("media")).unwrap();
+    let mut service = HealthService::new(repository, media);
+    for index in 0..61 {
+        let entry = service
+            .create_diet(CreateDietEntry {
+                occurred_at: datetime!(2025-01-01 00:00 UTC),
+                meal_type: MealType::Breakfast,
+                food_name: "selected".into(),
+                note: None,
+                tags: vec!["focus".into(), "untagged".into()],
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+        if index == 60 {
+            service.archive_diet(entry.id().as_str()).unwrap();
+        }
+    }
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute("UPDATE diet_entries SET occurred_at='broken'", [])
+        .unwrap();
+    let query = HealthTableQuery::new(
+        HealthTableScope::Diet,
+        50,
+        1,
+        FilterMode::And,
+        vec![HealthTableFilter::Diet {
+            field: DietTableFilterField::Food,
+            operator: HealthFilterOperator::Contains,
+            value: HealthTableFilterValue::Text("selected".into()),
+        }],
+        vec![],
+        HealthTableGroupSettings::new(
+            HealthTableGroup::Diet(DietTableGroup::Tag),
+            GroupSort::Manual,
+            true,
+            vec![],
+            vec!["focus".into()],
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let summaries = service.table_groups(&query).unwrap();
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|group| group.count == 60));
+    assert!(summaries.iter().any(|group| group.key == "\\untagged"));
+    assert!(service.query_table(&query).is_err());
+}
+
+#[test]
+fn table_groups_preserve_first_occurrence_order_under_the_scope_row_sort() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = SqliteHealthRepository::open(directory.path().join("health.sqlite")).unwrap();
+    let media = LocalMediaStore::new(directory.path().join("media")).unwrap();
+    let mut service = HealthService::new(repository, media);
+    for at in [
+        datetime!(2026-06-01 00:00 UTC),
+        datetime!(2026-09-01 00:00 UTC),
+    ] {
+        service
+            .create_diet(CreateDietEntry {
+                occurred_at: at,
+                meal_type: MealType::Breakfast,
+                food_name: "ordered".into(),
+                note: None,
+                tags: vec![],
+                media: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let query = HealthTableQuery::new(
+        HealthTableScope::Diet,
+        0,
+        50,
+        FilterMode::And,
+        vec![],
+        vec![HealthTableSort::Diet {
+            field: DietTableSortField::Date,
+            direction: SortDirection::Desc,
+        }],
+        groups(
+            HealthTableScope::Diet,
+            HealthTableGroup::Diet(DietTableGroup::Month),
+        ),
+        None,
+    )
+    .unwrap();
+    let groups = service.table_groups(&query).unwrap();
+    assert_eq!(
+        groups
+            .iter()
+            .map(|group| group.key.as_str())
+            .collect::<Vec<_>>(),
+        ["2026-09", "2026-06"]
+    );
+}

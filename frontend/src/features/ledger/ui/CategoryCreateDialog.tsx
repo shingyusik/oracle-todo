@@ -1,5 +1,7 @@
 "use client";
 
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
+
 import React from "react";
 import { createPortal } from "react-dom";
 
@@ -151,6 +153,7 @@ function CategoryCreateDialogContent({
         <header className="dashboard-widget-header">
           <h2>Add category</h2>
         </header>
+        <ReferenceDataBoundary load={controller.ensureReferenceData} scope="ledger.categories" onCancel={close} cancelLabel="Close Add category">
         <form aria-label="New category" onSubmit={submit}>
           <label className="field-label">
             Category name
@@ -205,6 +208,7 @@ function CategoryCreateDialogContent({
             </button>
           </div>
         </form>
+        </ReferenceDataBoundary>
       </div>
     </div>
   );

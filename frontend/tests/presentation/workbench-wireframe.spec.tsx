@@ -115,7 +115,7 @@ async function legacyTodoTableResponse(
       tags: !scopedIds || scopedIds.has(item.id) ? item.tags ?? [] : [],
     })) });
   }
-  if (url !== "/api/v1/todo/table/query") {
+  if (url !== "/api/v1/todo/table/query" && url !== "/api/v1/todo/table/groups") {
     const response = await fixtureFetch(url, init);
     if (!url.startsWith("/api/v1/todo/") || !init?.method || init.method === "GET") return response;
     let result: Promise<unknown> | null = null;
@@ -166,6 +166,11 @@ async function legacyTodoTableResponse(
     body.context.reference_date,
   );
   items = sortPlannerItems(items, settings.sortRules);
+  if (url === "/api/v1/todo/table/groups") {
+    return fixtureJson({ groups: buildPlannerGroupCandidates({
+      view: "daily", groupBy: settings.groupSettings.groupBy, items, relatedItems,
+    }) });
+  }
   const groups = body.scope.startsWith("planner.")
     ? groupPlannerItems(items, relatedItems, settings.groupSettings, buildPlannerGroupCandidates({
         view: body.scope.split(".")[1] as "yearly" | "monthly" | "weekly" | "daily",
@@ -1779,6 +1784,7 @@ describe("WorkbenchPageClient", () => {
     const health = {
       state: { tableLookups: { "health.diet": {} } },
       tableSettings: vi.fn(() => settings),
+      tablePage: vi.fn(() => ({ generation: 1 })),
       tableTabs: vi.fn(() => ({ tabs: [{ id: "table", name: "Table", settings }],
         activeTabId: "table", draftSettings: settings })),
       tableIsDirty: vi.fn(() => false), updateTableSettings: vi.fn(), selectTableTab: vi.fn(),
@@ -1787,7 +1793,7 @@ describe("WorkbenchPageClient", () => {
     } as unknown as HealthController;
     render(<HealthTableViewHeader controller={health} scope="health.diet" title="Diet"
       headingId="health-diet-heading" fieldLabels={{ meal_type: "Meal", has_photo: "Photo" }}
-      fieldOptions={healthDietFilterSelectOptions} candidates={[]}
+      fieldOptions={healthDietFilterSelectOptions}
       onAdd={vi.fn()} addButtonRef={React.createRef<HTMLButtonElement>()}
       onArchiveSelected={vi.fn()} archiveButtonRef={React.createRef<HTMLButtonElement>()}
       archiveDisabled />);
@@ -13279,7 +13285,7 @@ describe("WorkbenchPageClient", () => {
     }
   });
 
-  it("filters the deliberate rich reference set before Workspace, Planner, and linked group counts", async () => {
+  it("queries compact filtered group counts for Workspace, Planner, and linked scopes without draining records", async () => {
     const user = userEvent.setup();
     const area = { id: "area-rich", type: "area", title: "Rich area", status: "active" } as WorkspaceItemModel;
     const tasks = Array.from({ length: 51 }, (_, index) => ({
@@ -13290,7 +13296,13 @@ describe("WorkbenchPageClient", () => {
       area_id: area.id,
       scheduled: testToday(),
     } as WorkspaceItemModel));
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/todo/table/groups") {
+        const body = todoMutationBody(init) as { scope: string; filters: unknown[]; context: { parent_id?: string } };
+        expect(body.filters).toHaveLength(1);
+        if (body.scope.startsWith("linked.")) expect(body.context.parent_id).toBe(area.id);
+        return fixtureJson({ groups: [{ key: "active", label: "Active", count: 1 }] });
+      }
       if (url === "/api/v1/todo/table/query") {
         const body = todoMutationBody(init) as { scope: string; filters: unknown[] };
         const record = body.scope === "workspace.area"
@@ -13304,7 +13316,8 @@ describe("WorkbenchPageClient", () => {
       if (url.startsWith("/api/v1/todo/table/lookups")) return fixtureJson({ items: [] });
       if (url === "/api/v1/todo/items") return fixtureJson([area, ...tasks]);
       return fixtureJson(url.startsWith("/api/v1/preferences/") ? {} : []);
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const applyTitleFilter = async (filterButton: HTMLElement, dialogName: string) => {
       await user.click(filterButton);
@@ -13314,11 +13327,13 @@ describe("WorkbenchPageClient", () => {
       await user.type(within(dialog).getByLabelText("Filter value"), "Rich task 50");
     };
     const expectActiveCount = async (groupButton: HTMLElement, dialogName: string) => {
+      const richReads = fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items").length;
       await user.click(groupButton);
       const dialog = await screen.findByRole("dialog", { name: dialogName });
       await user.click(within(dialog).getByRole("button", { name: "Choose group property" }));
       await user.click(within(dialog).getByRole("option", { name: "Status" }));
-      expect(within(dialog).getByRole("listitem")).toHaveTextContent(/^Active1/);
+      expect(await within(dialog).findByRole("listitem")).toHaveTextContent(/^Active1/);
+      expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/items")).toHaveLength(richReads);
       await user.click(within(dialog).getByRole("button", { name: "Remove grouping" }));
       await user.keyboard("{Escape}");
     };
@@ -13356,6 +13371,10 @@ describe("WorkbenchPageClient", () => {
     expect(within(screen.getByRole("table", { name: "Tasks linked items" })).queryByRole("rowheader")).toBeNull();
     await applyTitleFilter(screen.getByRole("button", { name: "Filter Tasks" }), "Filter Tasks");
     await expectActiveCount(screen.getByRole("button", { name: "Group Tasks" }), "Group Tasks");
+    expect([...new Set(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/todo/table/groups")
+      .map(([, init]) => todoMutationBody(init).scope))]).toEqual([
+        "workspace.task", "planner.daily-today", "linked.area.task",
+      ]);
   });
 
   it("initializes every Planner table through an independent offset-zero query", async () => {

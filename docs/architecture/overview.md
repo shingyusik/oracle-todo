@@ -57,6 +57,20 @@ frontend → /api/v1
   the read-only Dashboard, and the MCP transport/tool adapter.
 - `frontend` is one static Next.js application served with the API by `raven ui`.
 
+Creation dialogs and group menus open before their supporting reads finish. Loading,
+retry, and dismissal remain available inside the open surface. Ledger transaction forms
+load account, currency, and transaction-category choices; account forms and settings load
+currencies and account types. Category forms load the parent-category tree. These form
+reads do not load transaction history or every account balance.
+
+Health Diet forms use compact tag lookups. Bowel and Medication creation use no historical
+record reads. Health Metrics creation reads only the selected local date and retains the
+record versions required for optimistic updates. Detail screens reuse the full records
+already returned in bounded table pages; canonical mutation results preserve updated
+versions when a detail is outside the refreshed first page. Account balance refreshes read
+only the changed account. Group menus use service-owned compact group summaries rather
+than full record lists.
+
 ## Data isolation
 
 `todo.sqlite`, `ledger.sqlite`, and `health.sqlite` are separate sources of truth under one

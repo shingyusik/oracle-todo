@@ -115,6 +115,7 @@ export type LedgerController = {
   loadMore?(scope: LedgerTableScopeId): Promise<void>;
   ensureReferenceData?(scope: LedgerTableScopeId): Promise<boolean>;
   ensureTransactionFormReferences?(): Promise<boolean>;
+  ensureAccountFormReferences?(): Promise<boolean>;
   hasReferenceData?(scope: LedgerTableScopeId): boolean;
   updateTableSettings(
     scope: LedgerTableScopeId,
@@ -235,6 +236,9 @@ export function useLedgerController(): LedgerController {
   const pendingMore = useRef(new Set<string>());
   const referenceDataLoaded = useRef(new Set<LedgerTableScopeId>());
   const referenceDataRequests = useRef(new Map<LedgerTableScopeId, Promise<boolean>>());
+  const pendingAccountBalances = useRef(new Set<string>());
+  const accountFormReferencesLoaded = useRef(false);
+  const accountFormReferencesRequest = useRef<Promise<boolean> | null>(null);
   const transactionFormReferencesLoaded = useRef(false);
   const transactionFormReferencesRequest = useRef<Promise<boolean> | null>(null);
   const tableViewsRef = useRef(tableViews);
@@ -278,7 +282,7 @@ export function useLedgerController(): LedgerController {
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
       setState((current) => ({
-        ...current,
+        ...rememberLedgerRows(current, result.items),
         status: "loaded",
         error: null,
         tableLookups: { ...initialState.tableLookups!, ...current.tableLookups, [scope]: lookups },
@@ -335,6 +339,7 @@ export function useLedgerController(): LedgerController {
       };
       tablePagesRef.current = { ...tablePagesRef.current, [scope]: next };
       setTablePages(tablePagesRef.current);
+      setState((current) => rememberLedgerRows(current, result.items));
     } catch {
       if (tablePagesRef.current[scope].generation !== generation) return;
       const next = {
@@ -414,7 +419,7 @@ export function useLedgerController(): LedgerController {
     ]).then(([currencies, accounts, categories]) => {
       transactionFormReferencesLoaded.current = true;
       setState((current) => ({
-        ...current, status: "loaded", error: null, currencies, accounts, categories,
+        ...current, status: "loaded", error: force ? current.error : null, currencies, accounts, categories,
       }));
       return true;
     }, (error) => {
@@ -426,6 +431,24 @@ export function useLedgerController(): LedgerController {
       }
     });
     transactionFormReferencesRequest.current = request;
+    return request;
+  }, []);
+
+  const loadAccountFormReferences = useCallback((force = false): Promise<boolean> => {
+    if (!force && accountFormReferencesLoaded.current) return Promise.resolve(true);
+    if (accountFormReferencesRequest.current) return accountFormReferencesRequest.current;
+    const request = Promise.all([
+      drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
+      drainPages((offset) => ledgerApi.listAccountCategories({ limit: 200, offset })),
+    ]).then(([currencies, accountCategories]) => {
+      accountFormReferencesLoaded.current = true;
+      setState((current) => ({ ...current, error: force ? current.error : null, currencies, accountCategories }));
+      return true;
+    }, (error) => {
+      setState((current) => ({ ...current, error: errorMessage(error) }));
+      return false;
+    }).finally(() => { accountFormReferencesRequest.current = null; });
+    accountFormReferencesRequest.current = request;
     return request;
   }, []);
 
@@ -517,16 +540,32 @@ export function useLedgerController(): LedgerController {
     return request;
   }, []);
 
+  const refreshAccountBalance = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const balance = await ledgerApi.getAccountBalance(id);
+      setState((current) => ({
+        ...current,
+        accounts: mergeLedgerRecords(current.accounts, [balance.account]),
+        balances: [...current.balances.filter(({ account }) => account.id !== id), balance],
+      }));
+      pendingAccountBalances.current.delete(id);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const refresh = useCallback((): Promise<boolean> => {
     const generation = ++refreshGeneration.current;
     setState((current) => ({ ...current, error: null }));
     let request!: Promise<RefreshOutcome>;
     request = (async () => {
-      const [references, pages] = await Promise.all([
+      const [references, pages, balances] = await Promise.all([
         Promise.all(
           [...referenceDataLoaded.current].map((scope) => loadReferenceData(scope, true)),
         ),
         Promise.all([...initializedTables.current].map(loadInitialTable)),
+        Promise.all([...pendingAccountBalances.current].map(refreshAccountBalance)),
       ]);
       if (
         transactionFormReferencesLoaded.current &&
@@ -537,14 +576,20 @@ export function useLedgerController(): LedgerController {
       if (generation !== refreshGeneration.current && latestRefresh.current !== request) {
         return latestRefresh.current ?? { ok: false, error: "Ledger request failed" };
       }
-      const ok = references.every(Boolean) && pages.every(Boolean);
+      if (accountFormReferencesLoaded.current && !referenceDataLoaded.current.has("ledger.accounts")) {
+        references.push(await loadAccountFormReferences(true));
+      }
+      if (!balances.every(Boolean)) {
+        setState((current) => ({ ...current, error: "Changes were saved, but this account could not refresh." }));
+      }
+      const ok = references.every(Boolean) && pages.every(Boolean) && balances.every(Boolean);
       return ok
         ? { ok: true }
         : { ok: false, error: "Ledger request failed" };
     })();
     latestRefresh.current = request;
     return request.then(({ ok }) => ok);
-  }, [loadInitialTable, loadReferenceData, loadTransactionFormReferences]);
+  }, [loadAccountFormReferences, loadInitialTable, loadReferenceData, loadTransactionFormReferences, refreshAccountBalance]);
 
   useEffect(() => {
     void refreshOutcome();
@@ -554,7 +599,13 @@ export function useLedgerController(): LedgerController {
     operation: () => Promise<unknown>,
     requireRefresh = false,
   ) => {
-    await operation();
+    const record = await operation();
+    setState((current) => rememberLedgerMutation(current, record));
+    if (record && typeof record === "object" && "openingBalanceMinor" in record) {
+      const account = record as Account;
+      if (account.active) pendingAccountBalances.current.add(account.id);
+      else pendingAccountBalances.current.delete(account.id);
+    }
     const outcome = await refresh();
     if (outcome) return;
     if (requireRefresh) throw new LedgerMutationRefreshError();
@@ -686,6 +737,7 @@ export function useLedgerController(): LedgerController {
     loadMore,
     ensureReferenceData,
     ensureTransactionFormReferences: loadTransactionFormReferences,
+    ensureAccountFormReferences: loadAccountFormReferences,
     hasReferenceData: (scope) => referenceDataLoaded.current.has(scope),
     updateTableSettings: (scope, updater) => {
       updateTableTabs(scope, (tabs) => updateTableViewTabDraft(
@@ -805,4 +857,62 @@ async function drainPages<T>(
     offset = page.nextOffset ?? undefined;
   } while (offset !== undefined);
   return items;
+}
+
+function mergeLedgerRecords<T extends { id: string }>(current: T[], incoming: T[]): T[] {
+  const records = new Map(current.map((value) => [value.id, value]));
+  for (const value of incoming) records.set(value.id, value);
+  return [...records.values()];
+}
+
+function rememberLedgerRows(state: LedgerState, items: LedgerTableOccurrence[]): LedgerState {
+  let next = state;
+  for (const item of items) {
+    if (item.scope === "ledger.transactions") {
+      const views = item.record.transferEntry
+        ? [item.record.detailEntry, item.record.transferEntry] : [item.record.detailEntry];
+      const entries = new Map(next.entries.map((view) => [view.entry.id, view]));
+      for (const view of views) entries.set(view.entry.id, view);
+      next = { ...next, entries: [...entries.values()] };
+    } else if (item.scope === "ledger.accounts") {
+      next = { ...next,
+        accounts: mergeLedgerRecords(next.accounts, [item.record.account]),
+        balances: [...next.balances.filter(({ account }) => account.id !== item.record.id), {
+          account: item.record.account, currencyCode: item.record.currencyCode,
+          decimalPlaces: item.record.decimalPlaces, currentBalanceMinor: item.record.currentBalanceMinor,
+        }],
+      };
+    } else {
+      next = { ...next, categories: mergeLedgerRecords(next.categories, [item.record.category]) };
+    }
+  }
+  return next;
+}
+
+function rememberLedgerMutation(state: LedgerState, record: unknown): LedgerState {
+  if (!record || typeof record !== "object") return state;
+  if ("outEntry" in record && "inEntry" in record) {
+    const transfer = record as { outEntry: LedgerEntryView; inEntry: LedgerEntryView };
+    const entries = new Map(state.entries.map((view) => [view.entry.id, view]));
+    for (const view of [transfer.outEntry, transfer.inEntry]) entries.set(view.entry.id, view);
+    return { ...state, entries: [...entries.values()] };
+  }
+  if (!("id" in record)) return state;
+  if ("entryType" in record) {
+    const entry = record as LedgerEntryView["entry"];
+    const previous = state.entries.find((view) => view.entry.id === entry.id);
+    const view: LedgerEntryView = {
+      entry,
+      accountName: state.accounts.find(({ id }) => id === entry.accountId)?.name
+        ?? (previous && previous.entry.accountId === entry.accountId ? previous.accountName : null),
+      categoryName: state.categories.find(({ id }) => id === entry.transactionCategoryId)?.name
+        ?? (previous && previous.entry.transactionCategoryId === entry.transactionCategoryId ? previous.categoryName : null),
+      currencyCode: state.currencies.find(({ id }) => id === entry.currencyId)?.code
+        ?? (previous && previous.entry.currencyId === entry.currencyId ? previous.currencyCode : null),
+    };
+    return { ...state, entries: [...state.entries.filter((view) => view.entry.id !== entry.id), view] };
+  }
+  if ("openingBalanceMinor" in record) return { ...state, accounts: mergeLedgerRecords(state.accounts, [record as Account]) };
+  if ("parentId" in record) return { ...state, categories: mergeLedgerRecords(state.categories, [record as TransactionCategory]) };
+  return state;
 }

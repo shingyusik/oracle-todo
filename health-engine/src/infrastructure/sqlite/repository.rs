@@ -22,6 +22,13 @@ use crate::domain::{DietEntry, HealthCategory, HealthEvent, MetricKey};
 impl HealthRepository for SqliteHealthRepository {}
 
 impl HealthReadRepository for SqliteHealthRepository {
+    fn table_groups(
+        &self,
+        query: &crate::application::table::HealthTableQuery,
+    ) -> HealthResult<Vec<crate::application::table::TableGroupSummary>> {
+        super::table_query::table_groups(&self.connection, query)
+    }
+
     fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>> {
         super::table_query::query_table(&self.connection, query)
     }

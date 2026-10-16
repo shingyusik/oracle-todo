@@ -173,3 +173,16 @@ const transactionRecord = {
 function response(body: unknown) {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
 }
+
+
+it("reads the changed account balance by ID even when account names repeat", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(response({
+    account: { id: "duplicate-51", name: "Wallet", category_id: "cash", currency_id: "krw",
+      opening_balance: 2500, active: true },
+    currency_code: "KRW", decimal_places: 0, current_balance_minor: 3500,
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  const balance = await ledgerApi.getAccountBalance("duplicate-51");
+  expect(fetchMock).toHaveBeenCalledWith("/api/v1/ledger/accounts/duplicate-51/balance", expect.anything());
+  expect(balance.currentBalanceMinor).toBe(3500);
+});

@@ -314,6 +314,16 @@ pub(super) struct TableLookupQuery {
     horizon: Option<String>,
 }
 
+pub(super) async fn table_groups(
+    State(state): State<ApiState>,
+    body: Result<Json<TableQueryBody>, JsonRejection>,
+) -> ApiResult<Json<Value>> {
+    let Json(body) = body.map_err(validation_rejection)?;
+    let query = body.application()?;
+    let groups = with_read_service(&state, |service| service.table_groups(&query))?;
+    Ok(Json(json!({"groups": groups})))
+}
+
 pub(super) async fn query_table(
     State(state): State<ApiState>,
     body: Result<Json<TableQueryBody>, JsonRejection>,

@@ -16,6 +16,7 @@ import {
   mapHealthTablePage,
   mapHealthRecord,
 } from "@/features/health/model/health-model";
+import { mapTableGroups } from "@/features/workbench/api/table-groups";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
 import { healthCalendarDate } from "@/features/health/model/health-date";
 import { tableFilterValue } from "@/features/workbench/model/table-query";
@@ -57,6 +58,10 @@ export type DailyMetricsMutation = {
 export type HealthTablePage = ReturnType<typeof mapHealthTablePage>;
 
 export const healthApi = {
+  async tableGroups(scope: HealthTableScope, settings: PlannerTableSettings, referenceDate = new Date()) {
+    return mapTableGroups(await requestJson(`${ROOT}/table/groups`,
+      jsonRequest("POST", tableQueryBody(scope, settings, 0, referenceDate))));
+  },
   async queryTable(
     scope: HealthTableScope,
     settings: PlannerTableSettings,
@@ -65,29 +70,7 @@ export const healthApi = {
   ): Promise<HealthTablePage> {
     return mapHealthTablePage(await requestJson(
       `${ROOT}/table/query`,
-      jsonRequest("POST", {
-        scope,
-        offset,
-        limit: 50,
-        filter_mode: settings.filterMode,
-        filters: settings.filterRules.map((rule) => ({
-          field: rule.field,
-          operator: rule.operator,
-          value: tableFilterValue(rule.value, rule.operator),
-        })),
-        sorts: settings.sortRules.map((rule) => ({
-          field: rule.field,
-          direction: rule.direction,
-        })),
-        group_by: settings.groupSettings.groupBy,
-        group_settings: {
-          sort: settings.groupSettings.sort,
-          hide_empty: settings.groupSettings.hideEmpty,
-          manual_order: settings.groupSettings.manualOrder,
-          hidden_group_keys: settings.groupSettings.hiddenGroupKeys,
-        },
-        context: { reference_date: healthCalendarDate(referenceDate) },
-      }),
+      jsonRequest("POST", tableQueryBody(scope, settings, offset, referenceDate)),
     ), scope);
   },
   async tableLookups(scope: HealthTableScope): Promise<HealthTableLookups> {
@@ -312,4 +295,17 @@ function asciiJson(value: JsonObject): string {
     /[^\x20-\x7e]/g,
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
+}
+
+function tableQueryBody(scope: HealthTableScope, settings: PlannerTableSettings, offset: number, referenceDate: Date): JsonObject {
+  return {
+    scope, offset, limit: 50, filter_mode: settings.filterMode,
+    filters: settings.filterRules.map((rule) => ({ field: rule.field, operator: rule.operator,
+      value: tableFilterValue(rule.value, rule.operator) })),
+    sorts: settings.sortRules.map((rule) => ({ field: rule.field, direction: rule.direction })),
+    group_by: settings.groupSettings.groupBy,
+    group_settings: { sort: settings.groupSettings.sort, hide_empty: settings.groupSettings.hideEmpty,
+      manual_order: settings.groupSettings.manualOrder, hidden_group_keys: settings.groupSettings.hiddenGroupKeys },
+    context: { reference_date: healthCalendarDate(referenceDate) },
+  };
 }

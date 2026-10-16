@@ -5,7 +5,7 @@ use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::validate_media_relative_path;
 use crate::application::queries::HealthRecord;
 use crate::application::reports::ReportRecords;
-use crate::application::table::{HealthTableQuery, HealthTableRow, TablePage};
+use crate::application::table::{HealthTableQuery, HealthTableRow, TableGroupSummary, TablePage};
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, HealthRecordId, MetricKey};
 
 pub const DEFAULT_PAGE_LIMIT: u16 = 100;
@@ -313,6 +313,7 @@ pub trait HealthRepository: Send {}
 #[allow(dead_code)]
 pub(crate) trait HealthReadRepository: HealthRepository {
     fn query_table(&self, query: &HealthTableQuery) -> HealthResult<TablePage<HealthTableRow>>;
+    fn table_groups(&self, query: &HealthTableQuery) -> HealthResult<Vec<TableGroupSummary>>;
     fn list_active_diet_tags(&self) -> HealthResult<Vec<String>>;
     fn get_diet(&self, id: &str, include_archived: bool) -> HealthResult<Option<DietEntry>>;
     fn list_diet(&self, page: Page, include_archived: bool) -> HealthResult<Vec<DietEntry>>;

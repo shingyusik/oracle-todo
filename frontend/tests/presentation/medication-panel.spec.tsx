@@ -164,37 +164,33 @@ function MedicationPanelHarness({ controller }: { controller: HealthController }
 describe("MedicationPanel", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("opens only the latest Medication Add intent while reference data is pending", async () => {
+  it("opens Medication detail and Add immediately without history preload", async () => {
     const user = userEvent.setup();
-    const pending = deferred<boolean>();
     const health = panelController();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
     render(<MedicationPanelHarness controller={health} />);
-
     await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
+    expect(screen.getByRole("heading", { name: "Vitamin D" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await screen.findByRole("button", { name: "Add medication entry" });
     await user.click(screen.getByRole("button", { name: "Add medication entry" }));
-    await act(async () => pending.resolve(true));
-
     expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Vitamin D" })).toBeNull();
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
-  it("invalidates a pending Medication action when the current view generation resets", async () => {
+  it("preserves an open Medication draft while the table generation changes", async () => {
     const user = userEvent.setup();
     const health = panelController();
     const page = health.tablePage("health.medication");
     let generation = page.generation;
     health.tablePage = vi.fn(() => ({ ...page, generation }));
-    const pending = deferred<boolean>();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
     const view = render(<MedicationPanelHarness controller={health} />);
-
     await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+    await user.type(screen.getByLabelText("Medication name"), "Calcium");
     generation += 1;
     view.rerender(<MedicationPanelHarness controller={health} />);
-    await act(async () => pending.resolve(true));
-
-    expect(screen.queryByRole("dialog", { name: "Add medication entry" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Medication name")).toHaveValue("Calcium");
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
   it("renders the saved-view table with exact controls, columns, active rows, and a contextual detail affordance", async () => {
@@ -1429,4 +1425,15 @@ describe("MedicationPanel", () => {
     expect(screen.getByRole("checkbox", { name: /Select Calcium/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Select Vitamin D/ })).toBeChecked();
   });
+});
+
+
+it("opens Medication creation immediately without reading old records", async () => {
+  const user = userEvent.setup();
+  const health = panelController();
+  vi.mocked(health.ensureReferenceData).mockReturnValue(new Promise(() => {}));
+  render(<MedicationPanelHarness controller={health} />);
+  await user.click(screen.getByRole("button", { name: "Add medication entry" }));
+  expect(screen.getByRole("dialog", { name: "Add medication entry" })).toBeVisible();
+  expect(health.ensureReferenceData).not.toHaveBeenCalled();
 });

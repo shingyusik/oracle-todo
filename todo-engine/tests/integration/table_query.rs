@@ -3083,3 +3083,156 @@ fn row_keys_are_constructor_derived_and_group_values_preserve_saved_keys_safely(
         .is_err()
     );
 }
+
+#[test]
+fn table_groups_count_full_context_without_hydrating_records_or_hiding_candidates() {
+    use todo_engine::application::ports::TodoRepository;
+    let connection = connect(":memory:").unwrap();
+    init_schema(&connection).unwrap();
+    let mut repository = SqliteTodoRepository::new(connection);
+    for id in ["parent", "other"] {
+        let project = TodoItem::new(
+            id,
+            ItemType::Project,
+            id,
+            Actor::User,
+            time::macros::datetime!(2026-08-22 0:00 UTC),
+        );
+        repository.save_item(&project).unwrap();
+    }
+    for index in 0..62 {
+        let mut item = TodoItem::new_task(
+            format!("group-{index}"),
+            "selected",
+            Actor::User,
+            time::macros::datetime!(2026-08-22 0:00 UTC),
+        );
+        item.tags = vec!["focus".into(), "untagged".into()];
+        item.project_id = Some(if index == 61 { "other" } else { "parent" }.into());
+        if index == 60 {
+            item.status = todo_engine::domain::ItemStatus::Archived;
+        }
+        repository.save_item(&item).unwrap();
+    }
+    let mut service = TodoService::persistent(repository);
+    let query = TodoTableQuery::new(
+        TodoTableScope::Linked {
+            parent: ItemType::Project,
+            child: ItemType::Task,
+        },
+        TableContext::Linked {
+            parent_type: ItemType::Project,
+            parent_id: "parent".into(),
+        },
+        50,
+        1,
+        FilterMode::And,
+        vec![TodoTableFilter::Workspace {
+            field: WorkspaceFilterField::Title,
+            operator: TodoFilterOperator::Contains,
+            value: TodoTableFilterValue::Text("selected".into()),
+        }],
+        vec![],
+        TodoTableGroupSettings::new(
+            TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
+            GroupSort::Manual,
+            true,
+            vec![],
+            vec!["focus".into()],
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let summaries = service.table_groups(&query).unwrap();
+    assert_eq!(summaries.len(), 2);
+    assert!(summaries.iter().all(|group| group.count == 60));
+    assert!(
+        summaries
+            .iter()
+            .any(|group| group.key == "focus" && group.label == "focus")
+    );
+    assert!(
+        summaries.iter().any(
+            |group| group.key == canonical_group_value("untagged") && group.label == "untagged"
+        )
+    );
+}
+
+#[test]
+fn table_groups_do_not_decode_unneeded_todo_metadata() {
+    let connection = connect(":memory:").unwrap();
+    init_schema(&connection).unwrap();
+    connection.execute("INSERT INTO items (id,type,title,status,proposed_by,created_at,updated_at,tags,metadata) VALUES ('bad-detail','task','Title','active','user','2026-08-22T00:00:00Z','2026-08-22T00:00:00Z','[]','not json')", []).unwrap();
+    let mut service = TodoService::persistent(SqliteTodoRepository::new(connection));
+    let query = TodoTableQuery::new(
+        TodoTableScope::Workspace(WorkspaceTableScope::Task),
+        TableContext::Workspace,
+        0,
+        50,
+        FilterMode::And,
+        vec![],
+        vec![],
+        groups(TodoTableGroup::Workspace(WorkspaceTableGroup::Status)),
+        None,
+    )
+    .unwrap();
+    let summaries = service.table_groups(&query).unwrap();
+    assert_eq!(summaries[0].count, 1);
+    assert_eq!(summaries[0].key, "active");
+    assert!(service.query_table(&query).is_err());
+}
+
+#[test]
+fn table_group_counts_match_in_memory_and_sqlite_with_filters_and_hidden_tags() {
+    let connection = connect(":memory:").unwrap();
+    init_schema(&connection).unwrap();
+    let mut sqlite = TodoService::persistent(SqliteTodoRepository::new(connection));
+    let mut memory = TodoService::in_memory();
+    for service in [&mut memory, &mut sqlite] {
+        service
+            .propose_task(
+                "Selected",
+                ProposeTask {
+                    tags: vec!["focus".into(), "untagged".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        service
+            .propose_task(
+                "Excluded",
+                ProposeTask {
+                    tags: vec!["elsewhere".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let query = TodoTableQuery::new(
+        TodoTableScope::Workspace(WorkspaceTableScope::Task),
+        TableContext::Workspace,
+        50,
+        1,
+        FilterMode::And,
+        vec![TodoTableFilter::Workspace {
+            field: WorkspaceFilterField::Title,
+            operator: TodoFilterOperator::Contains,
+            value: TodoTableFilterValue::Text("Selected".into()),
+        }],
+        vec![],
+        TodoTableGroupSettings::new(
+            TodoTableGroup::Workspace(WorkspaceTableGroup::Tag),
+            GroupSort::Manual,
+            true,
+            vec![],
+            vec!["focus".into()],
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let expected = sqlite.table_groups(&query).unwrap();
+    assert_eq!(expected.len(), 2);
+    assert_eq!(memory.table_groups(&query).unwrap(), expected);
+}

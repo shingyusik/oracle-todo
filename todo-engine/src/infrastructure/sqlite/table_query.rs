@@ -46,6 +46,34 @@ impl SqliteTodoRepository {
         })
     }
 
+    pub(super) fn read_table_groups(
+        &mut self,
+        query: &TodoTableQuery,
+    ) -> TodoResult<Vec<TableGroupSummary>> {
+        let (predicates, params) = scope_predicates(query)?;
+        let (join, key, label) = group_projection(query.group_settings().group_by());
+        let (Some(key), Some(label)) = (key, label) else {
+            return Ok(vec![]);
+        };
+        let sql = format!(
+            "SELECT {key} AS group_key, MIN({label}), COUNT(*) FROM items i {join} WHERE {} GROUP BY group_key ORDER BY group_key",
+            predicates.join(" AND ")
+        );
+        self.conn
+            .prepare(&sql)
+            .map_err(storage_error)?
+            .query_map(params_from_iter(params), |row| {
+                Ok(TableGroupSummary {
+                    key: row.get(0)?,
+                    label: row.get(1)?,
+                    count: row.get(2)?,
+                })
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)
+    }
+
     pub(super) fn read_table_lookups(
         &mut self,
         scope: TodoTableScope,
@@ -112,7 +140,7 @@ fn lookup_type_sql(scope: TodoTableScope) -> String {
         .join(",")
 }
 
-fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
+fn scope_predicates(query: &TodoTableQuery) -> TodoResult<(Vec<String>, Vec<Value>)> {
     let mut params = Vec::new();
     let mut predicates = Vec::new();
     context_predicates(query, &mut predicates, &mut params);
@@ -130,6 +158,12 @@ fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
             })
         ));
     }
+
+    Ok((predicates, params))
+}
+
+fn table_sql(query: &TodoTableQuery) -> TodoResult<(String, Vec<Value>)> {
+    let (mut predicates, mut params) = scope_predicates(query)?;
 
     let (join, raw_group, group_label) = group_projection(query.group_settings().group_by());
     let canonical_group = raw_group;

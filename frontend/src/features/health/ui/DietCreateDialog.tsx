@@ -1,5 +1,7 @@
 "use client";
 
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
+
 import React from "react";
 import { createPortal } from "react-dom";
 
@@ -124,6 +126,7 @@ function DietCreateDialogContent({
         <header className="dashboard-widget-header">
           <h2>Add diet entry</h2>
         </header>
+        <ReferenceDataBoundary load={controller.ensureQuickAddReferences} scope="health.diet" onCancel={close} cancelLabel="Close Add diet entry">
         <DietForm
           controller={controller}
           onSaved={onClose}
@@ -133,6 +136,7 @@ function DietCreateDialogContent({
           dialogActions={{ closeLabel: "Close Add diet entry", onClose: close }}
           tagOptions={tagOptions}
         />
+        </ReferenceDataBoundary>
       </div>
     </div>
   );

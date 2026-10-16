@@ -1,4 +1,5 @@
 "use client";
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -170,15 +171,16 @@ function TransactionsPanel({
   const referenceRows = legacyEntries.length > 0
     ? projectTransactionRows(legacyEntries)
     : activeRows;
-  const resolvedEditing = editing === null
+  const editingArchived = editing !== null && controller.state.entries.some(({ entry }) =>
+    (entry.id === editing.detailEntry.entry.id ||
+      (editing.kind === "transfer" && entry.transferGroupId === editing.id)) && entry.deletedAt !== null);
+  const resolvedEditing = editing === null || (editingArchived && !detailDirty.current)
     ? null
     : controller.hasReferenceData?.("ledger.transactions")
-      ? projectTransactionRows(legacyEntries).find(({ id }) => id === editing.id) ?? (detailDirty.current ? editing : null)
-      : referenceRows.find(({ id }) => id === editing.id) ?? (detailDirty.current ? editing : null);
-  const displayedEntries = legacyEntries.length > 0
-    ? legacyEntries
-    : activeRows.flatMap(({ detailEntry, transferEntry }) =>
-      transferEntry ? [detailEntry, transferEntry] : [detailEntry]);
+      ? projectTransactionRows(legacyEntries).find(({ id }) => id === editing.id)
+        ?? (detailDirty.current ? editing : null)
+      : referenceRows.find(({ id }) => id === editing.id)
+        ?? (controller.hasReferenceData || detailDirty.current ? editing : null);
   const visibleRows = useMemo(
     () => groups.flatMap((group) => group.rows),
     [groups],
@@ -229,12 +231,13 @@ function TransactionsPanel({
     if (complete) setArchiveConfirmationOpen(false);
   }
 
-  async function openTransaction(row: TransactionRow) {
-    if (await ensureLedgerReferences(controller, "ledger.transactions")) setEditing(row);
+  function openTransaction(row: TransactionRow) {
+    setEditing(row);
   }
 
   if (resolvedEditing) {
     return (
+      <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={() => setEditing(null)}>
       <TransactionDetail
         controller={controller}
         row={resolvedEditing}
@@ -245,6 +248,7 @@ function TransactionsPanel({
           setEditing(null);
         }}
       />
+      </ReferenceDataBoundary>
     );
   }
 
@@ -256,10 +260,7 @@ function TransactionsPanel({
         scope="ledger.transactions"
         title="Transactions"
         headingId="ledger-transactions-heading"
-        transactionEntries={displayedEntries}
-        onAdd={() => void ensureLedgerReferences(controller, "ledger.transactions").then((loaded) => {
-          if (loaded) setDialogOpen(true);
-        })}
+        onAdd={() => setDialogOpen(true)}
         addButtonRef={addButtonRef}
         onAnalyze={() => setAnalysisOpen((open) => !open)}
         analysisOpen={analysisOpen}
@@ -342,13 +343,6 @@ function visibleTablePage(
   return hideNextOffset
     ? { ...page, nextOffset: null }
     : page;
-}
-
-function ensureLedgerReferences(
-  controller: LedgerController,
-  scope: "ledger.transactions",
-): Promise<boolean> {
-  return controller.ensureReferenceData?.(scope) ?? Promise.resolve(true);
 }
 
 function isTransactionOccurrence(

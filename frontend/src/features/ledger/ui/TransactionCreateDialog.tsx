@@ -1,5 +1,7 @@
 "use client";
 
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
+
 import React from "react";
 import { createPortal } from "react-dom";
 
@@ -107,6 +109,7 @@ function TransactionCreateDialogContent({
         <header className="dashboard-widget-header">
           <h2>Add transaction</h2>
         </header>
+        <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={close} cancelLabel="Close Add transaction">
         <TransactionForm
           controller={controller}
           onClose={close}
@@ -115,6 +118,7 @@ function TransactionCreateDialogContent({
           onPendingChange={setPending}
           onRefreshRecoveryChange={onRefreshRecoveryChange}
         />
+        </ReferenceDataBoundary>
       </div>
     </div>
   );

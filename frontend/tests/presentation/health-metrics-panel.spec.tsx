@@ -141,44 +141,36 @@ function metricsOccurrences(entries: readonly HealthEvent[], settings: ReturnTyp
 describe("Health Metrics table", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("keeps only the latest Health Metrics row intent while reference data is pending", async () => {
+  it("opens Metrics detail immediately from its table snapshot without history preload", async () => {
     const user = userEvent.setup();
-    const pending = deferred<boolean>();
     const health = panelController();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
     render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-
-    await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
     await user.click(screen.getByRole("row", { name: /Open health metrics/ }));
-    await act(async () => pending.resolve(true));
     expect(screen.getByRole("heading", { name: /Health Metrics ·/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await screen.findByRole("row", { name: /Open health metrics/ });
-    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+    expect(screen.getByLabelText("Weight")).toHaveValue(72.5);
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
-  it("invalidates a pending Health Metrics action when the current view generation resets", async () => {
+  it("preserves an open Metrics draft while the table generation changes", async () => {
     const user = userEvent.setup();
     const health = panelController();
     const page = health.tablePage("health.metrics");
     let generation = page.generation;
     health.tablePage = vi.fn(() => ({ ...page, generation }));
-    const pending = deferred<boolean>();
-    vi.mocked(health.ensureReferenceData).mockReturnValue(pending.promise);
     const view = render(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-
     await user.click(screen.getByRole("button", { name: "Add health metrics entry" }));
+    fireEvent.change(screen.getByLabelText("Weight"), { target: { value: "68" } });
     generation += 1;
     view.rerender(<HealthMetricsPanel controller={health} tombstonedIds={new Set()}
       onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
       onRetryRefresh={vi.fn()} />);
-    await act(async () => pending.resolve(true));
-
-    expect(screen.queryByRole("dialog", { name: "Add health metrics" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Add health metrics" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Weight")).toHaveValue(68);
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
   it("opens a daily detail and saves one changed metric plus one cleared metric atomically", async () => {
@@ -1054,14 +1046,20 @@ describe("Health Metrics table", () => {
     settings.filterRules = [{ id: "none", field: "weight", type: "number",
       operator: "greater_than", value: "999" }];
     settings.groupSettings.groupBy = "month";
+    const summaries = vi.spyOn(healthApi, "tableGroups").mockResolvedValue([
+      { key: "2026-08", label: "August 2026", count: 250 },
+      { key: "2026-07", label: "July 2026", count: 1 },
+    ]);
     render(<HealthMetricsPanel controller={panelController([weight, older], settings)}
       tombstonedIds={new Set()} onArchiveCommitted={vi.fn()} refreshWarning={null}
       refreshPending={false} onRetryRefresh={vi.fn()} />);
     expect(screen.getByText("No health metrics match this view.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Group Health Metrics" }));
     const dialog = screen.getByRole("dialog", { name: "Group Health Metrics" });
-    expect(within(dialog).getByText("August 2026")).toBeInTheDocument();
+    expect(await within(dialog).findByText("August 2026")).toBeInTheDocument();
     expect(within(dialog).getByText("July 2026")).toBeInTheDocument();
+    expect(within(dialog).getByText("250")).toBeInTheDocument();
+    expect(summaries).toHaveBeenCalledWith("health.metrics", expect.objectContaining({ filterRules: [] }));
   });
 
   it("deduplicates duplicate grouped occurrences for selection and one daily archive", async () => {

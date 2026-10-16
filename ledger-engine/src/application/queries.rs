@@ -3,7 +3,8 @@ use serde::Serialize;
 use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::lifecycle::validate_transfer_pair;
 use crate::application::ports::{
-    CandidateMatch, EntryQuery, EntryViewRecord, LedgerReadRepository, MAX_PAGE_LIMIT, Page, Paged,
+    AccountBalanceRecord, CandidateMatch, EntryQuery, EntryViewRecord, LedgerReadRepository,
+    MAX_PAGE_LIMIT, Page, Paged,
 };
 use crate::application::service::LedgerService;
 use crate::domain::{Account, Currency, EntryType, LedgerEntry, TransactionCategory};
@@ -127,39 +128,57 @@ impl<R: LedgerReadRepository> LedgerService<R> {
         })
     }
 
+    pub fn account_balance(&self, id: &str) -> LedgerResult<AccountBalanceView> {
+        if !uuid::Uuid::parse_str(id).is_ok_and(|value| {
+            value.get_version() == Some(uuid::Version::Random) && value.to_string() == id
+        }) {
+            return Err(validation(
+                "account_id",
+                "account ID must be a canonical UUID v4",
+            ));
+        }
+        let record = self
+            .repository
+            .get_account_balance_record(id)?
+            .ok_or_else(|| LedgerError::NotFound("account".into()))?;
+        account_balance_from_record(record)
+    }
+
     pub fn account_balances_page(&self, page: Page) -> LedgerResult<Paged<AccountBalanceView>> {
         crate::application::service::paged(page, |page| {
             self.repository
                 .list_account_balance_records(page)?
                 .into_iter()
-                .map(|record| {
-                    if record.currency_mismatch_count != 0 {
-                        return Err(LedgerError::Storage(format!(
-                            "account {} has entries in another currency",
-                            record.account.id()
-                        )));
-                    }
-                    let current_balance_minor = record
-                        .account
-                        .opening_balance()
-                        .minor_units()
-                        .checked_add(record.movement_minor)
-                        .ok_or_else(|| {
-                            LedgerError::Storage(format!(
-                                "account {} balance overflows minor-unit range",
-                                record.account.id()
-                            ))
-                        })?;
-                    Ok(AccountBalanceView {
-                        account: record.account,
-                        currency_code: record.currency_code,
-                        decimal_places: record.decimal_places,
-                        current_balance_minor,
-                    })
-                })
+                .map(account_balance_from_record)
                 .collect()
         })
     }
+}
+
+fn account_balance_from_record(record: AccountBalanceRecord) -> LedgerResult<AccountBalanceView> {
+    if record.currency_mismatch_count != 0 {
+        return Err(LedgerError::Storage(format!(
+            "account {} has entries in another currency",
+            record.account.id()
+        )));
+    }
+    let current_balance_minor = record
+        .account
+        .opening_balance()
+        .minor_units()
+        .checked_add(record.movement_minor)
+        .ok_or_else(|| {
+            LedgerError::Storage(format!(
+                "account {} balance overflows minor-unit range",
+                record.account.id()
+            ))
+        })?;
+    Ok(AccountBalanceView {
+        account: record.account,
+        currency_code: record.currency_code,
+        decimal_places: record.decimal_places,
+        current_balance_minor,
+    })
 }
 
 pub(crate) fn validate_query(query: &EntryQuery) -> LedgerResult<()> {

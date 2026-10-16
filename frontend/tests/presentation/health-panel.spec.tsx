@@ -873,7 +873,7 @@ describe("HealthPanel", () => {
     await act(async () => result.current.ensureTable("health.diet"));
     expect(healthApi.queryTable).toHaveBeenCalledOnce();
     expect(result.current.tablePage("health.diet").items.map(({ key }) => key)).toEqual(["first"]);
-    expect(result.current.state.dietEntries).toEqual([]);
+    expect(result.current.state.dietEntries).toEqual([diet]);
 
     let firstMore!: Promise<void>;
     act(() => {
@@ -1003,16 +1003,14 @@ describe("HealthPanel", () => {
       const eventReferences = pages.flatMap(({ record }) =>
         record.kind === "metrics" ? record.events
           : record.kind === "bowel" || record.kind === "medication" ? [record.event] : []);
-      vi.spyOn(healthApi, "listDiet").mockResolvedValue(
-        dietReferences,
-      );
-      vi.spyOn(healthApi, "listEvents").mockResolvedValue(eventReferences);
-      const archiveDiet = vi.spyOn(healthApi, "archiveDiet").mockResolvedValue(
-        dietReferences[0] ?? diet,
-      );
-      const archiveEvent = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue(
-        eventReferences[0] ?? bowel,
-      );
+      const legacyDiet = vi.spyOn(healthApi, "listDiet").mockResolvedValue(dietReferences);
+      const legacyEvents = vi.spyOn(healthApi, "listEvents").mockResolvedValue(eventReferences);
+      const archiveDiet = vi.spyOn(healthApi, "archiveDiet").mockImplementation(async (id) => ({
+        ...dietReferences.find((entry) => entry.id === id)!, deletedAt: "2026-10-14T03:00:00Z",
+      }));
+      const archiveEvent = vi.spyOn(healthApi, "archiveEvent").mockImplementation(async (id) => ({
+        ...eventReferences.find((event) => event.id === id)!, deletedAt: "2026-10-14T03:00:00Z",
+      }));
       const saveMetrics = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([]);
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
 
@@ -1039,12 +1037,30 @@ describe("HealthPanel", () => {
         expect(screen.getByText(pageTwoLabel)).toBeInTheDocument();
       }
 
+      expect(legacyDiet).not.toHaveBeenCalled();
+      expect(legacyEvents).not.toHaveBeenCalled();
+      act(() => window.history.back());
+      await screen.findByRole("table");
+      act(() => window.history.forward());
+      await screen.findByRole("button", { name: "Delete" });
+      expect(legacyDiet).not.toHaveBeenCalled();
+      expect(legacyEvents).not.toHaveBeenCalled();
+
       await userEvent.click(screen.getByRole("button", { name: "Delete" }));
       await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
       await waitFor(() => expect(vi.mocked(healthApi.queryTable).mock.calls.at(-1)?.[2]).toBe(0));
-      if (scope === "health.diet") expect(archiveDiet).toHaveBeenCalledOnce();
-      else if (scope === "health.metrics") expect(saveMetrics).toHaveBeenCalledOnce();
-      else expect(archiveEvent).toHaveBeenCalledOnce();
+      const record = pages[2].record;
+      if (record.kind === "diet") {
+        expect(archiveDiet).toHaveBeenCalledWith(record.entry.id, record.entry.updatedAt);
+      } else if (record.kind === "metrics") {
+        expect(saveMetrics).toHaveBeenCalledWith({ metrics: [], archives: record.events.map((event) => ({
+          id: event.id, expectedUpdatedAt: event.updatedAt,
+        })) });
+      } else {
+        expect(archiveEvent).toHaveBeenCalledWith(record.event.id, record.event.updatedAt);
+      }
+      expect(legacyDiet).not.toHaveBeenCalled();
+      expect(legacyEvents).not.toHaveBeenCalled();
     });
 
   it("preserves rows on page errors, retries the same offset, and ignores stale pages", async () => {
@@ -1208,12 +1224,9 @@ describe("HealthPanel", () => {
       calls.set(scope, call);
       return {
         items: [{
+          ...productionOccurrences(scope)[0]!,
           key: `${scope}-${offset}-${call}`,
-          groupKey: null,
-          groupLabel: null,
-          scope,
-          record: {} as never,
-        } as never],
+        }],
         nextOffset: scope === "health.medication" && offset === 0 ? 50 : null,
       };
     });
@@ -1299,7 +1312,7 @@ describe("HealthPanel", () => {
           oldPage.resolve([{ ...diet, foodName: "Stale meal" }]);
           await Promise.resolve();
         });
-        expect(result.current.state.dietEntries).toEqual([]);
+        expect(result.current.state.dietEntries).toEqual([newerDiet]);
         await act(async () => newPage.resolve([newerDiet]));
       } else {
         await act(async () => newPage.resolve([newerDiet]));
@@ -1314,4 +1327,93 @@ describe("HealthPanel", () => {
       expect(healthApi.listEvents).not.toHaveBeenCalled();
     },
   );
+});
+
+
+it("loads only the selected Metrics date without draining event history", async () => {
+  const query = vi.spyOn(healthApi, "queryTable").mockResolvedValue({ items: [], nextOffset: null });
+  const list = vi.spyOn(healthApi, "listEvents");
+  const { result } = renderHook(() => useHealthController());
+  await act(async () => {
+    await (result.current as HealthController & { loadMetricsForDate(date: string): Promise<HealthEvent[]> })
+      .loadMetricsForDate("2026-10-14");
+  });
+  expect(query).toHaveBeenCalledWith("health.metrics", expect.objectContaining({
+    filterRules: [expect.objectContaining({ field: "date", operator: "is", value: "2026-10-14" })],
+  }));
+  expect(list).not.toHaveBeenCalled();
+});
+
+it("remembers committed Metrics archives even when page refresh fails, then retries only reads", async () => {
+  const page = productionOccurrences("health.metrics")[0];
+  if (page.scope !== "health.metrics") throw new Error("Expected metrics fixture");
+  const event = page.record.events[0];
+  const query = vi.spyOn(healthApi, "queryTable")
+    .mockResolvedValueOnce({ items: [page], nextOffset: null })
+    .mockRejectedValueOnce(new Error("page unavailable"))
+    .mockResolvedValueOnce({ items: [], nextOffset: null });
+  vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+  const save = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([]);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+  const { result } = renderHook(() => useHealthController());
+  await act(async () => result.current.ensureTable("health.metrics"));
+  expect(result.current.state.metricsEntries).toEqual([event]);
+  await act(async () => {
+    await expect(result.current.saveMetrics({ metrics: [], archives: [{
+      id: event.id, expectedUpdatedAt: event.updatedAt,
+    }] })).rejects.toBeInstanceOf(HealthMutationRefreshError);
+  });
+  expect(result.current.state.metricsEntries).toEqual([]);
+  await act(async () => expect(await result.current.refreshMetrics()).toBe(true));
+  expect(result.current.state.metricsEntries).toEqual([]);
+  expect(save).toHaveBeenCalledOnce();
+  expect(query).toHaveBeenCalledTimes(3);
+});
+
+it.each([
+  ["health.diet", "diet"], ["health.bowel", "bowel"],
+  ["health.medication", "medication"], ["health.metrics", "health-metrics"],
+] as const)("keeps committed %s archive hidden after refresh failure and retries reads only", async (scope, leaf) => {
+  const user = userEvent.setup();
+  const page = productionOccurrences(scope)[0];
+  vi.spyOn(healthApi, "queryTable")
+    .mockResolvedValueOnce({ items: [page], nextOffset: null })
+    .mockRejectedValueOnce(new Error("page unavailable"))
+    .mockResolvedValueOnce({ items: [], nextOffset: null });
+  vi.spyOn(healthApi, "tableLookups").mockResolvedValue({});
+  const archiveDiet = vi.spyOn(healthApi, "archiveDiet").mockResolvedValue({
+    ...(page.record.kind === "diet" ? page.record.entry : diet), deletedAt: "2026-10-14T03:00:00Z",
+  });
+  const archiveEvent = vi.spyOn(healthApi, "archiveEvent").mockResolvedValue({
+    ...(page.record.kind === "bowel" || page.record.kind === "medication" ? page.record.event : bowel),
+    deletedAt: "2026-10-14T03:00:00Z",
+  });
+  const saveMetrics = vi.spyOn(healthApi, "saveDailyMetrics").mockResolvedValue([]);
+  const oldDiet = vi.spyOn(healthApi, "listDiet");
+  const oldEvents = vi.spyOn(healthApi, "listEvents");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
+  function ProductionPanel() {
+    return <HealthPanel controller={useHealthController()} leafTabId={leaf} />;
+  }
+  render(<ProductionPanel />);
+  const table = await screen.findByRole("table");
+  const row = await waitFor(() => {
+    const found = table.querySelector<HTMLElement>("tbody tr[tabindex='0']");
+    expect(found).not.toBeNull(); return found!;
+  });
+  await user.click(row);
+  await user.click(screen.getByRole("button", { name: "Delete" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+  expect(await screen.findByText("Changes were saved, but Health could not refresh."))
+    .toBeVisible();
+  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  expect(screen.getByRole("table").querySelector("tbody tr[tabindex='0']")).toBeNull();
+  const retries = screen.getAllByRole("button", { name: "Retry" });
+  await user.click(retries.at(-1)!);
+  await waitFor(() => expect(screen.queryByText(/Changes were saved, but Health could not refresh/)).toBeNull());
+  expect(screen.getByRole("table").querySelector("tbody tr[tabindex='0']")).toBeNull();
+  expect(scope === "health.diet" ? archiveDiet : scope === "health.metrics" ? saveMetrics : archiveEvent)
+    .toHaveBeenCalledOnce();
+  expect(oldDiet).not.toHaveBeenCalled();
+  expect(oldEvents).not.toHaveBeenCalled();
 });

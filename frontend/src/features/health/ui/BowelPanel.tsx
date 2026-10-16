@@ -34,15 +34,9 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   const archiveButtonRef = useRef<HTMLButtonElement>(null);
   const tableRef = useRef<HTMLElement>(null);
   const detailOriginRef = useRef<{ occurrence: string; rowId: string } | null>(null);
-  const interactionTokenRef = useRef(0);
 
   useEffect(() => { void controller.ensureTable("health.bowel"); }, [controller]);
   const page = controller.tablePage("health.bowel");
-  const activeViewId = controller.tableTabs("health.bowel").activeTabId;
-  useEffect(() => {
-    interactionTokenRef.current += 1;
-    return () => { interactionTokenRef.current += 1; };
-  }, [activeViewId, page.generation]);
 
   const entries = useMemo(() => controller.state.bowelEntries.filter(({ deletedAt, id }) =>
     deletedAt === null && !tombstonedIds.has(id)), [controller.state.bowelEntries, tombstonedIds]);
@@ -50,16 +44,10 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
     .filter(({ record }) => !tombstonedIds.has(record.id))), [page.items, tombstonedIds]);
   const activeRows = useMemo(() => uniqueRows(deriveBowelGroups(
     entries, defaultHealthTableSettings("health.bowel")).flatMap(({ rows }) => rows)), [entries]);
-  const settings = controller.tableSettings("health.bowel");
   const visibleRows = useMemo(() => uniqueRows(groups.flatMap(({ rows }) => rows)), [groups]);
   const selectedVisibleIds = useMemo(() => visibleRows
     .filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id), [selectedIds, visibleRows]);
-  const candidates = useMemo(() => deriveBowelGroups(entries, {
-    ...defaultHealthTableSettings("health.bowel"),
-    groupSettings: { ...settings.groupSettings, hideEmpty: false, manualOrder: [], hiddenGroupKeys: [] },
-  }).filter(({ label }) => label !== null).map(({ key, label, rows }) => ({
-    key, label: label!, count: uniqueRows(rows).length,
-  })), [entries, settings.groupSettings]);
+
   const currentDetailRow = detailRow ? resolveDetail(detailRow, entries) : null;
   const detailHistory = useBrowserDetailHistory({
     stateKey: "__ravenHealthBowelDetailId",
@@ -143,23 +131,15 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
     }
   }
 
-  function openCreateAfterReferences() {
-    const token = ++interactionTokenRef.current;
-    void controller.ensureReferenceData("health.bowel").then((ok) => {
-      if (!ok || token !== interactionTokenRef.current) return;
-      setDetailRow(null);
-      setCreateOpen(true);
-    });
+  function openCreate() {
+    setDetailRow(null);
+    setCreateOpen(true);
   }
 
-  function openDetailAfterReferences(row: BowelRow, occurrence: string) {
-    const token = ++interactionTokenRef.current;
-    void controller.ensureReferenceData("health.bowel").then((ok) => {
-      if (!ok || token !== interactionTokenRef.current) return;
-      setCreateOpen(false);
-      detailOriginRef.current = { occurrence, rowId: row.id };
-      setDetailRow(row);
-    });
+  function openDetail(row: BowelRow, occurrence: string) {
+    setCreateOpen(false);
+    detailOriginRef.current = { occurrence, rowId: row.id };
+    setDetailRow(row);
   }
 
   if (currentDetailRow) {
@@ -175,13 +155,13 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
     <HealthTableViewHeader controller={controller} scope="health.bowel" title="Bowel"
       headingId="health-bowel-heading"
       fieldLabels={{ bristol_scale: "Bristol Scale", blood_visible: "Blood Visible" }}
-      fieldOptions={healthBowelFilterSelectOptions} candidates={candidates}
-      onAdd={openCreateAfterReferences} addButtonRef={addButtonRef}
+      fieldOptions={healthBowelFilterSelectOptions}
+      onAdd={openCreate} addButtonRef={addButtonRef}
       onArchiveSelected={() => { setArchiveError(null); setArchiveTargets(selectedVisibleIds); }}
       archiveButtonRef={archiveButtonRef}
       archiveDisabled={selectedVisibleIds.length === 0 || archivePending} />
     <BowelTable groups={groups} activeRowCount={activeRows.length} selectedIds={selectedIds}
-      onOpen={openDetailAfterReferences} onToggle={toggle} onToggleAll={toggleAll} page={page}
+      onOpen={openDetail} onToggle={toggle} onToggleAll={toggleAll} page={page}
       onLoadMore={() => void controller.loadMore("health.bowel")}
       emptyMessage={emptyMessage(controller, page, "bowel entries")} />
     {refreshWarning ? <div className="items-message"><p role="alert">{refreshWarning}</p>

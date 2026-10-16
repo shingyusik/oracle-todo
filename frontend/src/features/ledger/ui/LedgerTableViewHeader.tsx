@@ -6,6 +6,7 @@ import {
   IconChartBar,
 } from "@tabler/icons-react";
 
+import { ledgerApi } from "@/features/ledger/api/ledger-api";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import {
   defaultLedgerTableSettings,
@@ -15,9 +16,6 @@ import {
   type LedgerTableScopeId,
 } from "@/features/ledger/model/ledger-table-views";
 import type { LedgerState } from "@/features/ledger/hooks/useLedgerController";
-import type { LedgerEntryView } from "@/features/ledger/model/ledger-model";
-import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
-import type { PlannerGroupCandidate } from "@/features/workbench/model/planner-group-settings";
 import {
   TableViewActivePills,
   TableViewControls,
@@ -31,7 +29,6 @@ export function LedgerTableViewHeader({
   scope,
   title,
   headingId,
-  transactionEntries,
   onAdd,
   addButtonRef,
   addLabel,
@@ -49,7 +46,6 @@ export function LedgerTableViewHeader({
   scope: LedgerTableScopeId;
   title: string;
   headingId: string;
-  transactionEntries?: LedgerEntryView[];
   onAdd?: () => void;
   addButtonRef?: React.RefObject<HTMLButtonElement>;
   addLabel?: string;
@@ -75,12 +71,8 @@ export function LedgerTableViewHeader({
       : {}),
     sortFields: ledgerSortFieldsForScope(scope),
     groupOptions: [...ledgerGroupOptionsForScope(scope)],
-    candidates: ledgerGroupCandidates(
-      scope,
-      settings.groupSettings.groupBy,
-      controller.state,
-      transactionEntries,
-    ),
+    candidates: [],
+    groupCandidatesKey: String(controller.tablePage?.(scope).generation ?? 0),
     filterOptions: ledgerFilterOptions(scope, controller.state),
     activeControlsAriaLabel: `Active ${title} controls`,
     dropdownIdPrefix: "ledger",
@@ -88,9 +80,11 @@ export function LedgerTableViewHeader({
       defaultLedgerTableSettings(scope).sortRules,
     ),
     update: (updater) => controller.updateTableSettings(scope, updater),
-    prepareGroup: controller.ensureReferenceData
-      ? () => controller.ensureReferenceData!(scope)
-      : undefined,
+    loadGroupCandidates: async () => (await ledgerApi.tableGroups(scope, { ...settings, filterRules: [], sortRules: defaultLedgerTableSettings(scope).sortRules }))
+      .map((candidate) => ({ ...candidate, label: scope === "ledger.transactions" && settings.groupSettings.groupBy === "month"
+        ? new Date(`${candidate.key}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+        : scope === "ledger.transactions" && settings.groupSettings.groupBy === "entry_type"
+          ? label(candidate.label) : candidate.label })),
   };
 
   const tableTabs = (
@@ -226,60 +220,6 @@ function ledgerFilterOptions(
       parents: lookupOptions("categories"),
     },
   };
-}
-
-function ledgerGroupCandidates(
-  scope: LedgerTableScopeId,
-  groupBy: string,
-  state: LedgerState,
-  transactionEntries?: LedgerEntryView[],
-): PlannerGroupCandidate[] {
-  if (groupBy === "none") return [];
-  if (scope === "ledger.transactions") {
-    const settings = defaultLedgerTableSettings(scope);
-    return deriveTransactionGroups(transactionEntries ?? state.entries, {
-      ...settings,
-      groupSettings: {
-        ...settings.groupSettings,
-        groupBy: groupBy as typeof settings.groupSettings.groupBy,
-        hideEmpty: false,
-        manualOrder: [],
-        hiddenGroupKeys: [],
-      },
-    }, undefined, state.currencies).map((group) => ({
-      key: group.key,
-      label: groupBy === "entry_type"
-        ? label(group.label ?? group.key)
-        : group.label ?? label(group.key),
-      count: group.rows.length,
-    }));
-  }
-  if (scope === "ledger.accounts") {
-    const values = groupBy === "account_type"
-      ? state.accounts.map(({ categoryId }) => categoryId)
-      : state.accounts.map(({ currencyId }) => currencyId);
-    const labels = groupBy === "account_type"
-      ? new Map(state.accountCategories.map(({ id, name }) => [id, name]))
-      : new Map(state.currencies.map(({ id, code }) => [id, code]));
-    return counted(values, labels);
-  }
-  const activeCategories = state.categories.filter(({ active }) => active);
-  const values = groupBy === "kind"
-    ? activeCategories.map(({ kind }) => kind)
-    : activeCategories.map(({ parentId }) => parentId ?? "none");
-  const labels = new Map(activeCategories.map(({ id, name }) => [id, name]));
-  labels.set("none", "No parent");
-  return counted(values, labels);
-}
-
-function counted(values: string[], labels = new Map<string, string>()) {
-  const counts = new Map<string, number>();
-  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
-  return [...counts].map(([key, count]) => ({
-    key,
-    label: labels.get(key) ?? label(key),
-    count,
-  }));
 }
 
 function label(value: string): string {

@@ -132,6 +132,29 @@ or:
 }
 ```
 
+## Table group summaries
+
+`POST /api/v1/{todo,ledger,health}/table/groups` accepts the same validated JSON body
+as that domain's `/table/query` route. It counts matching active row occurrences across
+the complete scope and context, including rows beyond the first table page. Pagination,
+hidden groups, manual order, and `hide_empty` do not limit this summary. `group_by: "none"`
+returns an empty list.
+
+```json
+{"groups":[{"key":"2026-10","label":"October 2026","count":120}]}
+```
+
+Only group keys, labels, and counts are returned. Full record payloads are not
+deserialized or transferred to the frontend; the response contains no notes, media, or
+audit history. Multi-tag rows and transfers
+follow the same occurrence rules as table pages. Empty fixed groups and relation choices
+are supplied by the UI's existing lookup and group definitions.
+
+Ledger and Health group menus request unfiltered active counts. ToDo group menus retain
+the current table filters and Planner or linked-item context. These reads use the same
+authentication, service policy, strict field validation, and missing-store behavior as
+other table reads.
+
 ## ToDo routes
 
 The existing ToDo router is mounted below `/api/v1/todo`:
@@ -139,7 +162,7 @@ The existing ToDo router is mounted below `/api/v1/todo`:
 | Method | Relative route |
 | --- | --- |
 | `GET` | `/health`, `/items`, `/items/:id`, `/options`, `/items/archive` (bounded `{items,next}` archive pages) |
-| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
+| Table views | `POST /table/query`, `POST /table/groups`, `GET /table/lookups?scope=<scope>` |
 | `POST` | `/areas`, `/goals/propose`, `/projects/propose`, `/routines/propose`, `/routines/:id/materialize`, `/events/propose`, `/tasks/propose` |
 | `PATCH` | `/items/:id` |
 | `POST` | `/items/:id/pause`, `/miss`, `/postpone`, `/resume`, `/complete`, `/reopen`, `/archive` |
@@ -283,13 +306,17 @@ All routes below use prefix `/api/v1/ledger`.
 | Transfers | `POST /transfers`, `GET/PATCH /transfers/:id` |
 | Currencies | `GET/POST /currencies`, `PATCH /currencies/:id` |
 | Account categories | `GET/POST /account-categories`, `PATCH/DELETE /account-categories/:id`, `GET /account-categories/:id/purge` |
-| Accounts | `GET/POST /accounts`, `PATCH /accounts/:id` |
+| Accounts | `GET/POST /accounts`, `PATCH /accounts/:id`, `GET /accounts/:id/balance` |
 | Transaction categories | `GET/POST /transaction-categories`, `PATCH /transaction-categories/:id` |
-| Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
+| Table views | `POST /table/query`, `POST /table/groups`, `GET /table/lookups?scope=<scope>` |
 | Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/categories`, `/reports/compare`, `/reports/trend` |
 
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
 offset `0`, limit `100`; limits are bounded. Reports accept `from`+`to`; comparison and trend reads use the UI period contract. Comparison derives the preceding equal-length period; trend granularity is chosen by the service.
+
+`GET /accounts/:id/balance` returns the same account, currency precision, and current
+balance fields as one `/account-balances` item. It reads only the active account identified
+by UUID, including when names repeat. A missing or inactive account returns `404`.
 
 Only account-category purge `GET` returns a confirmation preview. Its `DELETE`
 requires `{"confirmation":"<confirmation-id>"}` matching the preview; audit events survive.
@@ -399,7 +426,7 @@ All routes below use prefix `/api/v1/health`.
 | Diet image upload | `POST /diet/with-image` and `PATCH /diet/:id/with-image` with raw image bytes |
 | Health events | `GET/POST /events`, `GET/PATCH /events/:id`, lifecycle `POST /events/:id/archive|restore` |
 | Metrics | `POST /metrics/daily` |
-| Table pages | `POST /table/query`, `GET /table/lookups?scope=...` |
+| Table pages | `POST /table/query`, `POST /table/groups`, `GET /table/lookups?scope=...` |
 | Reads | `GET /reports`, `/audit/:record_type/:record_id` |
 
 `GET /events` accepts `offset`, `limit`, `category`, `metric_key`, and

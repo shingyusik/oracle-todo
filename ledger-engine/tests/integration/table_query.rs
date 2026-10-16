@@ -1557,3 +1557,142 @@ fn entry_view(
         currency_code: Some("KRW".to_string()),
     }
 }
+
+#[test]
+fn table_groups_count_all_active_transfer_occurrences_and_ignore_page_and_hidden() {
+    let mut service = table_service();
+    for index in 0..61 {
+        let entry = service
+            .create_entry(CreateEntry {
+                date: "2026-09-01".into(),
+                written_at: datetime!(2026-09-01 00:00 UTC),
+                content: "selected".into(),
+                category: Some("Food".into()),
+                account: "Wallet".into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+        if index == 60 {
+            service.archive_entry(entry.id()).unwrap();
+        }
+    }
+    service
+        .transfer(TransferCommand {
+            operation_key: TransferOperationKey::generate(),
+            date: "2026-09-01".into(),
+            written_at: datetime!(2026-09-01 00:00 UTC),
+            content: "selected transfer".into(),
+            from_account: "Wallet".into(),
+            to_account: "Bank".into(),
+            amount: Money::from_minor_units(500),
+            currency: "KRW".into(),
+            source: "test".into(),
+            notes: None,
+            actor: "test".into(),
+        })
+        .unwrap();
+    let grouped_query = LedgerTableQuery::new(
+        LedgerTableScope::Transactions,
+        50,
+        1,
+        FilterMode::And,
+        vec![LedgerTableFilter::Transactions {
+            field: TransactionTableFilterField::Content,
+            operator: LedgerFilterOperator::Contains,
+            value: LedgerTableFilterValue::Text("selected".into()),
+        }],
+        vec![transaction_date_sort()],
+        LedgerTableGroupSettings::new(
+            LedgerTableGroup::Transactions(TransactionTableGroup::Account),
+            GroupSort::Manual,
+            true,
+            vec![],
+            vec!["ignored".into()],
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
+    let summaries = service.table_groups(&grouped_query).unwrap();
+    assert_eq!(summaries.len(), 2);
+    assert_eq!(
+        summaries
+            .iter()
+            .find(|group| group.label == "Wallet")
+            .unwrap()
+            .count,
+        61
+    );
+    assert_eq!(
+        summaries
+            .iter()
+            .find(|group| group.label == "Bank")
+            .unwrap()
+            .count,
+        1
+    );
+    let absent = query(
+        LedgerTableScope::Categories,
+        FilterMode::And,
+        vec![LedgerTableFilter::Categories {
+            field: CategoryTableFilterField::Name,
+            operator: LedgerFilterOperator::Is,
+            value: LedgerTableFilterValue::Text("absent".into()),
+        }],
+        vec![LedgerTableSort::Categories {
+            field: CategoryTableSortField::Name,
+            direction: SortDirection::Asc,
+        }],
+        group_settings(LedgerTableGroup::Categories(CategoryTableGroup::Kind)),
+    )
+    .unwrap();
+    assert!(service.table_groups(&absent).unwrap().is_empty());
+}
+
+#[test]
+fn table_groups_preserve_first_occurrence_order_under_the_scope_row_sort() {
+    let mut service = table_service();
+    for date in ["2026-06-01", "2026-09-01"] {
+        service
+            .create_entry(CreateEntry {
+                date: date.into(),
+                written_at: datetime!(2026-09-01 00:00 UTC),
+                content: "ordered".into(),
+                category: Some("Food".into()),
+                account: "Wallet".into(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(100),
+                currency: "KRW".into(),
+                transfer_group: None,
+                source: "test".into(),
+                notes: None,
+                actor: "test".into(),
+            })
+            .unwrap();
+    }
+    let query = query(
+        LedgerTableScope::Transactions,
+        FilterMode::And,
+        vec![],
+        vec![LedgerTableSort::Transactions {
+            field: TransactionTableSortField::Date,
+            direction: SortDirection::Desc,
+        }],
+        group_settings(LedgerTableGroup::Transactions(TransactionTableGroup::Month)),
+    )
+    .unwrap();
+    let groups = service.table_groups(&query).unwrap();
+    assert_eq!(
+        groups
+            .iter()
+            .map(|group| group.key.as_str())
+            .collect::<Vec<_>>(),
+        ["2026-09", "2026-06"]
+    );
+}

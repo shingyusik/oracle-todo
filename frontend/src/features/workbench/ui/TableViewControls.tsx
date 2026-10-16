@@ -9,9 +9,10 @@ import {
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
-import type {
-  PlannerGroupCandidate,
-  PlannerGroupSettings,
+import {
+  compareUnicodeText,
+  type PlannerGroupCandidate,
+  type PlannerGroupSettings,
 } from "@/features/workbench/model/planner-group-settings";
 import {
   effectivePlannerFilterRules,
@@ -74,7 +75,8 @@ export type TableViewControlsAdapter = {
     updater: (settings: PlannerTableSettings) => PlannerTableSettings,
   ): void;
   add?: () => void;
-  prepareGroup?: () => Promise<boolean>;
+  loadGroupCandidates?: () => Promise<PlannerGroupCandidate[]>;
+  groupCandidatesKey?: string;
 };
 
 type TableViewDropdownKind = "filter" | "sort" | "group";
@@ -112,10 +114,34 @@ export function TableViewControls({
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const sortPanelRef = useRef<HTMLDivElement>(null);
   const groupPanelRef = useRef<HTMLDivElement>(null);
-  const preparingGroupRef = useRef(false);
-  const menuIntentRef = useRef(0);
-  const mountedRef = useRef(true);
-  const [preparingGroup, setPreparingGroup] = React.useState(false);
+  const loadGroupCandidatesRef = useRef(adapter.loadGroupCandidates);
+  loadGroupCandidatesRef.current = adapter.loadGroupCandidates;
+  const hasGroupLoader = Boolean(adapter.loadGroupCandidates);
+  const groupRequestKey = JSON.stringify({
+    scope: adapter.scopeId,
+    context: adapter.groupCandidatesKey,
+    groupBy,
+    filterMode: adapter.settings.filterMode,
+    filters: effectiveFilterRules,
+  });
+  const [groupResult, setGroupResult] = React.useState<{
+    key: string; status: "loading" | "loaded" | "error"; candidates: PlannerGroupCandidate[];
+  } | null>(null);
+  const [groupAttempt, setGroupAttempt] = React.useState(0);
+  const groupStatus = hasGroupLoader && groupBy !== "none"
+    ? groupResult?.key === groupRequestKey ? groupResult.status : "loading"
+    : "loaded";
+  const loadedGroups = new Map(groupResult?.candidates.map((candidate) => [candidate.key, candidate]));
+  const emptyCandidates = adapter.candidates.filter(({ count }) => count === 0);
+  const emptyGroupKeys = new Set(emptyCandidates.map(({ key }) => key));
+  const groupCandidates = !hasGroupLoader
+    ? adapter.candidates
+    : groupStatus === "loaded" && groupResult?.key === groupRequestKey
+      ? groupBy === "tag" || groupBy === "month" || groupBy === "week" || groupBy === "day"
+        ? [...groupResult.candidates, ...emptyCandidates.filter(({ key }) => !loadedGroups.has(key))]
+        : [...emptyCandidates.map((candidate) => loadedGroups.get(candidate.key) ?? candidate),
+          ...groupResult.candidates.filter(({ key }) => !emptyGroupKeys.has(key))]
+      : [];
   const safeScopeId = adapter.scopeId.replaceAll(".", "-");
   const dropdownIds: Record<TableViewDropdownKind, string> = {
     filter: `${adapter.dropdownIdPrefix}-filter-dropdown-${safeScopeId}`,
@@ -141,12 +167,22 @@ export function TableViewControls({
   const showSort = !adapter.isDefaultSort(adapter.settings.sortRules);
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      menuIntentRef.current += 1;
-    };
-  }, []);
+    if (openDropdown !== "group" || groupBy === "none" || !hasGroupLoader) return;
+    let active = true;
+    setGroupResult({ key: groupRequestKey, status: "loading", candidates: [] });
+    const load = loadGroupCandidatesRef.current!;
+    void Promise.resolve().then(load).then(
+      (candidates) => {
+        if (!active) return;
+        if (groupBy === "tag" && !adapter.scopeId.startsWith("health.")) candidates = [...candidates].sort((left, right) =>
+          Number(left.key === "untagged") - Number(right.key === "untagged")
+          || compareUnicodeText(left.label, right.label));
+        setGroupResult({ key: groupRequestKey, status: "loaded", candidates });
+      },
+      () => { if (active) setGroupResult({ key: groupRequestKey, status: "error", candidates: [] }); },
+    );
+    return () => { active = false; };
+  }, [openDropdown, groupRequestKey, groupBy, hasGroupLoader, groupAttempt]);
 
   useEffect(() => {
     if (!openDropdown) return;
@@ -189,20 +225,7 @@ export function TableViewControls({
     };
   }, [openDropdown]);
 
-  async function toggleDropdown(kind: TableViewDropdownKind) {
-    if (kind === "group" && preparingGroupRef.current) return;
-    const intent = ++menuIntentRef.current;
-    if (kind === "group" && openDropdown !== "group" && adapter.prepareGroup) {
-      preparingGroupRef.current = true;
-      setPreparingGroup(true);
-      try {
-        if (!await adapter.prepareGroup()) return;
-      } finally {
-        preparingGroupRef.current = false;
-        if (mountedRef.current) setPreparingGroup(false);
-      }
-    }
-    if (!mountedRef.current || menuIntentRef.current !== intent) return;
+  function toggleDropdown(kind: TableViewDropdownKind) {
     setOpenDropdown((current) => (current === kind ? null : kind));
   }
 
@@ -252,7 +275,6 @@ export function TableViewControls({
           buttonRef={groupTriggerRef}
           ariaExpanded={openDropdown === "group"}
           ariaControls={dropdownIds.group}
-          disabled={preparingGroup}
         >
           <Group size={16} aria-hidden="true" />
         </TableViewDropdownButton>
@@ -316,9 +338,14 @@ export function TableViewControls({
                 dropdownRef={popoverRef}
                 style={style}
               >
+                {groupStatus === "loading" ? <p role="status">Loading groups…</p> : null}
+                {groupStatus === "error" ? <>
+                  <p role="alert">Could not load groups.</p>
+                  <button type="button" aria-label="Retry groups" onClick={() => setGroupAttempt((value) => value + 1)}>Retry</button>
+                </> : null}
                 <PlannerGroupPanel
                   settings={{ ...adapter.settings.groupSettings, groupBy }}
-                  candidates={adapter.candidates}
+                  candidates={groupCandidates}
                   groupOptions={adapter.groupOptions}
                   onGroupByChange={(value) =>
                     updateGroupSettings((current) => ({ ...current, groupBy: value }))}

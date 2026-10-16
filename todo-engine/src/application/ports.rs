@@ -1,6 +1,6 @@
 use crate::application::error::TodoResult;
 use crate::application::table::{
-    TablePage, TodoTableLookup, TodoTableQuery, TodoTableRow, TodoTableScope,
+    TableGroupSummary, TablePage, TodoTableLookup, TodoTableQuery, TodoTableRow, TodoTableScope,
 };
 use crate::domain::{ItemStatus, ItemType, TodoEvent, TodoItem, hidden_by_default_status};
 
@@ -43,6 +43,8 @@ pub trait TodoStore: TodoRepository + EventRepository {
     fn save_items_and_events(&mut self, writes: &[(TodoItem, TodoEvent)]) -> TodoResult<()>;
 
     fn query_table(&mut self, query: &TodoTableQuery) -> TodoResult<TablePage<TodoTableRow>>;
+
+    fn table_groups(&mut self, query: &TodoTableQuery) -> TodoResult<Vec<TableGroupSummary>>;
 
     fn table_lookups(&mut self, scope: TodoTableScope) -> TodoResult<Vec<TodoTableLookup>>;
 }

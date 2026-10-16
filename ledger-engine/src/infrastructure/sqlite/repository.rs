@@ -84,6 +84,13 @@ impl LedgerReadRepository for SqliteLedgerRepository {
         super::table_query::analyze_table(&self.connection, query)
     }
 
+    fn table_groups(
+        &self,
+        query: &crate::application::table::LedgerTableQuery,
+    ) -> LedgerResult<Vec<crate::application::table::TableGroupSummary>> {
+        super::table_query::table_groups(&self.connection, query)
+    }
+
     fn query_table(
         &self,
         query: &crate::application::table::LedgerTableQuery,
@@ -295,37 +302,24 @@ impl LedgerReadRepository for SqliteLedgerRepository {
         list_entries_by_transfer_group_on(&self.connection, transfer_group_id, include_archived)
     }
 
+    fn get_account_balance_record(&self, id: &str) -> LedgerResult<Option<AccountBalanceRecord>> {
+        let rows = collect_rows(
+            &self.connection,
+            &account_balance_sql("AND a.id = ?1"),
+            [id],
+            row_to_account_balance_record,
+        )?;
+        Ok(rows.into_iter().next())
+    }
+
     fn list_account_balance_records(&self, page: Page) -> LedgerResult<Vec<AccountBalanceRecord>> {
-        let sql = "SELECT
-                a.id, a.name, a.account_category_id, a.currency_id,
-                a.opening_balance_minor, a.active,
-                c.code, c.decimal_places,
-                COALESCE(SUM(CASE e.entry_type
-                    WHEN 'expense' THEN -e.amount_minor
-                    WHEN 'income' THEN e.amount_minor
-                    WHEN 'transfer_out' THEN -e.amount_minor
-                    WHEN 'transfer_in' THEN e.amount_minor
-                    WHEN 'adjustment_out' THEN -e.amount_minor
-                    WHEN 'adjustment_in' THEN e.amount_minor
-                    ELSE 0
-                END), 0),
-                COALESCE(SUM(CASE
-                    WHEN e.id IS NOT NULL AND e.currency_id <> a.currency_id THEN 1
-                    ELSE 0
-                END), 0)
-             FROM accounts AS a
-             JOIN currencies AS c ON c.id = a.currency_id
-             LEFT JOIN ledger_entries AS e
-                ON e.account_id = a.id AND e.deleted_at IS NULL
-             WHERE a.active = 1 AND a.deleted_at IS NULL
-             GROUP BY
-                a.id, a.name, a.account_category_id, a.currency_id,
-                a.opening_balance_minor, a.active, c.code, c.decimal_places
-             ORDER BY a.name, a.id
-             LIMIT ?1 OFFSET ?2";
+        let sql = format!(
+            "{} ORDER BY a.name, a.id LIMIT ?1 OFFSET ?2",
+            account_balance_sql("")
+        );
         collect_rows(
             &self.connection,
-            sql,
+            &sql,
             page_params(page),
             row_to_account_balance_record,
         )
@@ -1129,6 +1123,37 @@ where
         values.push(map(row)?);
     }
     Ok(values)
+}
+
+fn account_balance_sql(predicate: &str) -> String {
+    format!(
+        "SELECT
+                a.id, a.name, a.account_category_id, a.currency_id,
+                a.opening_balance_minor, a.active,
+                c.code, c.decimal_places,
+                COALESCE(SUM(CASE e.entry_type
+                    WHEN 'expense' THEN -e.amount_minor
+                    WHEN 'income' THEN e.amount_minor
+                    WHEN 'transfer_out' THEN -e.amount_minor
+                    WHEN 'transfer_in' THEN e.amount_minor
+                    WHEN 'adjustment_out' THEN -e.amount_minor
+                    WHEN 'adjustment_in' THEN e.amount_minor
+                    ELSE 0
+                END), 0),
+                COALESCE(SUM(CASE
+                    WHEN e.id IS NOT NULL AND e.currency_id <> a.currency_id THEN 1
+                    ELSE 0
+                END), 0)
+             FROM accounts AS a
+             JOIN currencies AS c ON c.id = a.currency_id
+             LEFT JOIN ledger_entries AS e
+                ON e.account_id = a.id AND e.deleted_at IS NULL
+             WHERE a.active = 1 AND a.deleted_at IS NULL
+             {predicate}
+             GROUP BY
+                a.id, a.name, a.account_category_id, a.currency_id,
+                a.opening_balance_minor, a.active, c.code, c.decimal_places"
+    )
 }
 
 fn row_to_account_balance_record(row: &rusqlite::Row<'_>) -> LedgerResult<AccountBalanceRecord> {
