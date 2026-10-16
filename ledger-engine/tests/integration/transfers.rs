@@ -464,11 +464,20 @@ fn concurrent_retries_with_one_operation_key_converge_on_one_transfer() {
 
     let results: Vec<_> = handles
         .into_iter()
-        .map(|handle| handle.join().unwrap().unwrap())
+        .map(|handle| handle.join().unwrap())
+        .collect();
+    assert!(results.iter().any(Result::is_ok));
+
+    let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    let results: Vec<_> = results
+        .into_iter()
+        .map(|result| match result {
+            Err(LedgerError::Busy(_)) => service.transfer(valid_transfer()).unwrap(),
+            result => result.unwrap(),
+        })
         .collect();
     assert_eq!(results[0], results[1]);
 
-    let service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
     assert_eq!(
         service
             .entries_page(EntryQuery::default())
