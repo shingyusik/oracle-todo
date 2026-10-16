@@ -5,7 +5,8 @@ import { LedgerRecovery } from "./LedgerRecovery";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { LedgerTabId } from "@/domain/workbench/navigation";
-import type { ReportSelection } from "@/features/ledger/api/ledger-api";
+import { ledgerApi, type ReportSelection } from "@/features/ledger/api/ledger-api";
+import { RavenApiError } from "@/lib/raven-api";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
 import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import {
@@ -181,6 +182,22 @@ function TransactionsPanel({
         ?? (detailDirty.current ? editing : null)
       : referenceRows.find(({ id }) => id === editing.id)
         ?? (controller.hasReferenceData || detailDirty.current ? editing : null);
+  const editingEntryId = editing?.detailEntry.entry.id;
+  const editingTransferEntryId = editing?.transferEntry?.entry.id;
+  const editingOutsidePage = editing !== null && !activeRows.some(({ id }) => id === editing.id);
+  useEffect(() => {
+    if (!editingEntryId || !editingOutsidePage || page.moreStatus !== "idle") return;
+    let active = true;
+    // Paged results and remembered rows cannot prove that an entry still exists.
+    const ids = editingTransferEntryId ? [editingEntryId, editingTransferEntryId] : [editingEntryId];
+    void Promise.all(ids.map((id) => ledgerApi.getEntry(id))).catch((cause: unknown) => {
+      if (active && !detailDirty.current && cause instanceof RavenApiError && cause.status === 404) {
+        setEditing(null);
+      }
+    });
+    return () => { active = false; };
+  }, [editingEntryId, editingTransferEntryId, editingOutsidePage, page.generation, page.moreStatus]);
+
   const visibleRows = useMemo(
     () => groups.flatMap((group) => group.rows),
     [groups],

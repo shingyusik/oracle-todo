@@ -186,3 +186,11 @@ it("reads the changed account balance by ID even when account names repeat", asy
   expect(fetchMock).toHaveBeenCalledWith("/api/v1/ledger/accounts/duplicate-51/balance", expect.anything());
   expect(balance.currentBalanceMinor).toBe(3500);
 });
+
+it("decodes a single entry from the canonical EntryView response", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(response(transactionRecord.detail_entry));
+  vi.stubGlobal("fetch", fetchMock);
+  const entry = await ledgerApi.getEntry("entry-1");
+  expect(fetchMock).toHaveBeenCalledWith("/api/v1/ledger/entries/entry-1", expect.anything());
+  expect(entry).toMatchObject({ id: "entry-1", content: "Lunch", deletedAt: null });
+});

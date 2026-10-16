@@ -743,6 +743,122 @@ describe("LedgerPanel", () => {
     view.unmount();
   });
 
+  it.each(["expense", "income", "transfer-out", "transfer-in"])(
+    "closes a clean detail after external archive of %s without loading entry history",
+    async (missingId) => {
+      let notify!: (event: MessageEvent<string>) => void;
+      vi.stubGlobal("EventSource", class {
+        addEventListener(_name: string, listener: typeof notify) { notify = listener; }
+        close() {}
+      });
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+      mockLedgerLoads();
+      const transfer = missingId.startsWith("transfer");
+      const entries = transfer
+        ? transactionEntries().filter(({ entry }) => entry.transferGroupId === "transfer-1")
+        : [transactionEntry(missingId, "Lunch", { entryType: missingId === "income" ? "income" : "expense" })];
+      const ledger = controller({ ...loadedState, entries });
+      vi.mocked(ledgerApi.queryTable).mockResolvedValue({
+        items: legacyOccurrences(ledger, ledger.state, "ledger.transactions"), nextOffset: null,
+      });
+      vi.spyOn(ledgerApi, "getEntry").mockImplementation(async (id) => {
+        if (id === missingId) throw new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404);
+        return entries.find(({ entry }) => entry.id === id)!.entry;
+      });
+      function LiveLedger() { return <LedgerPanel controller={useLedgerController()} />; }
+      render(<LiveLedger />);
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: /Open details for/ }));
+      await screen.findByLabelText("Content");
+      vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
+      await act(async () => notify(new MessageEvent("changes", { data: '{"domains":["ledger"]}' })));
+      await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+      expect(screen.getByRole("table", { name: "Transactions" })).toBeInTheDocument();
+      expect(ledgerApi.listEntries).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["filtered", "lookup failure"])("keeps a clean detail outside its page after %s", async (reason) => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry");
+    if (reason === "filtered") lookup.mockResolvedValue(initial.entry);
+    else lookup.mockRejectedValue(new RavenTransportError("network"));
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+  });
+
+  it("keeps edits begun while an external archive lookup is pending", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const pending = deferred<LedgerEntryView["entry"]>();
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockReturnValue(pending.promise);
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(lookup).toHaveBeenCalledOnce());
+    await user.type(screen.getByLabelText("Content"), " edited");
+    await act(async () => pending.reject(new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404)));
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch edited");
+  });
+
+  it("keeps a saved edit in the list and after remounting the production controller", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("null"))));
+    mockLedgerLoads();
+    let stored = transactionEntry("expense-1", "Lunch");
+    vi.mocked(ledgerApi.queryTable).mockImplementation(async () => ({
+      items: [transactionOccurrence(stored.entry.id, stored.entry.id, stored.entry.content)], nextOffset: null,
+    }));
+    const save = vi.spyOn(ledgerApi, "updateEntry").mockImplementation(async (_id, input) => {
+      stored = { ...stored, entry: { ...stored.entry, content: input.content! } };
+      return stored.entry;
+    });
+    function LiveLedger() { return <LedgerPanel controller={useLedgerController()} />; }
+    const view = render(<LiveLedger />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Open details for Lunch/ }));
+    await user.type(await screen.findByLabelText("Content"), " edited");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(await screen.findByRole("button", { name: /Open details for Lunch edited/ })).toBeVisible();
+    view.unmount();
+    render(<LiveLedger />);
+    await user.click(await screen.findByRole("button", { name: /Open details for Lunch edited/ }));
+    expect(await screen.findByLabelText("Content")).toHaveValue("Lunch edited");
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it.each(["expense", "transfer"])("closes a stale %s detail on save 404 and hides its stale row", async (kind) => {
+    const user = userEvent.setup();
+    const ledger = controller({ ...loadedState, entries: kind === "transfer"
+      ? transactionEntries().filter(({ entry }) => entry.transferGroupId === "transfer-1")
+      : [transactionEntry("expense-1", "Lunch")] });
+    const update = kind === "transfer" ? "updateTransfer" : "updateEntry";
+    ledger[update] = vi.fn().mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for/ }));
+    await user.type(screen.getByLabelText("Content"), " edited");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+    expect(screen.getByRole("table", { name: "Transactions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open details for/ })).toBeNull();
+    expect(ledger[update]).toHaveBeenCalledOnce();
+  });
+
   it("keeps the production Account settings dialog open while its save is pending", async () => {
     const user = userEvent.setup();
     const request = deferred<void>();

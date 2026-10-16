@@ -1,5 +1,6 @@
 "use client";
 import { LedgerHistory } from "./LedgerHistory";
+import { RavenApiError } from "@/lib/raven-api";
 
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import {
@@ -100,6 +101,10 @@ export function TransactionDetail({ controller, row, onBack, onArchived, onDirty
       }
       setBaseline(saved);
     } catch (cause) {
+      if (cause instanceof RavenApiError && cause.status === 404) {
+        onArchived();
+        return;
+      }
       setError(cause instanceof Error ? cause.message : "Could not save transaction");
     } finally {
       setPending(false);

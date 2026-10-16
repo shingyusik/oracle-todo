@@ -125,7 +125,7 @@ export const ledgerApi = {
     return mapPage(value, mapLedgerEntryView);
   },
   async getEntry(id: string): Promise<LedgerEntry> {
-    return mapLedgerEntry(await requestJson(`${ROOT}/entries/${segment(id)}`));
+    return mapLedgerEntryView(await requestJson(`${ROOT}/entries/${segment(id)}`)).entry;
   },
   async createEntry(input: LedgerEntryInput): Promise<LedgerEntry> {
     return mapLedgerEntry(await requestJson(`${ROOT}/entries`, jsonRequest("POST", entryBody(input))));

@@ -84,3 +84,36 @@ from refreshed table caches. Avoid remounting editors to force a refresh.
 
 Related code: `raven-api/src/changes.rs`, `frontend/src/lib/data-changes.ts`, and the three
 domain controller hooks. Endpoint contract: `docs/operations/api-reference.md`.
+
+## Ledger detail revalidation
+
+Date: 2026-10-16. Related issue: [SHI-147](https://linear.app/shingyusik/issue/SHI-147).
+
+Open a transaction detail without editing, then archive it through another adapter using
+the same home. After the external refresh, the detail can retain the archived transaction.
+Saving an edited stale transaction can return `404` without leaving the detail.
+
+Transaction form references do not load entry history. `state.entries` remembers rows from
+earlier pages rather than proving their current existence, so its fallback can retain an
+externally archived row. Absence from a filtered or paginated result alone also cannot prove
+archival. The single-entry API returns an `EntryView`; decoding it as a bare entry fails
+with `Raven API returned invalid ledger entry.id.`
+
+After a successful table refresh omits the open row, the detail checks that entry by ID;
+transfers check both entry IDs. A confirmed `404` closes a clean detail. Filtered active rows
+and failed lookups retain the detail. Unsaved drafts survive external archival, including
+edits begun while the lookup is pending. A save returning `404` closes the detail and hides
+its stale row. Single-entry reads decode the `EntryView` envelope before returning its entry.
+
+Regression coverage in `frontend/tests/presentation/ledger-panel.spec.tsx` uses the production
+controller for external refreshes and save/list/remount behavior, with mocked API storage.
+It covers expense, income, either transfer side, failed lookups, and draft preservation.
+`frontend/tests/domain/ledger-api.spec.ts` checks the real wire-response shape.
+
+Verification: 11 focused tests passed in both checkouts after reproducing the stale-detail
+and decoder failures. `npm --prefix frontend test` passed all 1,550 tests in 60 files in the
+isolated worktree. `npm --prefix frontend run typecheck` passed in both checkouts;
+`npm --prefix frontend run build` and `git diff --check` passed in the original checkout.
+Browser/SQLite end-to-end verification and Rust checks were not run for this frontend-only
+change. Documentation was checked against source and test contracts rather than TDD because
+it changes no runtime behavior.
