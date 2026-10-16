@@ -775,15 +775,15 @@ fn cleanup_staged_unix(
     );
     if matches!(temporary, Ok(()) | Err(rustix::io::Errno::NOENT)) {
         staged.finalized = true;
-        if let Some(recovery) = recovery {
-            if let Err(cleanup) = unlink_recovery_unix(&staged.directory, recovery) {
-                return HealthError::Cleanup {
-                    primary: Box::new(primary),
-                    cleanup: safe_error_text(&cleanup),
-                    recovery: Some(Box::new(recovery.clone())),
-                    cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
-                };
-            }
+        if let Some(recovery) = recovery
+            && let Err(cleanup) = unlink_recovery_unix(&staged.directory, recovery)
+        {
+            return HealthError::Cleanup {
+                primary: Box::new(primary),
+                cleanup: safe_error_text(&cleanup),
+                recovery: Some(Box::new(recovery.clone())),
+                cleanup_path: Some(Box::new(staged.stored.relative_path.clone())),
+            };
         }
         return primary;
     }
