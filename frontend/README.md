@@ -10,6 +10,11 @@ served by `raven ui` from the same origin as the authenticated API.
 - Ledger: Transactions, Accounts, Categories, Reports
 - Health Journal: Diet / Bowel / Medication / Health Metrics / Reports
 
+When a Ledger transaction saves but its list refresh fails, the Add transaction dialog
+shows one recovery message. Background Ledger and table errors stay suppressed during
+recovery. **Retry refresh** reloads data without saving the transaction again; successful
+recovery closes the dialog.
+
 On mobile, parent menu items expand or collapse their children without changing the current
 page or closing the drawer. Selecting a leaf opens that page and closes the drawer.
 Dashboard opens directly because it has no children.

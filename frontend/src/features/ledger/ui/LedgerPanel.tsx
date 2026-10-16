@@ -41,6 +41,7 @@ export function LedgerPanel({
   initialReportSelection,
   initialReportCurrencyId,
 }: LedgerPanelProps) {
+  const [transactionRefreshRecovery, setTransactionRefreshRecovery] = useState(false);
   const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -88,12 +89,14 @@ export function LedgerPanel({
               controller={controller}
               tombstonedIds={tombstonedIds}
               setTombstonedIds={setTombstonedIds}
+              refreshRecovery={transactionRefreshRecovery}
+              onRefreshRecoveryChange={setTransactionRefreshRecovery}
             />
           );
   return (
     <>
       {panel}
-      {controller.state.error ? (
+      {controller.state.error && !transactionRefreshRecovery ? (
         <div className="items-message">
           <p role="alert">{controller.state.error}</p>
           <button type="button" onClick={() => void controller.refresh()}>Retry</button>
@@ -124,8 +127,12 @@ function TransactionsPanel({
   controller,
   tombstonedIds,
   setTombstonedIds,
+  onRefreshRecoveryChange,
+  refreshRecovery,
 }: {
   controller: LedgerController;
+  onRefreshRecoveryChange(recovering: boolean): void;
+  refreshRecovery: boolean;
   tombstonedIds: ReadonlySet<string>;
   setTombstonedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
@@ -278,7 +285,7 @@ function TransactionsPanel({
         onToggleAll={toggleAllVisible}
         page={visibleTablePage(
           page,
-          controller.state.error,
+          Boolean(controller.state.error) || refreshRecovery,
           occurrences.length === 0 && page.items.length > 0,
         )}
         onLoadMore={() => void controller.loadMore?.("ledger.transactions")}
@@ -289,6 +296,7 @@ function TransactionsPanel({
           controller={controller}
           onClose={() => setDialogOpen(false)}
           returnFocusRef={addButtonRef}
+          onRefreshRecoveryChange={onRefreshRecoveryChange}
         />
       ) : null}
       {archiveConfirmationOpen ? (
@@ -325,11 +333,11 @@ function transactionEmptyMessage(
 
 function visibleTablePage(
   page: ReturnType<NonNullable<LedgerController["tablePage"]>>,
-  globalError: string | null,
+  errorHandled: boolean,
   allRowsTombstoned = false,
 ) {
   const hideNextOffset = page.moreStatus === "error"
-    ? Boolean(globalError)
+    ? errorHandled
     : allRowsTombstoned;
   return hideNextOffset
     ? { ...page, nextOffset: null }

@@ -11,6 +11,7 @@ import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-conf
 type TransactionCreateDialogProps = {
   controller: LedgerController;
   onClose(): void;
+  onRefreshRecoveryChange(recovering: boolean): void;
   returnFocusRef: React.RefObject<HTMLButtonElement | null>;
 };
 
@@ -18,6 +19,7 @@ export function TransactionCreateDialog({
   controller,
   onClose,
   returnFocusRef,
+  onRefreshRecoveryChange,
 }: TransactionCreateDialogProps) {
   const [host, setHost] = React.useState<HTMLElement | null>(null);
 
@@ -35,6 +37,7 @@ export function TransactionCreateDialog({
           controller={controller}
           onClose={onClose}
           returnFocusRef={returnFocusRef}
+          onRefreshRecoveryChange={onRefreshRecoveryChange}
         />,
         host,
       )
@@ -45,6 +48,7 @@ function TransactionCreateDialogContent({
   controller,
   onClose,
   returnFocusRef,
+  onRefreshRecoveryChange,
 }: TransactionCreateDialogProps) {
   const [pending, setPending] = React.useState(false);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
@@ -109,6 +113,7 @@ function TransactionCreateDialogContent({
           onSaved={onClose}
           onDirtyChange={onDirtyChange}
           onPendingChange={setPending}
+          onRefreshRecoveryChange={onRefreshRecoveryChange}
         />
       </div>
     </div>

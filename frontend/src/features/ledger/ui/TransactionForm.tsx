@@ -18,6 +18,7 @@ type TransactionFormProps = {
   onClose?: () => void;
   onSaved?: () => void;
   onPendingChange?: (pending: boolean) => void;
+  onRefreshRecoveryChange?: (recovering: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -29,6 +30,7 @@ export function TransactionForm({
   onClose,
   onSaved,
   onPendingChange,
+  onRefreshRecoveryChange,
   onDirtyChange,
 }: TransactionFormProps) {
   const initial = transactionDraft();
@@ -46,6 +48,11 @@ export function TransactionForm({
   useEffect(() => () => {
     mounted.current = false;
   }, []);
+
+  useEffect(() => {
+    onRefreshRecoveryChange?.(refreshRecovery);
+    return () => onRefreshRecoveryChange?.(false);
+  }, [refreshRecovery, onRefreshRecoveryChange]);
 
   function field(name: keyof typeof draft, value: string) {
     setDraft((current) => ({ ...current, [name]: value }));
