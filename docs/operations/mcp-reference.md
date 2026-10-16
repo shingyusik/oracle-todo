@@ -135,6 +135,11 @@ snapshot without a file destination. Both accept positive `max_records`/`max_byt
 MCP input byte budgets are at most 8 MiB and all responses remain capped at 8 MiB. Large
 exports should use the CLI. Export `include_archived=true` produces a restore-capable snapshot.
 
+`ledger_audit(record_type=entry)` reads immutable create/update/archive history,
+including archived entries. Requests map `entry` to canonical `ledger_entry`;
+returned events retain `record_type: ledger_entry`. Use `limit`/`offset` and follow
+`next_offset` until null.
+
 `health_event_list` accepts `category`, `metric_key`, `daily_only`, `metrics_only` and paging.
 Categories are weight/bowel/sleep/lab/symptom/medication; query overall condition with
 `category=symptom, metric_key=overall_condition`. Use `metrics_only=true` for CLI metric

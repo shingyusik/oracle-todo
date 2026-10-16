@@ -132,6 +132,11 @@ ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지�
 `max_bytes`를 지정할 수 있으며 MCP 바이트 예산·응답은 최대 8 MiB입니다.
 큰 내보내기는 CLI를 사용합니다. `include_archived=true` 내보내기는 복구 가능한 스냅샷입니다.
 
+`ledger_audit(record_type=entry)`는 보관 거래를 포함해 생성·수정·보관의 불변 감사 이력을 읽습니다.
+공개 요청 값 `entry`는 내부 `ledger_entry`로 매핑되며 반환 이벤트의 `record_type`은
+`ledger_entry`입니다. `limit`·`offset`으로 페이지를 지정하고 `next_offset`이 null이 될 때까지
+조회합니다.
+
 `health_event_list`는 `category`, `metric_key`, `daily_only`, `metrics_only`와 페이징을
 지원합니다. `category`는 weight/bowel/sleep/lab/symptom/medication이며 전체 컨디션은
 `category=symptom, metric_key=overall_condition`으로 조회합니다.

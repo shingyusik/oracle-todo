@@ -495,10 +495,54 @@ async fn ledger_search_choices_and_audit_use_ui_routes() {
         choices.structured_content.unwrap()["choices"]["accounts"][0]["label"],
         "Wallet"
     );
+    let updated = adapter
+        .call(
+            "ledger_entry_update",
+            json!({"id":id,"content":"Updated lunch","amount":"13000"}),
+        )
+        .await;
+    assert_eq!(updated.is_error, Some(false), "{updated:?}");
+    let archived = adapter.call("ledger_entry_archive", json!({"id":id})).await;
+    assert_eq!(archived.is_error, Some(false), "{archived:?}");
     let history = adapter
-        .call("ledger_audit", json!({"record_type":"entry","id":id}))
+        .call(
+            "ledger_audit",
+            json!({"record_type":"entry","id":id,"limit":2}),
+        )
         .await;
     assert_eq!(history.is_error, Some(false), "{history:?}");
+    let page = history.structured_content.unwrap();
+    let events = page["items"].as_array().unwrap();
+    assert_eq!(events.len(), 2, "{page:?}");
+    assert_eq!(events[0]["action"], "create");
+    assert!(events[0]["before"].is_null());
+    assert_eq!(events[0]["after"]["amount"], 12000);
+    assert_eq!(events[1]["action"], "update");
+    assert_eq!(events[1]["before"]["content"], "Quoted ' lunch");
+    assert_eq!(events[1]["after"]["content"], "Updated lunch");
+    assert_eq!(events[1]["after"]["amount"], 13000);
+    for event in events {
+        assert_eq!(event["record_type"], "ledger_entry");
+        assert_eq!(event["record_id"], id);
+    }
+    assert_eq!(page["next_offset"], 2);
+
+    let history = adapter
+        .call(
+            "ledger_audit",
+            json!({"record_type":"entry","id":id,"limit":2,"offset":2}),
+        )
+        .await;
+    assert_eq!(history.is_error, Some(false), "{history:?}");
+    let page = history.structured_content.unwrap();
+    let events = page["items"].as_array().unwrap();
+    assert_eq!(events.len(), 1, "{page:?}");
+    assert_eq!(events[0]["action"], "archive");
+    assert_eq!(events[0]["record_type"], "ledger_entry");
+    assert_eq!(events[0]["record_id"], id);
+    assert!(events[0]["before"]["deleted_at"].is_null());
+    assert!(events[0]["after"]["deleted_at"].is_string());
+    assert!(page["next_offset"].is_null());
 }
 
 #[tokio::test]

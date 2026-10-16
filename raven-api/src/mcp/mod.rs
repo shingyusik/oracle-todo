@@ -233,6 +233,9 @@ impl McpAdapter {
             }
         }
         let mut body = args.as_object().unwrap().clone();
+        if name == "ledger_audit" && body["record_type"] == "entry" {
+            body["record_type"] = json!("ledger_entry");
+        }
         let mut path = spec.path.clone();
         for key in ["id", "action", "record_type"] {
             if path.contains(&format!("{{{key}}}")) {
