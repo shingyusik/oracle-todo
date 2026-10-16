@@ -605,41 +605,55 @@ fn standalone_media_database_failure_removes_the_finalized_file() {
 #[test]
 fn database_and_compensation_remove_failure_keeps_durable_recovery_identity() {
     use std::os::unix::fs::PermissionsExt;
-    use std::sync::mpsc;
-    use std::time::Duration as StdDuration;
+
+    use health_engine::application::error::HealthResult;
+    use health_engine::application::media::MediaStore;
+
+    struct ReadOnlyAfterFinalize {
+        inner: LocalMediaStore,
+        root: std::path::PathBuf,
+    }
+
+    impl MediaStore for ReadOnlyAfterFinalize {
+        type Staged = <LocalMediaStore as MediaStore>::Staged;
+
+        fn stage(&self, content_type: &str, bytes: &[u8]) -> HealthResult<Self::Staged> {
+            self.inner.stage(content_type, bytes)
+        }
+
+        fn finalize(&self, staged: Self::Staged) -> HealthResult<StoredMedia> {
+            let stored = self.inner.finalize(staged)?;
+            fs::set_permissions(&self.root, fs::Permissions::from_mode(0o500)).unwrap();
+            Ok(stored)
+        }
+
+        fn abort(&self, staged: Self::Staged) -> HealthResult<()> {
+            self.inner.abort(staged)
+        }
+
+        fn confirm(&self, stored: &StoredMedia) -> HealthResult<()> {
+            self.inner.confirm(stored)
+        }
+
+        fn remove(&self, relative_path: &std::path::Path) -> HealthResult<()> {
+            self.inner.remove(relative_path)
+        }
+    }
 
     let fixture = Fixture::new();
-    let mut service = fixture.service();
+    let repository = SqliteHealthRepository::open(&fixture.database).unwrap();
+    let media_store = ReadOnlyAfterFinalize {
+        inner: LocalMediaStore::new(&fixture.media).unwrap(),
+        root: fixture.media.clone(),
+    };
+    let original_permissions = fs::metadata(&fixture.media).unwrap().permissions();
+    let mut service = HealthService::new(repository, media_store);
     let lock = Connection::open(&fixture.database).unwrap();
     lock.execute_batch("BEGIN IMMEDIATE;").unwrap();
-    let media_directory = fixture.media.clone();
-    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let watcher = std::thread::spawn(move || {
-        for _ in 0..100 {
-            let published = fs::read_dir(&media_directory)
-                .unwrap()
-                .filter_map(Result::ok)
-                .any(|entry| {
-                    entry
-                        .path()
-                        .extension()
-                        .is_some_and(|extension| extension == "png")
-                });
-            if published {
-                fs::set_permissions(&media_directory, fs::Permissions::from_mode(0o500)).unwrap();
-                ready_tx.send(()).unwrap();
-                return media_directory;
-            }
-            std::thread::sleep(StdDuration::from_millis(5));
-        }
-        panic!("media was not published before the database lock timed out");
-    });
 
     let result = service.store_media("image/png", PNG);
-    ready_rx.recv_timeout(StdDuration::from_secs(2)).unwrap();
-    let media_directory = watcher.join().unwrap();
+    fs::set_permissions(&fixture.media, original_permissions).unwrap();
     lock.execute_batch("ROLLBACK;").unwrap();
-    fs::set_permissions(&media_directory, fs::Permissions::from_mode(0o700)).unwrap();
 
     let recovery = match result.unwrap_err() {
         HealthError::Cleanup {
