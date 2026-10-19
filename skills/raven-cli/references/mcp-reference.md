@@ -60,18 +60,51 @@ configuration, never in repository files or command examples. Cloudflare authent
 and forwards an Access JWT; Raven does not accept those raw credentials as its own token.
 See [Cloudflare service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/).
 
-For clients requiring interactive OAuth, Cloudflare's Managed OAuth integration requires an
-MCP server that validates Access JWTs. Raven performs that origin validation. Client discovery,
-login and subsequent tool calls still require verification against the selected Cloudflare
-configuration. Raven itself supplies no OAuth authorization server or discovery endpoints.
-See [Cloudflare MCP authentication](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/secure-mcp-servers/).
-
 Do not use Access Bypass policies. A browser login to the UI does not supply MCP client
 credentials. The PC, Raven MCP process and tunnel must remain online.
 
+## OAuth gateway and clients
+
+Raven itself supplies no OAuth authorization server or discovery endpoints. Interactive OAuth
+clients connect through `raven-mcp-gateway`, a separately deployed Cloudflare Worker outside
+this workspace. The gateway serves discovery, consent, authorization and token endpoints on
+its own public origin, then forwards MCP requests to the Access-protected origin with its own
+Service Auth token. Clients use the gateway URL, `https://<gateway-host>/mcp`, not the origin URL.
+
+- Registration: Client ID Metadata Documents (CIMD) only; no dynamic client registration.
+- Identity: owner-only Cloudflare Access One-time PIN login on every new authorization.
+- Authorization: PKCE `S256`, exact registered callbacks, per-domain read/write scopes.
+- Grants: access tokens last 10 minutes; a grant expires 8 hours after authorization.
+
+| Client | CIMD client ID | Token endpoint authentication | Callback |
+| --- | --- | --- | --- |
+| ChatGPT | `https://chatgpt.com/oauth/client.json` | `private_key_jwt` with ChatGPT's published keys | Configured ChatGPT callback |
+| Claude web, Desktop, mobile | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `none` (public client, PKCE) | `https://claude.ai/api/mcp/auth_callback` |
+| Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | `none` (public client, PKCE) | `http://localhost/callback` or `http://127.0.0.1/callback`, any port |
+
+The gateway rejects other client IDs, mismatched callbacks and mixed authentication methods.
+Public clients may present the previous refresh token once after rotation. Consent shows an
+extra warning for loopback callbacks. Clients outside this table, such as VS Code, Cursor or
+Gemini CLI, can use the Service Auth header route above when they support custom headers.
+
+Connect Claude Code:
+
+```bash
+claude mcp add --transport http raven https://<gateway-host>/mcp
+```
+
+Then authenticate `raven` from `/mcp`. In Claude web or Desktop, add a custom connector with
+the same URL and leave the OAuth client ID empty. Approve consent once, then complete the
+One-time PIN login. A repeated consent submission reports `RAVEN-AUTH-02-BINDING-MISSING`;
+start the connection again.
+
+Cloudflare zone protections apply before the gateway. Browser Integrity Check, bot rules or
+AI bot policies that block vendor backends prevent discovery or token exchange.
+
 ## Transport and authentication
 
-The external URL is `https://mcp.example.com/mcp`. Configure the client for Streamable HTTP.
+The origin URL is `https://mcp.example.com/mcp`. Service Auth header clients use it directly;
+OAuth clients use the gateway URL. Configure the client for Streamable HTTP.
 The server uses JSON responses without retained legacy sessions; old SSE-only `/sse` transport
 is unsupported. Authentication applies to initialization, tool discovery and every tool call.
 

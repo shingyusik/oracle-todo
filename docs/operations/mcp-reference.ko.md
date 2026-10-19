@@ -60,18 +60,51 @@ UI용 AUD와 MCP용 AUD를 구분합니다. 공개 origin은 `RAVEN_UI_PUBLIC_OR
 전달합니다. Raven이 이 원본 자격 증명을 자체 토큰으로 받는 것은 아닙니다.
 [Cloudflare 서비스 토큰 문서](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)를 참고하세요.
 
-대화형 OAuth가 필요한 클라이언트는 Cloudflare의 Managed OAuth 연동을 검토합니다.
-이 연동에는 Access JWT를 검증하는 MCP 서버가 필요하며 Raven이 그 검증을 수행합니다.
-인증 발견·로그인·도구 호출은 선택한 클라이언트와 Cloudflare 설정으로 실제 확인해야 합니다.
-Raven 자체에는 OAuth 인증 서버나 discovery 엔드포인트가 없습니다.
-[Cloudflare MCP 인증 문서](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/secure-mcp-servers/)를 참고하세요.
-
 Access Bypass 정책을 사용하지 않습니다. UI 브라우저 로그인은 MCP 클라이언트의 인증 설정을
 대신하지 않습니다. PC·Raven MCP 프로세스·Tunnel이 계속 실행되어 있어야 합니다.
 
+## OAuth 게이트웨이와 클라이언트
+
+Raven 자체에는 OAuth 인증 서버나 discovery 엔드포인트가 없습니다. 대화형 OAuth 클라이언트는
+이 저장소 밖에서 별도로 배포한 Cloudflare Worker `raven-mcp-gateway`를 거쳐 연결합니다.
+게이트웨이는 자체 공개 origin에서 discovery·동의·인가·토큰 엔드포인트를 제공하고, 자체
+Service Auth 토큰으로 Access가 보호하는 원본에 MCP 요청을 전달합니다. 클라이언트에는 원본
+URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합니다.
+
+- 클라이언트 등록: Client ID Metadata Document(CIMD)만 지원하며 동적 등록은 지원하지 않습니다.
+- 신원 확인: 새 인가마다 소유자 전용 Cloudflare Access One-time PIN 로그인을 거칩니다.
+- 인가: PKCE `S256`, 등록된 콜백과의 정확한 일치, 도메인별 읽기·쓰기 scope를 요구합니다.
+- 유효 기간: 접근 토큰은 10분, 인가 grant는 인가 후 8시간입니다.
+
+| 클라이언트 | CIMD 클라이언트 ID | 토큰 엔드포인트 인증 | 콜백 |
+| --- | --- | --- | --- |
+| ChatGPT | `https://chatgpt.com/oauth/client.json` | ChatGPT 공개 키로 검증하는 `private_key_jwt` | 설정된 ChatGPT 콜백 |
+| Claude 웹·Desktop·모바일 | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `none`(공개 클라이언트, PKCE) | `https://claude.ai/api/mcp/auth_callback` |
+| Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | `none`(공개 클라이언트, PKCE) | `http://localhost/callback` 또는 `http://127.0.0.1/callback`, 포트 무관 |
+
+게이트웨이는 다른 클라이언트 ID, 일치하지 않는 콜백, 인증 방식을 섞은 요청을 거부합니다.
+공개 클라이언트는 갱신 토큰이 회전된 뒤 직전 토큰을 한 번만 더 사용할 수 있습니다. 루프백
+콜백이면 동의 화면에 경고를 추가로 표시합니다. VS Code·Cursor·Gemini CLI처럼 표에 없는
+클라이언트는 사용자 지정 헤더를 지원하는 경우 앞의 Service Auth 헤더 방식을 사용합니다.
+
+Claude Code 연결:
+
+```bash
+claude mcp add --transport http raven https://<gateway-host>/mcp
+```
+
+이후 `/mcp`에서 `raven` 인증을 진행합니다. Claude 웹이나 Desktop에서는 같은 URL로 사용자 지정
+커넥터를 추가하고 OAuth 클라이언트 ID는 비워 둡니다. 동의 화면에서 한 번만 승인하고
+One-time PIN 로그인을 완료합니다. 동의를 다시 제출하면 `RAVEN-AUTH-02-BINDING-MISSING`이
+표시되며, 이때는 연결을 처음부터 다시 시작합니다.
+
+Cloudflare zone 보호 기능은 게이트웨이보다 먼저 적용됩니다. Browser Integrity Check, 봇 규칙,
+AI 봇 정책이 클라이언트 업체의 서버 요청을 차단하면 discovery나 토큰 교환이 실패합니다.
+
 ## 전송과 인증
 
-외부 URL은 `https://mcp.example.com/mcp`, 전송 방식은 Streamable HTTP입니다.
+원본 URL은 `https://mcp.example.com/mcp`, 전송 방식은 Streamable HTTP입니다. Service Auth
+헤더를 쓰는 클라이언트는 원본 URL을 직접 사용하고, OAuth 클라이언트는 게이트웨이 URL을 사용합니다.
 서버는 JSON 응답을 사용하며 기존 세션을 보관하지 않습니다. 구형 SSE 전용 `/sse`는
 지원하지 않습니다. 초기화·도구 목록 조회·모든 도구 호출에 인증을 적용합니다.
 
