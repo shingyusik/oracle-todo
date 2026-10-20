@@ -69,10 +69,27 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
 - Claude Code authenticated and called `todo_options` successfully.
 - Rollback target: `0df09a46-e843-4b22-b313-910ac92bbc8a`.
 
+## Follow-up: Grok Bot
+
+- Symptom: Grok Bot stopped at `Authorization request denied` on `GET /authorize`.
+- Cause: Grok Bot authenticates as Cursor's public CIMD client
+  `https://cursor.com/oauth/mcp-client.json` with callback
+  `https://www.cursor.com/agents/mcp/oauth/callback`; that client was not allowlisted.
+- Grok Bot's own diagnosis (missing dynamic registration) did not match the request: it had
+  already reached `/authorize` through CIMD. Dynamic registration remains unsupported.
+- Resolution: allowlist the Cursor CIMD client with its three HTTPS callbacks (Cursor agents,
+  Cursor bot, Grok web connectors); its loopback `8787` callbacks stay excluded.
+- Deployment: version `03393445-cfb9-4228-b936-6adf68c30ca5`, main module SHA-256
+  `c5e58644d01dfe1a668c91ffc41bbdf1818dd4a19efc93a3e5497f82d3059e08`; rollback target
+  `710fb238-3d0d-480d-8c99-447f8c1d05ef`. Gateway tests: 41 passed.
+- Verification: Grok Bot connected through consent and One-time PIN.
+
 ## Residual risks
 
 - Public-client tokens are bearer tokens: a stolen current refresh token works until the
   8-hour grant expiry. New authorizations still require the owner's One-time PIN.
+- Claude and Cursor client IDs are shared by all users of those products. An authorization
+  started by someone else and approved by the owner would issue tokens to that person.
 - No pre-bundle gateway source exists. The deployed bundle, this patch, its tests and the
   deployment scripts are tracked in the private `raven-mcp-gateway` repository; deploy only
   from there.

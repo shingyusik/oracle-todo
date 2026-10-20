@@ -81,11 +81,14 @@ Service Auth token. Clients use the gateway URL, `https://<gateway-host>/mcp`, n
 | ChatGPT | `https://chatgpt.com/oauth/client.json` | `private_key_jwt` with ChatGPT's published keys | Configured ChatGPT callback |
 | Claude web, Desktop, mobile | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `none` (public client, PKCE) | `https://claude.ai/api/mcp/auth_callback` |
 | Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | `none` (public client, PKCE) | `http://localhost/callback` or `http://127.0.0.1/callback`, any port |
+| Grok Bot, Grok web connectors, Cursor agents | `https://cursor.com/oauth/mcp-client.json` | `none` (public client, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback` or `https://grok.com/connectors-oauth-exchange-code/` |
 
 The gateway rejects other client IDs, mismatched callbacks and mixed authentication methods.
 Public clients may present the previous refresh token once after rotation. Consent shows an
-extra warning for loopback callbacks. Clients outside this table, such as VS Code, Cursor or
-Gemini CLI, can use the Service Auth header route above when they support custom headers.
+extra warning for loopback callbacks. Claude and Cursor client IDs are shared by every user of
+those products; approve consent only for connections you started. Clients outside this table,
+such as VS Code or Gemini CLI, can use the Service Auth header route above when they support
+custom headers.
 
 Connect Claude Code:
 
@@ -94,7 +97,8 @@ claude mcp add --transport http raven https://<gateway-host>/mcp
 ```
 
 Then authenticate `raven` from `/mcp`. In Claude web or Desktop, add a custom connector with
-the same URL and leave the OAuth client ID empty. Approve consent once, then complete the
+the same URL and leave the OAuth client ID empty. Grok Bot connects with the same URL and
+shows Cursor as the client on the consent page. Approve consent once, then complete the
 One-time PIN login. A repeated consent submission reports `RAVEN-AUTH-02-BINDING-MISSING`;
 start the connection again.
 

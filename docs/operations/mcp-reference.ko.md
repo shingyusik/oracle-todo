@@ -81,11 +81,13 @@ URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합�
 | ChatGPT | `https://chatgpt.com/oauth/client.json` | ChatGPT 공개 키로 검증하는 `private_key_jwt` | 설정된 ChatGPT 콜백 |
 | Claude 웹·Desktop·모바일 | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `none`(공개 클라이언트, PKCE) | `https://claude.ai/api/mcp/auth_callback` |
 | Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | `none`(공개 클라이언트, PKCE) | `http://localhost/callback` 또는 `http://127.0.0.1/callback`, 포트 무관 |
+| Grok Bot·Grok 웹 커넥터·Cursor 에이전트 | `https://cursor.com/oauth/mcp-client.json` | `none`(공개 클라이언트, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback`, `https://grok.com/connectors-oauth-exchange-code/` |
 
 게이트웨이는 다른 클라이언트 ID, 일치하지 않는 콜백, 인증 방식을 섞은 요청을 거부합니다.
 공개 클라이언트는 갱신 토큰이 회전된 뒤 직전 토큰을 한 번만 더 사용할 수 있습니다. 루프백
-콜백이면 동의 화면에 경고를 추가로 표시합니다. VS Code·Cursor·Gemini CLI처럼 표에 없는
-클라이언트는 사용자 지정 헤더를 지원하는 경우 앞의 Service Auth 헤더 방식을 사용합니다.
+콜백이면 동의 화면에 경고를 추가로 표시합니다. Claude와 Cursor 클라이언트 ID는 해당 제품의
+모든 사용자가 함께 쓰므로, 직접 시작한 연결의 동의만 승인합니다. VS Code·Gemini CLI처럼 표에
+없는 클라이언트는 사용자 지정 헤더를 지원하는 경우 앞의 Service Auth 헤더 방식을 사용합니다.
 
 Claude Code 연결:
 
@@ -94,7 +96,8 @@ claude mcp add --transport http raven https://<gateway-host>/mcp
 ```
 
 이후 `/mcp`에서 `raven` 인증을 진행합니다. Claude 웹이나 Desktop에서는 같은 URL로 사용자 지정
-커넥터를 추가하고 OAuth 클라이언트 ID는 비워 둡니다. 동의 화면에서 한 번만 승인하고
+커넥터를 추가하고 OAuth 클라이언트 ID는 비워 둡니다. Grok Bot도 같은 URL로 연결하며,
+동의 화면에는 클라이언트가 Cursor로 표시됩니다. 동의 화면에서 한 번만 승인하고
 One-time PIN 로그인을 완료합니다. 동의를 다시 제출하면 `RAVEN-AUTH-02-BINDING-MISSING`이
 표시되며, 이때는 연결을 처음부터 다시 시작합니다.
 
