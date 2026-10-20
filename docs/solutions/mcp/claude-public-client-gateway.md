@@ -84,10 +84,22 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   `710fb238-3d0d-480d-8c99-447f8c1d05ef`. Gateway tests: 41 passed.
 - Verification: Grok Bot connected through consent and One-time PIN.
 
+## Follow-up: grant lifetime
+
+- Symptom: every client asked for One-time PIN login again 8 hours after connecting.
+- Cause: the gateway set `refreshTokenTTL` to 8 hours. The grant expiry is fixed at
+  authorization; refresh does not extend it, so the next refresh failed with `invalid_grant`.
+- Resolution: grant lifetime 30 days, still fixed at authorization. Access tokens stay at
+  10 minutes; no idle-based expiry, so a stolen token cannot outlive the 30-day cap.
+- Deployment: version `82a5d2c8-6dc4-4283-adb3-71a8e904c036`, main module SHA-256
+  `120e8289bdc107e09d474660bec241cf94240466f5ee095387c48076fceb7a7d`; rollback target
+  `03393445-cfb9-4228-b936-6adf68c30ca5`. Gateway tests: 43 passed.
+- Grants issued before this version keep their 8-hour expiry; the next connection gets 30 days.
+
 ## Residual risks
 
 - Public-client tokens are bearer tokens: a stolen current refresh token works until the
-  8-hour grant expiry. New authorizations still require the owner's One-time PIN.
+  30-day grant expiry. New authorizations still require the owner's One-time PIN.
 - Claude and Cursor client IDs are shared by all users of those products. An authorization
   started by someone else and approved by the owner would issue tokens to that person.
 - No pre-bundle gateway source exists. The deployed bundle, this patch, its tests and the

@@ -74,7 +74,8 @@ Service Auth token. Clients use the gateway URL, `https://<gateway-host>/mcp`, n
 - Registration: Client ID Metadata Documents (CIMD) only; no dynamic client registration.
 - Identity: owner-only Cloudflare Access One-time PIN login on every new authorization.
 - Authorization: PKCE `S256`, exact registered callbacks, per-domain read/write scopes.
-- Grants: access tokens last 10 minutes; a grant expires 8 hours after authorization.
+- Grants: access tokens last 10 minutes; a grant expires 30 days after authorization, and
+  refresh does not extend it.
 
 | Client | CIMD client ID | Token endpoint authentication | Callback |
 | --- | --- | --- | --- |
