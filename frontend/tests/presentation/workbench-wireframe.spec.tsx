@@ -12565,6 +12565,180 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("heading", { name: "One" })).not.toBeInTheDocument();
   });
 
+  describe("inline Scheduled date cell", () => {
+    type PatchOutcome = "ok" | "fail";
+
+    function stubScheduledFetch(...patchOutcomes: Array<PatchOutcome | Promise<PatchOutcome>>) {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
+          if ((await (patchOutcomes.shift() ?? "ok")) === "fail") {
+            return Promise.resolve({
+              ok: false,
+              status: 400,
+              json: async () => ({
+                code: "validation_error",
+                message: "The request is invalid.",
+                fields: {},
+                request_id: "00000000-0000-4000-8000-000000000168",
+              }),
+            });
+          }
+          expect(todoMutationBody(init)).toEqual({ scheduled: "2026-06-30" });
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              id: "task-1",
+              type: "task",
+              title: "One",
+              status: "active",
+              scheduled: "2026-06-30",
+            }),
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: "task-1", type: "task", title: "One", status: "active", scheduled: "2026-06-20" },
+          ],
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return () =>
+        fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").length;
+    }
+
+    async function editScheduled(user: ReturnType<typeof userEvent.setup>) {
+      render(<WorkbenchPageClient />);
+      await user.click(screen.getByRole("button", { name: "ToDo" }));
+      await user.click(screen.getByRole("button", { name: "Workspace" }));
+      await user.click(screen.getByRole("button", { name: "Tasks" }));
+      const scheduled = await screen.findByLabelText("Scheduled for One");
+      await user.clear(scheduled);
+      await user.type(scheduled, "2026-06-30");
+      return scheduled;
+    }
+
+    it("saves when focus leaves the editor", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch();
+
+      await editScheduled(user);
+      await user.click(document.body);
+
+      await waitFor(() => expect(patchCount()).toBe(1));
+    });
+
+    it("saves on Tab", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch();
+
+      await editScheduled(user);
+      await user.tab();
+
+      await waitFor(() => expect(patchCount()).toBe(1));
+    });
+
+    it("saves exactly once on Enter followed by blur", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch();
+
+      await editScheduled(user);
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(patchCount()).toBe(1));
+      await user.tab();
+
+      expect(patchCount()).toBe(1);
+      expect(screen.getByLabelText("Scheduled for One")).toHaveValue("2026-06-30");
+    });
+
+    it("cancels on Escape without saving on the following blur", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch();
+
+      const scheduled = await editScheduled(user);
+      await user.keyboard("{Escape}");
+      await user.tab();
+
+      expect(scheduled).toHaveValue("2026-06-20");
+      expect(patchCount()).toBe(0);
+    });
+
+    it("shows an alert when the save fails", async () => {
+      const user = userEvent.setup();
+      stubScheduledFetch("fail");
+
+      await editScheduled(user);
+      await user.tab();
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("The request is invalid.");
+    });
+
+    it("does not save on Enter when the value is unchanged", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch();
+      render(<WorkbenchPageClient />);
+      await user.click(screen.getByRole("button", { name: "ToDo" }));
+      await user.click(screen.getByRole("button", { name: "Workspace" }));
+      await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+      await user.click(await screen.findByLabelText("Scheduled for One"));
+      await user.keyboard("{Enter}");
+
+      expect(patchCount()).toBe(0);
+    });
+
+    it("clears the alert when a retried save succeeds", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch("fail", "ok");
+
+      await editScheduled(user);
+      await user.keyboard("{Enter}");
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => expect(patchCount()).toBe(2));
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(screen.getByLabelText("Scheduled for One")).toHaveValue("2026-06-30");
+    });
+
+    it("clears the alert on Escape", async () => {
+      const user = userEvent.setup();
+      stubScheduledFetch("fail");
+
+      await editScheduled(user);
+      await user.keyboard("{Enter}");
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("does not let an earlier failure override a later successful save", async () => {
+      const user = userEvent.setup();
+      let failFirst!: (outcome: PatchOutcome) => void;
+      const patchCount = stubScheduledFetch(
+        new Promise<PatchOutcome>((resolve) => { failFirst = resolve; }),
+        "ok",
+      );
+
+      const scheduled = await editScheduled(user);
+      await user.clear(scheduled);
+      await user.type(scheduled, "2026-06-25");
+      await user.keyboard("{Enter}");
+      await user.clear(scheduled);
+      await user.type(scheduled, "2026-06-30");
+      await user.keyboard("{Enter}");
+      failFirst("fail");
+      await waitFor(() => expect(patchCount()).toBe(2));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      await user.keyboard("{Escape}");
+      expect(scheduled).toHaveValue("2026-06-30");
+    });
+  });
+
   it("patches an inline project due edit through the item PATCH endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
