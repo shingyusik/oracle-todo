@@ -17,6 +17,10 @@ use crate::domain::{
 #[allow(private_bounds)]
 impl<R: LedgerMutationRepository> LedgerService<R> {
     pub fn create_entry(&mut self, command: CreateEntry) -> LedgerResult<LedgerEntry> {
+        self.retry_busy(|service| service.create_entry_once(command.clone()))
+    }
+
+    fn create_entry_once(&mut self, command: CreateEntry) -> LedgerResult<LedgerEntry> {
         validate_actor(&command.actor)?;
         validate_manual_fields(command.entry_type, command.transfer_group.as_deref())?;
         let now = OffsetDateTime::now_utc();

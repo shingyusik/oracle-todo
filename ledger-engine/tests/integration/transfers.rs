@@ -1,8 +1,10 @@
 use std::path::Path;
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, mpsc};
+use std::time::Duration;
 
 use ledger_engine::application::commands::{
-    CreateAccount, CreateAccountCategory, CreateCurrency, UpdateAccount,
+    CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
+    UpdateAccount,
 };
 use ledger_engine::application::error::LedgerError;
 use ledger_engine::application::ports::{EntryQuery, Page};
@@ -10,7 +12,7 @@ use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{
     TransferCommand, TransferOperationKey, UpdateTransferCommand,
 };
-use ledger_engine::domain::{EntryType, Money};
+use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
 use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
 use rusqlite::Connection;
 use time::macros::datetime;
@@ -448,6 +450,7 @@ fn concurrent_retries_with_one_operation_key_converge_on_one_transfer() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     drop(seeded_service_at(&database));
+    let lock = hold_write_lock(&database, Duration::from_millis(500));
     let barrier = Arc::new(Barrier::new(2));
     let handles: Vec<_> = (0..2)
         .map(|_| {
@@ -464,28 +467,191 @@ fn concurrent_retries_with_one_operation_key_converge_on_one_transfer() {
 
     let results: Vec<_> = handles
         .into_iter()
-        .map(|handle| handle.join().unwrap())
+        .map(|handle| handle.join().unwrap().unwrap())
         .collect();
-    assert!(results.iter().any(Result::is_ok));
-
-    let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
-    let results: Vec<_> = results
-        .into_iter()
-        .map(|result| match result {
-            Err(LedgerError::Busy(_)) => service.transfer(valid_transfer()).unwrap(),
-            result => result.unwrap(),
-        })
-        .collect();
+    lock.join().unwrap();
     assert_eq!(results[0], results[1]);
 
+    assert_eq!(table_count(&database, "transfer_operations"), 1);
+    assert_eq!(table_count(&database, "ledger_entries"), 2);
+}
+
+#[test]
+fn concurrent_transfers_with_distinct_operation_keys_on_one_account_all_succeed() {
+    const WRITERS: usize = 8;
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let seeded = seeded_service_at(&database);
+    let (wallet_id, savings_id) = (seeded.wallet_id.clone(), seeded.savings_id.clone());
+    drop(seeded);
+    let lock = hold_write_lock(&database, Duration::from_millis(500));
+    let barrier = Arc::new(Barrier::new(WRITERS));
+    let handles: Vec<_> = (0..WRITERS)
+        .map(|index| {
+            let database = database.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let mut service =
+                    LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+                let mut command = valid_transfer();
+                command.operation_key =
+                    TransferOperationKey::parse(&format!("20000000-0000-4000-8000-{index:012}"))
+                        .unwrap();
+                barrier.wait();
+                service.transfer(command)
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap().unwrap();
+    }
+    lock.join().unwrap();
+
+    assert_eq!(
+        table_count(&database, "transfer_operations"),
+        WRITERS as i64
+    );
+    assert_eq!(table_count(&database, "ledger_entries"), 2 * WRITERS as i64);
+    let service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    let moved = 12_345 * WRITERS as i64;
     assert_eq!(
         service
-            .entries_page(EntryQuery::default())
+            .account_balance(&wallet_id)
             .unwrap()
-            .items
-            .len(),
-        2
+            .current_balance_minor,
+        -moved
     );
+    assert_eq!(
+        service
+            .account_balance(&savings_id)
+            .unwrap()
+            .current_balance_minor,
+        moved
+    );
+}
+
+#[test]
+fn transfer_waits_out_a_write_lock_held_longer_than_one_busy_timeout() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let lock = hold_write_lock(&database, Duration::from_millis(500));
+
+    let result = seeded.service.transfer(valid_transfer());
+    lock.join().unwrap();
+
+    result.unwrap();
+    assert_eq!(table_count(&database, "transfer_operations"), 1);
+    assert_eq!(table_count(&database, "ledger_entries"), 2);
+}
+
+#[test]
+fn transfer_reports_busy_without_writing_when_the_lock_outlasts_every_retry() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let audit_events = table_count(&database, "audit_events");
+    let lock = hold_write_lock(&database, Duration::from_millis(2_500));
+
+    let result = seeded.service.transfer(valid_transfer());
+    lock.join().unwrap();
+
+    assert!(
+        matches!(&result, Err(LedgerError::Busy(message)) if message.contains("try again shortly")),
+        "{result:?}"
+    );
+    assert_eq!(table_count(&database, "transfer_operations"), 0);
+    assert_eq!(table_count(&database, "ledger_entries"), 0);
+    assert_eq!(table_count(&database, "audit_events"), audit_events);
+}
+
+#[test]
+fn concurrent_transfer_and_entry_create_are_both_saved() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    seeded
+        .service
+        .create_category(CreateTransactionCategory {
+            name: "Food".to_string(),
+            parent: None,
+            kind: TransactionCategoryKind::Expense,
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    drop(seeded);
+    let lock = hold_write_lock(&database, Duration::from_millis(500));
+    let barrier = Arc::new(Barrier::new(2));
+    let transfer = {
+        let database = database.clone();
+        let barrier = Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+            barrier.wait();
+            service.transfer(valid_transfer())
+        })
+    };
+    let entry = {
+        let database = database.clone();
+        let barrier = Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+            barrier.wait();
+            service.create_entry(CreateEntry {
+                date: "2026-07-30".to_string(),
+                written_at: datetime!(2026-07-30 12:00 UTC),
+                content: "Lunch".to_string(),
+                category: Some("Food".to_string()),
+                account: "Wallet".to_string(),
+                entry_type: EntryType::Expense,
+                amount: Money::from_minor_units(9_000),
+                currency: "KRW".to_string(),
+                transfer_group: None,
+                source: "test".to_string(),
+                notes: None,
+                actor: "tester".to_string(),
+            })
+        })
+    };
+
+    let transfer = transfer.join().unwrap().unwrap();
+    let entry = entry.join().unwrap().unwrap();
+    lock.join().unwrap();
+
+    let service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
+    let entries = service.entries_page(EntryQuery::default()).unwrap().items;
+    assert_eq!(entries.len(), 3);
+    for id in [
+        &transfer.out_entry_id,
+        &transfer.in_entry_id,
+        &entry.id().to_string(),
+    ] {
+        assert!(entries.iter().any(|saved| saved.id() == id), "missing {id}");
+    }
+}
+
+fn hold_write_lock(path: &Path, hold: Duration) -> std::thread::JoinHandle<()> {
+    let path = path.to_path_buf();
+    let (locked, acquired) = mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let connection = Connection::open(path).unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        locked.send(()).unwrap();
+        std::thread::sleep(hold);
+        connection.execute_batch("COMMIT").unwrap();
+    });
+    acquired.recv().unwrap();
+    holder
+}
+
+fn table_count(path: &Path, table: &str) -> i64 {
+    Connection::open(path)
+        .unwrap()
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
 }
 
 #[test]
