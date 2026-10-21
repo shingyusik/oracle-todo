@@ -5442,29 +5442,50 @@ function InlineTextInput({
   label: string;
   type?: "text" | "date" | "datetime-local";
   value: string;
-  onCommit: (value: string) => void;
+  onCommit: (value: string) => Promise<void>;
 }) {
   const [draft, setDraft] = React.useState(value);
+  const [error, setError] = React.useState<string | null>(null);
+  const committedRef = React.useRef(value);
 
   React.useEffect(() => {
     setDraft(value);
+    committedRef.current = value;
   }, [value]);
 
+  const commit = (nextValue: string) => {
+    if (nextValue === committedRef.current) {
+      return;
+    }
+    committedRef.current = nextValue;
+    setError(null);
+    onCommit(nextValue).catch((cause: unknown) => {
+      committedRef.current = value;
+      setError(cause instanceof RavenApiError ? cause.message : "Could not update item.");
+    });
+  };
+
   return (
-    <input
-      className="inline-cell-control"
-      type={type}
-      aria-label={label}
-      value={draft}
-      onClick={stopRowEvent}
-      onKeyDown={stopRowEvent}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => {
-        if (draft !== value) {
-          onCommit(draft);
-        }
-      }}
-    />
+    <>
+      <input
+        className="inline-cell-control"
+        type={type}
+        aria-label={label}
+        value={draft}
+        onClick={stopRowEvent}
+        onKeyDown={(event) => {
+          stopRowEvent(event);
+          if (event.key === "Enter") {
+            commit(draft);
+          } else if (event.key === "Escape") {
+            setDraft(committedRef.current);
+          }
+        }}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => commit(draft)}
+      />
+      {error ? <span role="alert">{error}</span> : null}
+    </>
   );
 }
 
@@ -5772,7 +5793,7 @@ function dueColumn(): ItemColumn {
         label={`Due for ${item.title}`}
         type="date"
         value={item.due ?? ""}
-        onCommit={(due) => void controller.patchWorkspaceItem(item.id, { due })}
+        onCommit={(due) => controller.patchWorkspaceItem(item.id, { due })}
       />
     ),
   };
@@ -5787,7 +5808,7 @@ function scheduledDateColumn(): ItemColumn {
         type="date"
         value={formatDateValue(item.scheduled)}
         onCommit={(scheduled) =>
-          void controller.patchWorkspaceItem(item.id, { scheduled })
+          controller.patchWorkspaceItem(item.id, { scheduled })
         }
       />
     ),
@@ -5803,7 +5824,7 @@ function startsAtColumn(): ItemColumn {
         type="datetime-local"
         value={formatDateTimeLocalValue(item.scheduled)}
         onCommit={(scheduled) =>
-          void controller.patchWorkspaceItem(item.id, {
+          controller.patchWorkspaceItem(item.id, {
             scheduled: formatDateTimeCommitValue(scheduled),
           })
         }
@@ -5904,7 +5925,7 @@ function locationColumn(): ItemColumn {
         label={`Location for ${item.title}`}
         value={item.metadata_?.location ?? ""}
         onCommit={(location) =>
-          void controller.patchWorkspaceItem(item.id, { location })
+          controller.patchWorkspaceItem(item.id, { location })
         }
       />
     ),
@@ -5919,7 +5940,7 @@ function commitmentTypeColumn(): ItemColumn {
         label={`Commitment Type for ${item.title}`}
         value={item.metadata_?.commitment_type ?? ""}
         onCommit={(commitment_type) =>
-          void controller.patchWorkspaceItem(item.id, { commitment_type })
+          controller.patchWorkspaceItem(item.id, { commitment_type })
         }
       />
     ),
