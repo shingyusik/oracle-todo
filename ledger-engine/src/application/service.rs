@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
@@ -10,6 +12,36 @@ use crate::domain::{Account, AccountCategory, Currency, TransactionCategory};
 
 pub struct LedgerService<R> {
     pub(super) repository: R,
+}
+
+// Each attempt already waits up to the 250 ms SQLite busy timeout, so 4 attempts with
+// 50/100/150 ms pauses bound a contended write at about 1.3 s before callers see Busy.
+const BUSY_ATTEMPTS: u32 = 4;
+const BUSY_BACKOFF: Duration = Duration::from_millis(50);
+
+impl<R> LedgerService<R> {
+    /// Re-runs a whole begin..commit unit after Busy; the failed attempt's transaction
+    /// has already rolled back on drop, so each attempt starts from committed state.
+    pub(super) fn retry_busy<T>(
+        &mut self,
+        mut unit: impl FnMut(&mut Self) -> LedgerResult<T>,
+    ) -> LedgerResult<T> {
+        let mut attempt = 1;
+        loop {
+            match unit(self) {
+                Err(LedgerError::Busy(_)) if attempt < BUSY_ATTEMPTS => {
+                    std::thread::sleep(BUSY_BACKOFF * attempt);
+                    attempt += 1;
+                }
+                Err(LedgerError::Busy(cause)) => {
+                    return Err(LedgerError::Busy(format!(
+                        "still locked after {BUSY_ATTEMPTS} attempts ({cause}); try again shortly"
+                    )));
+                }
+                result => return result,
+            }
+        }
+    }
 }
 
 #[allow(private_bounds)]

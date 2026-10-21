@@ -99,6 +99,10 @@ struct CanonicalTransferPayload {
 #[allow(private_bounds)]
 impl<R: LedgerMutationRepository> LedgerService<R> {
     pub fn transfer(&mut self, command: TransferCommand) -> LedgerResult<TransferResult> {
+        self.retry_busy(|service| service.transfer_once(command.clone()))
+    }
+
+    fn transfer_once(&mut self, command: TransferCommand) -> LedgerResult<TransferResult> {
         validate_actor(&command.actor)?;
         let payload_json = serde_json::to_string(&canonical_payload(&command))
             .map_err(|error| LedgerError::Storage(error.to_string()))?;

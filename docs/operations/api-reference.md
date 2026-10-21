@@ -633,6 +633,8 @@ Health diet/event get accepts `include_archived=true`.
 in addition to category/key/daily filters and returns `next_offset` (a final empty page
 may occur). Existing defaults and version guards remain unchanged.
 
-Database-busy responses from Ledger/Health retain HTTP 409 and the generic conflict code,
+Ledger transfer and entry creation retry a busy write in the engine (whole transaction,
+4 attempts, about 1.3 s worst case) before reporting busy. Database-busy responses from
+Ledger/Health retain HTTP 409 and the generic conflict code,
 with `committed: false` and `retryable: true`. Ordinary conflicts do not carry that safe-retry
 classification; internal/uncertain errors must not be treated as rolled back.
