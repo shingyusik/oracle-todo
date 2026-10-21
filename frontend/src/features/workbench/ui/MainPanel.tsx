@@ -5447,6 +5447,7 @@ function InlineTextInput({
   const [draft, setDraft] = React.useState(value);
   const [error, setError] = React.useState<string | null>(null);
   const committedRef = React.useRef(value);
+  const commitSeqRef = React.useRef(0);
 
   React.useEffect(() => {
     setDraft(value);
@@ -5459,7 +5460,11 @@ function InlineTextInput({
     }
     committedRef.current = nextValue;
     setError(null);
+    const seq = ++commitSeqRef.current;
     onCommit(nextValue).catch((cause: unknown) => {
+      if (seq !== commitSeqRef.current) {
+        return;
+      }
       committedRef.current = value;
       setError(cause instanceof RavenApiError ? cause.message : "Could not update item.");
     });
@@ -5479,12 +5484,13 @@ function InlineTextInput({
             commit(draft);
           } else if (event.key === "Escape") {
             setDraft(committedRef.current);
+            setError(null);
           }
         }}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => commit(draft)}
       />
-      {error ? <span role="alert">{error}</span> : null}
+      {error ? <span className="materialize-error" role="alert">{error}</span> : null}
     </>
   );
 }

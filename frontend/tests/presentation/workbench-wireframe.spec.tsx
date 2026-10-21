@@ -12566,10 +12566,12 @@ describe("WorkbenchPageClient", () => {
   });
 
   describe("inline Scheduled date cell", () => {
-    function stubScheduledFetch(patchFails = false) {
-      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    type PatchOutcome = "ok" | "fail";
+
+    function stubScheduledFetch(...patchOutcomes: Array<PatchOutcome | Promise<PatchOutcome>>) {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
         if (url === "/api/v1/todo/items/task-1" && init?.method === "PATCH") {
-          if (patchFails) {
+          if ((await (patchOutcomes.shift() ?? "ok")) === "fail") {
             return Promise.resolve({
               ok: false,
               status: 400,
@@ -12664,12 +12666,76 @@ describe("WorkbenchPageClient", () => {
 
     it("shows an alert when the save fails", async () => {
       const user = userEvent.setup();
-      stubScheduledFetch(true);
+      stubScheduledFetch("fail");
 
       await editScheduled(user);
       await user.tab();
 
       expect(await screen.findByRole("alert")).toHaveTextContent("The request is invalid.");
+    });
+
+    it("does not save on Enter when the value is unchanged", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch();
+      render(<WorkbenchPageClient />);
+      await user.click(screen.getByRole("button", { name: "ToDo" }));
+      await user.click(screen.getByRole("button", { name: "Workspace" }));
+      await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+      await user.click(await screen.findByLabelText("Scheduled for One"));
+      await user.keyboard("{Enter}");
+
+      expect(patchCount()).toBe(0);
+    });
+
+    it("clears the alert when a retried save succeeds", async () => {
+      const user = userEvent.setup();
+      const patchCount = stubScheduledFetch("fail", "ok");
+
+      await editScheduled(user);
+      await user.keyboard("{Enter}");
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => expect(patchCount()).toBe(2));
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(screen.getByLabelText("Scheduled for One")).toHaveValue("2026-06-30");
+    });
+
+    it("clears the alert on Escape", async () => {
+      const user = userEvent.setup();
+      stubScheduledFetch("fail");
+
+      await editScheduled(user);
+      await user.keyboard("{Enter}");
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("does not let an earlier failure override a later successful save", async () => {
+      const user = userEvent.setup();
+      let failFirst!: (outcome: PatchOutcome) => void;
+      const patchCount = stubScheduledFetch(
+        new Promise<PatchOutcome>((resolve) => { failFirst = resolve; }),
+        "ok",
+      );
+
+      const scheduled = await editScheduled(user);
+      await user.clear(scheduled);
+      await user.type(scheduled, "2026-06-25");
+      await user.keyboard("{Enter}");
+      await user.clear(scheduled);
+      await user.type(scheduled, "2026-06-30");
+      await user.keyboard("{Enter}");
+      failFirst("fail");
+      await waitFor(() => expect(patchCount()).toBe(2));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      await user.keyboard("{Escape}");
+      expect(scheduled).toHaveValue("2026-06-30");
     });
   });
 
