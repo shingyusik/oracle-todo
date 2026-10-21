@@ -1505,12 +1505,10 @@ fn validate_transfer_audit(
                 ));
             }
         }
-        ("purge", Some(_), Some(before), _, _) => {
-            if !before.has_consistent_pair_state() {
-                return Err(AuditSemanticError::Transition(
-                    "transfer purge requires a lifecycle-consistent pair snapshot".to_string(),
-                ));
-            }
+        ("purge", Some(_), Some(before), _, _) if !before.has_consistent_pair_state() => {
+            return Err(AuditSemanticError::Transition(
+                "transfer purge requires a lifecycle-consistent pair snapshot".to_string(),
+            ));
         }
         _ => {}
     }

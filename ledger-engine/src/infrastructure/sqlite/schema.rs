@@ -527,11 +527,7 @@ fn validate_audit_json_integrity(connection: &Connection) -> LedgerResult<()> {
     }
 
     let mut after_id = None;
-    loop {
-        let Some(next_after_id) = validate_audit_json_batch(connection, after_id.as_deref())?
-        else {
-            break;
-        };
+    while let Some(next_after_id) = validate_audit_json_batch(connection, after_id.as_deref())? {
         after_id = Some(next_after_id);
     }
     Ok(())

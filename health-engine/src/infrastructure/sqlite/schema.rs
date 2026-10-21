@@ -1037,7 +1037,7 @@ fn sql_tokens(sql: &str) -> HealthResult<Vec<String>> {
                 pair,
                 [b'<', b'='] | [b'>', b'='] | [b'<', b'>'] | [b'!', b'='] | [b'=', b'=']
             ) {
-                tokens.push(if pair == [b'=', b'='] {
+                tokens.push(if pair == *b"==" {
                     "=".to_string()
                 } else {
                     String::from_utf8_lossy(&pair).to_string()
