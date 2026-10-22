@@ -27,6 +27,7 @@ type TransactionDetailProps = {
   onBack(): void;
   onArchived(deletedElsewhere?: boolean): void;
   onDirtyChange?(dirty: boolean): void;
+  notice?: string | null;
 };
 
 type TransactionDraft = {
@@ -53,7 +54,7 @@ type DraftAction =
   | { type: "change"; name: keyof TransactionDraft; value: string; group: boolean }
   | { type: "undo" | "redo" | "close-group" };
 
-export function TransactionDetail({ controller, row, onBack, onArchived, onDirtyChange }: TransactionDetailProps) {
+export function TransactionDetail({ controller, row, onBack, onArchived, onDirtyChange, notice }: TransactionDetailProps) {
   const initialDraft = transactionDraft(row, controller);
   const [history, dispatch] = useReducer(historyReducer, initialDraft, (present) => ({
     past: [],
@@ -184,6 +185,7 @@ export function TransactionDetail({ controller, row, onBack, onArchived, onDirty
           <h1>{draft.content}</h1>
         </div>
         <section className="detail-editor" aria-label="Edit transaction properties" onBlurCapture={() => dispatch({ type: "close-group" })}>
+          {notice ? <p role="status" className="items-message">{notice}</p> : null}
           {error ? <p role="alert" className="form-error">{error}</p> : null}
           <div className="detail-properties">
             <div className="detail-properties-list">

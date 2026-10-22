@@ -792,7 +792,10 @@ describe("LedgerPanel", () => {
     },
   );
 
-  it.each(["filtered", "lookup failure"])("keeps a clean detail outside its page after %s", async (reason) => {
+  it.each([
+    { reason: "filtered", expectNotice: false },
+    { reason: "lookup failure", expectNotice: true },
+  ])("keeps a clean detail outside its page after $reason", async ({ reason, expectNotice }) => {
     const user = userEvent.setup();
     const initial = transactionEntry("expense-1", "Lunch");
     const ledger = controller({ ...loadedState, entries: [initial] });
@@ -806,6 +809,93 @@ describe("LedgerPanel", () => {
     ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
     view.rerender(<LedgerPanel controller={ledger} />);
     await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    expect(Boolean(screen.queryByText("Could not check for the latest version."))).toBe(expectNotice);
+  });
+
+  it("warns when a clean detail's latest version can't be checked and closes once deletion is confirmed", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(new RavenTransportError("network"));
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Could not check for the latest version.");
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    lookup.mockRejectedValue(new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404));
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 2 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+    expect(screen.getByRole("table", { name: "Transactions" })).toBeInTheDocument();
+  });
+
+  it("clears the latest-version warning once a later check succeeds", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(new RavenTransportError("network"));
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Could not check for the latest version.");
+    lookup.mockResolvedValue(initial.entry);
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 2 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(screen.queryByText("Could not check for the latest version.")).toBeNull());
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+  });
+
+  it("keeps a dirty detail open when its latest-version check finds no entry", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    await user.type(screen.getByLabelText("Content"), " edited");
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
+    await act(async () => {});
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch edited");
+  });
+
+  it("keeps a reopened detail open until its new latest-version check resolves", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+    ledger.tablePage = () => ({ ...page, generation: page.generation + 2 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    const pending = deferred<LedgerEntryView["entry"]>();
+    lookup.mockReturnValue(pending.promise);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 3 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(lookup).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    await act(async () => pending.resolve(initial.entry));
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
   });
 
@@ -1843,6 +1933,51 @@ describe("LedgerPanel", () => {
     expect(await screen.findByText(expected)).toBeInTheDocument();
   });
 
+  it.each([
+    ["2026-13", "2026-13"],
+    ["garbage", "garbage"],
+    ["", "No month"],
+  ])("falls back to the raw key for malformed month group key %j", async (key, expected) => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "month",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockResolvedValue([{ key, label: key, count: 250 }]);
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    const item = (await screen.findByText("250")).closest("[role=listitem]")!;
+    expect(item.querySelector(".planner-group-name")?.textContent).toBe(expected);
+    expect(screen.queryByText("Invalid Date")).toBeNull();
+  });
+
+  it("shows the server reason when loading groups fails", async () => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockRejectedValue(
+      new RavenApiError("validation_failed", "Group filter is invalid.", {}, "request", 422),
+    );
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Group filter is invalid.");
+  });
+
+  it("shows the fallback reason when loading groups fails with a non-API error", async () => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockRejectedValue(new Error("raw storage failure"));
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load groups.");
+    expect(screen.queryByText(/raw storage failure/)).toBeNull();
+  });
+
   it("distinguishes no active logical transactions from no view matches", () => {
     const archived = transactionEntry("archived", "Archived", {
       deletedAt: "2026-08-01T00:00:00Z",
@@ -2796,6 +2931,54 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Ledger refresh failed");
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(loadedErrorController.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("shows a prominent retry notice without add actions when Ledger cannot load", async () => {
+    const user = userEvent.setup();
+    const failed = controller({ ...loadedState, status: "error", error: "Server timeout" });
+    const { container } = render(<LedgerPanel controller={failed} />);
+
+    const notice = container.querySelector(".ledger-load-error");
+    expect(notice).not.toBeNull();
+    expect(notice).not.toHaveAttribute("role");
+    const message = screen.getByRole("alert");
+    expect(message.tagName).toBe("P");
+    expect(notice).toContainElement(message);
+    expect(within(notice as HTMLElement).getByRole("heading", { name: "Ledger could not be loaded" }))
+      .toBeInTheDocument();
+    expect(message).toHaveTextContent("Ledger is unavailable");
+    const retry = within(notice as HTMLElement).getByRole("button", { name: "Retry" });
+    expect(retry).toHaveClass("items-toolbar-button", "button-primary");
+    expect(retry).toHaveFocus();
+    expect(screen.queryByRole("button", { name: /^Add / })).not.toBeInTheDocument();
+
+    await user.click(retry);
+    expect(failed.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not leak raw storage errors when Ledger cannot load", () => {
+    const raw = "SQLITE_BUSY: database is locked /path/to/db/ledger.sqlite";
+    render(<LedgerPanel controller={controller({ ...loadedState, status: "error", error: raw })} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Ledger is unavailable");
+    expect(screen.queryByText(/SQLITE_BUSY|\/path\/to\/db/)).not.toBeInTheDocument();
+  });
+
+  it("disables the load retry while it is in progress", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const failed = controller({ ...loadedState, status: "error", error: "Server timeout" });
+    vi.mocked(failed.refresh).mockReturnValue(pending.promise);
+    render(<LedgerPanel controller={failed} />);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    const retrying = screen.getByRole("button", { name: "Retrying…" });
+    expect(retrying).toBeDisabled();
+    await user.click(retrying);
+    expect(failed.refresh).toHaveBeenCalledOnce();
+
+    await act(async () => pending.resolve(false));
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
   });
 
   it("loads account and category references into their leaves", () => {
@@ -4660,7 +4843,8 @@ describe("LedgerPanel", () => {
       );
     }
     render(<RecoveryHarness />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("raw transaction storage failure");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger is unavailable");
+    expect(screen.queryByText("raw transaction storage failure")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Load accounts scope" }));
     expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.queryByText("No transactions yet.")).toBeNull();

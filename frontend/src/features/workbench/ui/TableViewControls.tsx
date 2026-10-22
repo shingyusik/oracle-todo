@@ -29,6 +29,8 @@ import {
 } from "@/features/workbench/model/planner-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 
+export const DEFAULT_GROUP_ERROR = "Could not load groups.";
+
 export type Option<T extends string> = {
   value: T;
   label: string;
@@ -77,6 +79,7 @@ export type TableViewControlsAdapter = {
   add?: () => void;
   loadGroupCandidates?: () => Promise<PlannerGroupCandidate[]>;
   groupCandidatesKey?: string;
+  groupErrorMessage?: (error: unknown) => string;
 };
 
 type TableViewDropdownKind = "filter" | "sort" | "group";
@@ -116,6 +119,8 @@ export function TableViewControls({
   const groupPanelRef = useRef<HTMLDivElement>(null);
   const loadGroupCandidatesRef = useRef(adapter.loadGroupCandidates);
   loadGroupCandidatesRef.current = adapter.loadGroupCandidates;
+  const groupErrorMessageRef = useRef(adapter.groupErrorMessage);
+  groupErrorMessageRef.current = adapter.groupErrorMessage;
   const hasGroupLoader = Boolean(adapter.loadGroupCandidates);
   const groupRequestKey = JSON.stringify({
     scope: adapter.scopeId,
@@ -125,7 +130,7 @@ export function TableViewControls({
     filters: effectiveFilterRules,
   });
   const [groupResult, setGroupResult] = React.useState<{
-    key: string; status: "loading" | "loaded" | "error"; candidates: PlannerGroupCandidate[];
+    key: string; status: "loading" | "loaded" | "error"; candidates: PlannerGroupCandidate[]; error?: string;
   } | null>(null);
   const [groupAttempt, setGroupAttempt] = React.useState(0);
   const groupStatus = hasGroupLoader && groupBy !== "none"
@@ -179,7 +184,12 @@ export function TableViewControls({
           || compareUnicodeText(left.label, right.label));
         setGroupResult({ key: groupRequestKey, status: "loaded", candidates });
       },
-      () => { if (active) setGroupResult({ key: groupRequestKey, status: "error", candidates: [] }); },
+      (error: unknown) => {
+        if (active) setGroupResult({
+          key: groupRequestKey, status: "error", candidates: [],
+          error: groupErrorMessageRef.current?.(error) ?? DEFAULT_GROUP_ERROR,
+        });
+      },
     );
     return () => { active = false; };
   }, [openDropdown, groupRequestKey, groupBy, hasGroupLoader, groupAttempt]);
@@ -340,7 +350,7 @@ export function TableViewControls({
               >
                 {groupStatus === "loading" ? <p role="status">Loading groups…</p> : null}
                 {groupStatus === "error" ? <>
-                  <p role="alert">Could not load groups.</p>
+                  <p role="alert">{groupResult?.error ?? DEFAULT_GROUP_ERROR}</p>
                   <button className="items-toolbar-button" type="button" onClick={() => setGroupAttempt((value) => value + 1)}>Retry groups</button>
                 </> : null}
                 <PlannerGroupPanel
