@@ -202,7 +202,7 @@ function TransactionsPanel({
   const editingTransferEntryId = editing?.transferEntry?.entry.id;
   const editingOutsidePage = editing !== null && !activeRows.some(({ id }) => id === editing.id);
   const [latestCheck, setLatestCheck] = useState<{ entryId: string; result: LatestCheckResult } | null>(null);
-  const latestCheckResult = editingOutsidePage && latestCheck?.entryId === editingEntryId
+  const latestCheckResult = editingOutsidePage && latestCheck !== null && latestCheck.entryId === editingEntryId
     ? latestCheck.result
     : null;
   const resolvedEditing = resolveTransactionDetail(editing, {
