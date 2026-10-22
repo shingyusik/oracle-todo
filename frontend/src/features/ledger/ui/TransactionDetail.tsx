@@ -25,7 +25,7 @@ type TransactionDetailProps = {
   controller: LedgerController;
   row: TransactionRow;
   onBack(): void;
-  onArchived(): void;
+  onArchived(deletedElsewhere?: boolean): void;
   onDirtyChange?(dirty: boolean): void;
 };
 
@@ -102,7 +102,7 @@ export function TransactionDetail({ controller, row, onBack, onArchived, onDirty
       setBaseline(saved);
     } catch (cause) {
       if (cause instanceof RavenApiError && cause.status === 404) {
-        onArchived();
+        onArchived(true);
         return;
       }
       setError(cause instanceof Error ? cause.message : "Could not save transaction");

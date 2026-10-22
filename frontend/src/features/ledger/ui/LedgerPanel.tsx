@@ -140,6 +140,7 @@ function TransactionsPanel({
 }) {
   const [editing, setEditing] = useState<TransactionRow | null>(null);
   const detailDirty = useRef(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -249,6 +250,7 @@ function TransactionsPanel({
   }
 
   function openTransaction(row: TransactionRow) {
+    setNotice(null);
     setEditing(row);
   }
 
@@ -260,8 +262,9 @@ function TransactionsPanel({
         row={resolvedEditing}
         onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
         onBack={() => setEditing(null)}
-        onArchived={() => {
+        onArchived={(deletedElsewhere) => {
           setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
+          if (deletedElsewhere) setNotice("This transaction was deleted elsewhere.");
           setEditing(null);
         }}
       />
@@ -272,6 +275,7 @@ function TransactionsPanel({
   return (
     <section aria-labelledby="ledger-transactions-heading">
       <LedgerRecovery controller={controller} kind="entries" />
+      {notice ? <p role="status" className="items-message">{notice}</p> : null}
       <LedgerTableViewHeader
         controller={controller}
         scope="ledger.transactions"

@@ -859,6 +859,31 @@ describe("LedgerPanel", () => {
     expect(ledger[update]).toHaveBeenCalledOnce();
   });
 
+  it("notices a transaction deleted elsewhere after its save 404 closes the detail", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({ ...loadedState, entries: [transactionEntry("expense-1", "Lunch")] });
+    ledger.updateEntry = vi.fn().mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    await user.type(screen.getByLabelText("Content"), " edited");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+    expect(screen.getByRole("status")).toHaveTextContent("This transaction was deleted elsewhere.");
+  });
+
+  it("keeps a direct archive from the detail silent", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({ ...loadedState, entries: [transactionEntry("expense-1", "Lunch")] });
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+    expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
+  });
+
   it("keeps the production Account settings dialog open while its save is pending", async () => {
     const user = userEvent.setup();
     const request = deferred<void>();
