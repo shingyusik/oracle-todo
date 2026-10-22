@@ -1760,6 +1760,34 @@ describe("LedgerPanel", () => {
     expect(await screen.findByText(expected)).toBeInTheDocument();
   });
 
+  it.each(["2026-13", "garbage", ""])("falls back to the raw key for malformed month group key %j", async (key) => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "month",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockResolvedValue([{ key, label: key, count: 250 }]);
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    const item = (await screen.findByText("250")).closest("[role=listitem]")!;
+    expect(item.querySelector(".planner-group-name")?.textContent).toBe(key);
+    expect(screen.queryByText("Invalid Date")).toBeNull();
+  });
+
+  it("shows the server reason when loading groups fails", async () => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockRejectedValue(
+      new RavenApiError("validation_failed", "Group filter is invalid.", {}, "request", 422),
+    );
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Group filter is invalid.");
+  });
+
   it("distinguishes no active logical transactions from no view matches", () => {
     const archived = transactionEntry("archived", "Archived", {
       deletedAt: "2026-08-01T00:00:00Z",

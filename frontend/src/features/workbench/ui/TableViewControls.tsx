@@ -77,6 +77,7 @@ export type TableViewControlsAdapter = {
   add?: () => void;
   loadGroupCandidates?: () => Promise<PlannerGroupCandidate[]>;
   groupCandidatesKey?: string;
+  groupErrorMessage?: (error: unknown) => string;
 };
 
 type TableViewDropdownKind = "filter" | "sort" | "group";
@@ -116,6 +117,8 @@ export function TableViewControls({
   const groupPanelRef = useRef<HTMLDivElement>(null);
   const loadGroupCandidatesRef = useRef(adapter.loadGroupCandidates);
   loadGroupCandidatesRef.current = adapter.loadGroupCandidates;
+  const groupErrorMessageRef = useRef(adapter.groupErrorMessage);
+  groupErrorMessageRef.current = adapter.groupErrorMessage;
   const hasGroupLoader = Boolean(adapter.loadGroupCandidates);
   const groupRequestKey = JSON.stringify({
     scope: adapter.scopeId,
@@ -125,7 +128,7 @@ export function TableViewControls({
     filters: effectiveFilterRules,
   });
   const [groupResult, setGroupResult] = React.useState<{
-    key: string; status: "loading" | "loaded" | "error"; candidates: PlannerGroupCandidate[];
+    key: string; status: "loading" | "loaded" | "error"; candidates: PlannerGroupCandidate[]; error?: string;
   } | null>(null);
   const [groupAttempt, setGroupAttempt] = React.useState(0);
   const groupStatus = hasGroupLoader && groupBy !== "none"
@@ -179,7 +182,12 @@ export function TableViewControls({
           || compareUnicodeText(left.label, right.label));
         setGroupResult({ key: groupRequestKey, status: "loaded", candidates });
       },
-      () => { if (active) setGroupResult({ key: groupRequestKey, status: "error", candidates: [] }); },
+      (error: unknown) => {
+        if (active) setGroupResult({
+          key: groupRequestKey, status: "error", candidates: [],
+          error: groupErrorMessageRef.current?.(error) ?? "Could not load groups.",
+        });
+      },
     );
     return () => { active = false; };
   }, [openDropdown, groupRequestKey, groupBy, hasGroupLoader, groupAttempt]);
@@ -340,7 +348,7 @@ export function TableViewControls({
               >
                 {groupStatus === "loading" ? <p role="status">Loading groups…</p> : null}
                 {groupStatus === "error" ? <>
-                  <p role="alert">Could not load groups.</p>
+                  <p role="alert">{groupResult?.error ?? "Could not load groups."}</p>
                   <button type="button" aria-label="Retry groups" onClick={() => setGroupAttempt((value) => value + 1)}>Retry</button>
                 </> : null}
                 <PlannerGroupPanel
