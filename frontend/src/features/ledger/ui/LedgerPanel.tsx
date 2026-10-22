@@ -125,6 +125,28 @@ export function LedgerPanel({
   );
 }
 
+type LatestCheckResult = "missing" | "unverified";
+
+/** Decides whether an open transaction detail is still current, deleted, or unconfirmed. */
+function resolveTransactionDetail(
+  editing: TransactionRow | null,
+  { archived, dirty, knownRows, needsLookup, latestCheck }: {
+    archived: boolean;
+    dirty: boolean;
+    knownRows: TransactionRow[];
+    needsLookup: boolean;
+    latestCheck: LatestCheckResult | null;
+  },
+): TransactionRow | null {
+  if (editing === null) return null;
+  const latest = knownRows.find(({ id }) => id === editing.id);
+  // An unsaved draft is never discarded; saving reports a deleted entry.
+  if (dirty) return latest ?? editing;
+  // A server 404 outranks remembered rows, which cannot prove an entry still exists.
+  if (archived || latestCheck === "missing") return null;
+  return latest ?? (needsLookup ? editing : null);
+}
+
 function TransactionsPanel({
   controller,
   tombstonedIds,
@@ -175,26 +197,36 @@ function TransactionsPanel({
   const editingArchived = editing !== null && controller.state.entries.some(({ entry }) =>
     (entry.id === editing.detailEntry.entry.id ||
       (editing.kind === "transfer" && entry.transferGroupId === editing.id)) && entry.deletedAt !== null);
-  const resolvedEditing = editing === null || (editingArchived && !detailDirty.current)
-    ? null
-    : controller.hasReferenceData?.("ledger.transactions")
-      ? projectTransactionRows(legacyEntries).find(({ id }) => id === editing.id)
-        ?? (detailDirty.current ? editing : null)
-      : referenceRows.find(({ id }) => id === editing.id)
-        ?? (controller.hasReferenceData || detailDirty.current ? editing : null);
+  const referenceLoaded = controller.hasReferenceData?.("ledger.transactions");
   const editingEntryId = editing?.detailEntry.entry.id;
   const editingTransferEntryId = editing?.transferEntry?.entry.id;
   const editingOutsidePage = editing !== null && !activeRows.some(({ id }) => id === editing.id);
+  const [latestCheck, setLatestCheck] = useState<{ entryId: string; result: LatestCheckResult } | null>(null);
+  const latestCheckResult = editingOutsidePage && latestCheck !== null && latestCheck.entryId === editingEntryId
+    ? latestCheck.result
+    : null;
+  const resolvedEditing = resolveTransactionDetail(editing, {
+    archived: editingArchived,
+    dirty: detailDirty.current,
+    knownRows: referenceLoaded ? projectTransactionRows(legacyEntries) : referenceRows,
+    // Only a partially loaded paged view needs the server lookup to decide.
+    needsLookup: referenceLoaded === false,
+    latestCheck: latestCheckResult,
+  });
   useEffect(() => {
     if (!editingEntryId || !editingOutsidePage || page.moreStatus !== "idle") return;
     let active = true;
+    setLatestCheck(null);
     // Paged results and remembered rows cannot prove that an entry still exists.
     const ids = editingTransferEntryId ? [editingEntryId, editingTransferEntryId] : [editingEntryId];
-    void Promise.all(ids.map((id) => ledgerApi.getEntry(id))).catch((cause: unknown) => {
-      if (active && !detailDirty.current && cause instanceof RavenApiError && cause.status === 404) {
-        setEditing(null);
-      }
-    });
+    void Promise.all(ids.map((id) => ledgerApi.getEntry(id))).then(
+      () => { if (active) setLatestCheck(null); },
+      (cause: unknown) => {
+        if (!active) return;
+        const result = cause instanceof RavenApiError && cause.status === 404 ? "missing" : "unverified";
+        setLatestCheck({ entryId: editingEntryId, result });
+      },
+    );
     return () => { active = false; };
   }, [editingEntryId, editingTransferEntryId, editingOutsidePage, page.generation, page.moreStatus]);
 
@@ -212,7 +244,10 @@ function TransactionsPanel({
   }, [visibleRows]);
 
   useEffect(() => {
-    if (editing && !resolvedEditing) setEditing(null);
+    if (editing && !resolvedEditing) {
+      setEditing(null);
+      setLatestCheck(null);
+    }
   }, [editing, resolvedEditing]);
 
   function toggleSelection(id: string) {
@@ -252,17 +287,23 @@ function TransactionsPanel({
     setEditing(row);
   }
 
+  function closeTransaction() {
+    setEditing(null);
+    setLatestCheck(null);
+  }
+
   if (resolvedEditing) {
     return (
-      <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={() => setEditing(null)}>
+      <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={closeTransaction}>
       <TransactionDetail
         controller={controller}
         row={resolvedEditing}
+        notice={latestCheckResult === "unverified" ? "Could not check for the latest version." : null}
         onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
-        onBack={() => setEditing(null)}
+        onBack={closeTransaction}
         onArchived={() => {
           setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
-          setEditing(null);
+          closeTransaction();
         }}
       />
       </ReferenceDataBoundary>
