@@ -427,13 +427,17 @@ export function useLedgerController(): LedgerController {
       drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
       drainPages((offset) => ledgerApi.listTransactionCategories({ limit: 200, offset })),
     ]).then(([currencies, accounts, categories]) => {
-      transactionFormReferencesLoaded.current = true;
-      setState((current) => ({
-        ...current, status: "loaded", error: force ? current.error : null, currencies, accounts, categories,
-      }));
+      if (transactionFormReferencesRequest.current === request) {
+        transactionFormReferencesLoaded.current = true;
+        setState((current) => ({
+          ...current, status: "loaded", error: force ? current.error : null, currencies, accounts, categories,
+        }));
+      }
       return true;
     }, (error) => {
-      setState((current) => ({ ...current, error: errorMessage(error) }));
+      if (transactionFormReferencesRequest.current === request) {
+        setState((current) => ({ ...current, error: errorMessage(error) }));
+      }
       return false;
     }).finally(() => {
       if (transactionFormReferencesRequest.current === request) {
@@ -453,11 +457,15 @@ export function useLedgerController(): LedgerController {
       drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
       drainPages((offset) => ledgerApi.listAccountCategories({ limit: 200, offset })),
     ]).then(([currencies, accountCategories]) => {
-      accountFormReferencesLoaded.current = true;
-      setState((current) => ({ ...current, error: force ? current.error : null, currencies, accountCategories }));
+      if (accountFormReferencesRequest.current === request) {
+        accountFormReferencesLoaded.current = true;
+        setState((current) => ({ ...current, error: force ? current.error : null, currencies, accountCategories }));
+      }
       return true;
     }, (error) => {
-      setState((current) => ({ ...current, error: errorMessage(error) }));
+      if (accountFormReferencesRequest.current === request) {
+        setState((current) => ({ ...current, error: errorMessage(error) }));
+      }
       return false;
     }).finally(() => {
       if (accountFormReferencesRequest.current === request) {

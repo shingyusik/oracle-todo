@@ -4689,7 +4689,7 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountBalances")
       .mockResolvedValue({ items: [], nextOffset: null });
-    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(entryView("expense-new", "Dinner").entry);
     vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(transferView());
     vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
@@ -5443,5 +5443,51 @@ describe("Ledger mutation results", () => {
       await Promise.all([firstRefresh, secondRefresh]);
     });
     expect(result.current.state.accountCategories).toEqual([card]);
+  });
+
+  it("keeps newer account form choices when an older forced reload finishes last", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const card = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureAccountFormReferences as (force: boolean) => Promise<boolean>;
+    let olderLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { olderLoad = load(true); });
+    act(() => { newerLoad = load(true); });
+    await act(async () => {
+      newer.resolve({ items: [card], nextOffset: null });
+      await newerLoad;
+      older.resolve({ items: loadedState.accountCategories, nextOffset: null });
+      await olderLoad;
+    });
+    expect(result.current.state.accountCategories).toEqual([card]);
+  });
+
+  it("keeps newer transaction form choices when an older forced reload finishes last", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force: boolean) => Promise<boolean>;
+    let olderLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { olderLoad = load(true); });
+    act(() => { newerLoad = load(true); });
+    await act(async () => {
+      newer.resolve({ items: [transit], nextOffset: null });
+      await newerLoad;
+      older.resolve({ items: loadedState.categories, nextOffset: null });
+      await olderLoad;
+    });
+    expect(result.current.state.categories).toEqual([transit]);
   });
 });
