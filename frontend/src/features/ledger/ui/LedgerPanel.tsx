@@ -154,6 +154,7 @@ function TransactionsPanel({
   useEffect(() => {
     void controller.ensureTable?.("ledger.transactions");
   }, [controller]);
+  useEffect(() => setNotice(null), [page.generation]);
   const occurrences = page.items
     .filter(isTransactionOccurrence)
     .filter(({ record }) => !tombstonedIds.has(record.id));

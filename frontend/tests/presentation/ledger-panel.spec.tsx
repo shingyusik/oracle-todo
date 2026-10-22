@@ -873,6 +873,42 @@ describe("LedgerPanel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("This transaction was deleted elsewhere.");
   });
 
+  it("clears the deleted elsewhere notice when another transaction opens", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch"), transactionEntry("expense-2", "Dinner")],
+    });
+    ledger.updateEntry = vi.fn().mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    await user.type(screen.getByLabelText("Content"), " edited");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("This transaction was deleted elsewhere.");
+    await user.click(screen.getByRole("button", { name: /Open details for Dinner/ }));
+    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
+  });
+
+  it("clears the deleted elsewhere notice when the transactions table reloads", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({ ...loadedState, entries: [transactionEntry("expense-1", "Lunch")] });
+    ledger.updateEntry = vi.fn().mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    await user.type(screen.getByLabelText("Content"), " edited");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("This transaction was deleted elsewhere.");
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
+  });
+
   it("keeps a direct archive from the detail silent", async () => {
     const user = userEvent.setup();
     const ledger = controller({ ...loadedState, entries: [transactionEntry("expense-1", "Lunch")] });
