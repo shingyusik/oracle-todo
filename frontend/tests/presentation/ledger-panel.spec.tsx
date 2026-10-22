@@ -796,7 +796,7 @@ describe("LedgerPanel", () => {
     view.rerender(<LedgerPanel controller={ledger} />);
     await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
-    expect(Boolean(screen.queryByText("Couldn't check for the latest version."))).toBe(expectNotice);
+    expect(Boolean(screen.queryByText("Could not check for the latest version."))).toBe(expectNotice);
   });
 
   it("warns when a clean detail's latest version can't be checked and closes once deletion is confirmed", async () => {
@@ -810,7 +810,7 @@ describe("LedgerPanel", () => {
     const page = ledger.tablePage!("ledger.transactions");
     ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
     view.rerender(<LedgerPanel controller={ledger} />);
-    expect(await screen.findByRole("status")).toHaveTextContent("Couldn't check for the latest version.");
+    expect(await screen.findByRole("status")).toHaveTextContent("Could not check for the latest version.");
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
     lookup.mockRejectedValue(new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404));
     ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 2 });
@@ -830,11 +830,11 @@ describe("LedgerPanel", () => {
     const page = ledger.tablePage!("ledger.transactions");
     ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
     view.rerender(<LedgerPanel controller={ledger} />);
-    expect(await screen.findByRole("status")).toHaveTextContent("Couldn't check for the latest version.");
+    expect(await screen.findByRole("status")).toHaveTextContent("Could not check for the latest version.");
     lookup.mockResolvedValue(initial.entry);
     ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 2 });
     view.rerender(<LedgerPanel controller={ledger} />);
-    await waitFor(() => expect(screen.queryByText("Couldn't check for the latest version.")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Could not check for the latest version.")).toBeNull());
     expect(lookup).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
   });
@@ -856,6 +856,33 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
     await act(async () => {});
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch edited");
+  });
+
+  it("keeps a reopened detail open until its new latest-version check resolves", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
+    ledger.tablePage = () => ({ ...page, generation: page.generation + 2 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    const pending = deferred<LedgerEntryView["entry"]>();
+    lookup.mockReturnValue(pending.promise);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 3 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(lookup).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    await act(async () => pending.resolve(initial.entry));
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
   });
 
   it("keeps edits begun while an external archive lookup is pending", async () => {

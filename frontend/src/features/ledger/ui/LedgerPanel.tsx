@@ -216,6 +216,7 @@ function TransactionsPanel({
   useEffect(() => {
     if (!editingEntryId || !editingOutsidePage || page.moreStatus !== "idle") return;
     let active = true;
+    setLatestCheck(null);
     // Paged results and remembered rows cannot prove that an entry still exists.
     const ids = editingTransferEntryId ? [editingEntryId, editingTransferEntryId] : [editingEntryId];
     void Promise.all(ids.map((id) => ledgerApi.getEntry(id))).then(
@@ -243,7 +244,10 @@ function TransactionsPanel({
   }, [visibleRows]);
 
   useEffect(() => {
-    if (editing && !resolvedEditing) setEditing(null);
+    if (editing && !resolvedEditing) {
+      setEditing(null);
+      setLatestCheck(null);
+    }
   }, [editing, resolvedEditing]);
 
   function toggleSelection(id: string) {
@@ -283,18 +287,23 @@ function TransactionsPanel({
     setEditing(row);
   }
 
+  function closeTransaction() {
+    setEditing(null);
+    setLatestCheck(null);
+  }
+
   if (resolvedEditing) {
     return (
-      <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={() => setEditing(null)}>
+      <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={closeTransaction}>
       <TransactionDetail
         controller={controller}
         row={resolvedEditing}
-        notice={latestCheckResult === "unverified" ? "Couldn't check for the latest version." : null}
+        notice={latestCheckResult === "unverified" ? "Could not check for the latest version." : null}
         onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
-        onBack={() => setEditing(null)}
+        onBack={closeTransaction}
         onArchived={() => {
           setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
-          setEditing(null);
+          closeTransaction();
         }}
       />
       </ReferenceDataBoundary>
