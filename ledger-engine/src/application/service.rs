@@ -22,7 +22,6 @@ const BUSY_BACKOFF: Duration = Duration::from_millis(50);
 impl<R> LedgerService<R> {
     /// Re-runs a whole begin..commit unit after Busy; the failed attempt's transaction
     /// has already rolled back on drop, so each attempt starts from committed state.
-    /// The engine has no logging dependency, so retries are reported on stderr.
     pub(super) fn retry_busy<T>(
         &mut self,
         mut unit: impl FnMut(&mut Self) -> LedgerResult<T>,
@@ -32,16 +31,21 @@ impl<R> LedgerService<R> {
             match unit(self) {
                 Err(LedgerError::Busy(_)) if attempt < BUSY_ATTEMPTS => {
                     let pause = BUSY_BACKOFF * attempt;
-                    eprintln!(
-                        "WARN ledger_engine: ledger database busy on attempt {attempt}/{BUSY_ATTEMPTS}; retrying in {} ms",
-                        pause.as_millis()
+                    tracing::warn!(
+                        event = "ledger_busy_retry",
+                        attempt,
+                        max_attempts = BUSY_ATTEMPTS,
+                        backoff_ms = pause.as_millis() as u64,
+                        "ledger database busy; retrying"
                     );
                     std::thread::sleep(pause);
                     attempt += 1;
                 }
                 Err(LedgerError::Busy(cause)) => {
-                    eprintln!(
-                        "WARN ledger_engine: ledger database still busy after {BUSY_ATTEMPTS} attempts; giving up"
+                    tracing::warn!(
+                        event = "ledger_busy_exhausted",
+                        attempts = BUSY_ATTEMPTS,
+                        "ledger database still busy; giving up"
                     );
                     return Err(LedgerError::Busy(format!(
                         "still locked after {BUSY_ATTEMPTS} attempts ({cause}); try again shortly"
