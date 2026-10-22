@@ -40,6 +40,7 @@ do no I/O and never depend on another engine.
 | Remote MCP | `docs/operations/mcp-reference.md` |
 | Home, setup, logging | `docs/operations/{setup,data-home,logging-and-rotation}.md` |
 | Verification | `docs/operations/verification-and-smoke.md` |
+| CI, branch protection | `docs/operations/ci.md` |
 
 ## Commands
 
