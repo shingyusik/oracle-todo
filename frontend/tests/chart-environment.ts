@@ -10,6 +10,7 @@ const realSetTimeout = globalThis.setTimeout;
 export function settleBeforeTeardown() {
   return new Promise<void>((resolve) => realSetTimeout(resolve, RTK_RAF_FALLBACK_MS));
 }
+// Always settle; do not make this conditional (see detached-container test).
 afterAll(settleBeforeTeardown);
 
 // JSDOM has no layout or ResizeObserver; keep actual Recharts SVG rendering in tests.
