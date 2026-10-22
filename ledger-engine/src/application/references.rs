@@ -23,6 +23,10 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     /// adapters can parse money without changing inactive, deleted, missing, or
     /// ambiguous reference semantics.
     pub fn resolve_active_currency_precision(&mut self, reference: &str) -> LedgerResult<u8> {
+        self.retry_busy(|service| service.resolve_active_currency_precision_once(reference))
+    }
+
+    fn resolve_active_currency_precision_once(&mut self, reference: &str) -> LedgerResult<u8> {
         let transaction = self.repository.begin_transaction()?;
         let precision = resolve_currency(&*transaction, reference)?.decimal_places();
         transaction.rollback()?;
@@ -30,6 +34,10 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
+        self.retry_busy(|service| service.create_currency_once(command.clone()))
+    }
+
+    fn create_currency_once(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
@@ -57,6 +65,14 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_currency(&mut self, id: &str, command: UpdateCurrency) -> LedgerResult<Currency> {
+        self.retry_busy(|service| service.update_currency_once(id, command.clone()))
+    }
+
+    fn update_currency_once(
+        &mut self,
+        id: &str,
+        command: UpdateCurrency,
+    ) -> LedgerResult<Currency> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
@@ -102,6 +118,13 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         &mut self,
         command: CreateAccountCategory,
     ) -> LedgerResult<AccountCategory> {
+        self.retry_busy(|service| service.create_account_category_once(command.clone()))
+    }
+
+    fn create_account_category_once(
+        &mut self,
+        command: CreateAccountCategory,
+    ) -> LedgerResult<AccountCategory> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
@@ -134,6 +157,14 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_account_category(
+        &mut self,
+        id: &str,
+        command: UpdateAccountCategory,
+    ) -> LedgerResult<AccountCategory> {
+        self.retry_busy(|service| service.update_account_category_once(id, command.clone()))
+    }
+
+    fn update_account_category_once(
         &mut self,
         id: &str,
         command: UpdateAccountCategory,
@@ -177,6 +208,10 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_account(&mut self, command: CreateAccount) -> LedgerResult<Account> {
+        self.retry_busy(|service| service.create_account_once(command.clone()))
+    }
+
+    fn create_account_once(&mut self, command: CreateAccount) -> LedgerResult<Account> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
@@ -206,6 +241,10 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_account(&mut self, id: &str, command: UpdateAccount) -> LedgerResult<Account> {
+        self.retry_busy(|service| service.update_account_once(id, command.clone()))
+    }
+
+    fn update_account_once(&mut self, id: &str, command: UpdateAccount) -> LedgerResult<Account> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
@@ -260,6 +299,13 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         &mut self,
         command: CreateTransactionCategory,
     ) -> LedgerResult<TransactionCategory> {
+        self.retry_busy(|service| service.create_category_once(command.clone()))
+    }
+
+    fn create_category_once(
+        &mut self,
+        command: CreateTransactionCategory,
+    ) -> LedgerResult<TransactionCategory> {
         validate_actor(&command.actor)?;
         let now = time::OffsetDateTime::now_utc();
         let mut transaction = self.repository.begin_transaction()?;
@@ -296,6 +342,14 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_category(
+        &mut self,
+        id: &str,
+        command: UpdateTransactionCategory,
+    ) -> LedgerResult<TransactionCategory> {
+        self.retry_busy(|service| service.update_category_once(id, command.clone()))
+    }
+
+    fn update_category_once(
         &mut self,
         id: &str,
         command: UpdateTransactionCategory,

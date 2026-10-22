@@ -219,6 +219,14 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         transfer_group_id: &str,
         command: UpdateTransferCommand,
     ) -> LedgerResult<TransferView> {
+        self.retry_busy(|service| service.update_transfer_once(transfer_group_id, command.clone()))
+    }
+
+    fn update_transfer_once(
+        &mut self,
+        transfer_group_id: &str,
+        command: UpdateTransferCommand,
+    ) -> LedgerResult<TransferView> {
         validate_actor(&command.actor)?;
         let now = OffsetDateTime::now_utc();
         let operation_id = Uuid::new_v4().to_string();

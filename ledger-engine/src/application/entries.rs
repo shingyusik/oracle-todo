@@ -67,6 +67,10 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_entry(&mut self, id: &str, command: UpdateEntry) -> LedgerResult<LedgerEntry> {
+        self.retry_busy(|service| service.update_entry_once(id, command.clone()))
+    }
+
+    fn update_entry_once(&mut self, id: &str, command: UpdateEntry) -> LedgerResult<LedgerEntry> {
         validate_actor(&command.actor)?;
         if command.written_at.is_some() || command.source.is_some() {
             return Err(validation(
