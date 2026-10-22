@@ -1,13 +1,33 @@
 import { afterAll, beforeEach, vi } from "vitest";
 
-// Recharts batches store notifications with RTK's animation-frame strategy, which also arms a
-// 100ms timer whose callback calls cancelAnimationFrame. The frame can be fake or never run, so
-// wait out that timer with the real clock before jsdom teardown removes the window globals.
+// RTK 2.12 기준: autoBatchEnhancer({ type: "raf" }), used by Recharts 3.10's store, arms this
+// fallback timer next to each animation frame, and its callback calls cancelAnimationFrame.
+export const RTK_RAF_FALLBACK_MS = 100;
+
+// The frame can be fake or never run, so wait out that timer with the real clock before jsdom
+// teardown removes the window globals.
 const realSetTimeout = globalThis.setTimeout;
 export function settleChartNotifications() {
-  return new Promise<void>((resolve) => realSetTimeout(resolve, 100));
+  return new Promise<void>((resolve) => realSetTimeout(resolve, RTK_RAF_FALLBACK_MS));
 }
-afterAll(settleChartNotifications);
+
+// Only files that rendered a chart need the wait. Observe insertions rather than checking in
+// afterEach, which would run after RTL's cleanup has already emptied the DOM.
+const chartSelector = ".recharts-wrapper, .recharts-surface";
+let chartRendered = false;
+const chartObserver = new MutationObserver(noteCharts);
+chartObserver.observe(document, { childList: true, subtree: true });
+function noteCharts(records: MutationRecord[]) {
+  chartRendered ||= records.some((record) => Array.from(record.addedNodes).some((node) =>
+    node instanceof Element && (node.matches(chartSelector) || node.querySelector(chartSelector) !== null)));
+}
+export function hasRenderedChart() {
+  noteCharts(chartObserver.takeRecords());
+  return chartRendered;
+}
+afterAll(async () => {
+  if (hasRenderedChart()) await settleChartNotifications();
+});
 
 // JSDOM has no layout or ResizeObserver; keep actual Recharts SVG rendering in tests.
 const originalBounds = HTMLElement.prototype.getBoundingClientRect;
