@@ -1,4 +1,13 @@
-import { beforeEach, vi } from "vitest";
+import { afterAll, beforeEach, vi } from "vitest";
+
+// Recharts batches store notifications with RTK's animation-frame strategy, which also arms a
+// 100ms timer whose callback calls cancelAnimationFrame. The frame can be fake or never run, so
+// wait out that timer with the real clock before jsdom teardown removes the window globals.
+const realSetTimeout = globalThis.setTimeout;
+export function settleChartNotifications() {
+  return new Promise<void>((resolve) => realSetTimeout(resolve, 100));
+}
+afterAll(settleChartNotifications);
 
 // JSDOM has no layout or ResizeObserver; keep actual Recharts SVG rendering in tests.
 const originalBounds = HTMLElement.prototype.getBoundingClientRect;
