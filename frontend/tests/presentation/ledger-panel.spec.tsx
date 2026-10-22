@@ -23,6 +23,7 @@ import type {
   LedgerTableOccurrence,
   LedgerTrend,
   MasterPurgePreview,
+  TransferView,
 } from "@/features/ledger/model/ledger-model";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import { deriveAccountGroups } from "@/features/ledger/model/account-table";
@@ -261,6 +262,18 @@ function entryView(id: string, content: string): LedgerEntryView {
       updatedAt: "2026-07-30T00:00:00Z",
       deletedAt: null,
     },
+  };
+}
+
+function transferView(): TransferView {
+  return {
+    transferGroupId: "transfer-1",
+    outEntry: transactionEntry("transfer-out", "Move", { entryType: "transfer_out" }),
+    inEntry: transactionEntry("transfer-in", "Move", { entryType: "transfer_in" }),
+    amountMinor: 12000,
+    currencyCode: "KRW",
+    fromAccountName: "Cash",
+    toAccountName: "Cash",
   };
 }
 
@@ -2448,7 +2461,7 @@ describe("LedgerPanel", () => {
       vi.spyOn(ledgerApi, "listAccountBalances")
         .mockResolvedValue({ items: [], nextOffset: null });
       const save = mode === "transfer"
-        ? vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue({} as never)
+        ? vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(transferView())
         : vi.spyOn(ledgerApi, "createEntry")
             .mockResolvedValue(entryView("created-entry", "Lunch").entry);
 
@@ -4678,7 +4691,7 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: [], nextOffset: null });
     vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(transferView());
     vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue({} as never);
     vi.spyOn(ledgerApi, "createAccount").mockResolvedValue({} as never);
@@ -5318,4 +5331,117 @@ it("drops a failed balance retry when the account is deactivated", async () => {
   await act(async () => { await result.current.archiveAccount(updated.id); });
   expect(balance).toHaveBeenCalledOnce();
   expect(result.current.state.error).toBeNull();
+});
+
+describe("Ledger mutation results", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("remembers a saved entry with its reference names", async () => {
+    mockLedgerLoads();
+    const saved = entryView("expense-new", "Dinner");
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(saved.entry);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.ensureTransactionFormReferences!(); });
+    await act(async () => {
+      await result.current.createEntry({
+        date: "2026-07-30", content: "Dinner", account: "account-cash",
+        entryType: "expense", amount: "12000", currency: "currency-krw",
+      });
+    });
+    expect(result.current.state.entries).toEqual([saved]);
+  });
+
+  it("remembers both sides of a saved transfer", async () => {
+    mockLedgerLoads();
+    const saved = transferView();
+    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => {
+      await result.current.transfer({} as never);
+    });
+    expect(result.current.state.entries).toEqual([saved.outEntry, saved.inEntry]);
+  });
+
+  it("remembers a saved account and refreshes its balance", async () => {
+    mockLedgerLoads();
+    const saved = { ...loadedState.accounts[0]!, id: "account-card", name: "Card" };
+    vi.spyOn(ledgerApi, "createAccount").mockResolvedValue(saved);
+    const balance = vi.spyOn(ledgerApi, "getAccountBalance").mockResolvedValue({
+      account: saved, currencyCode: "KRW", decimalPlaces: 0, currentBalanceMinor: 0,
+    });
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.createAccount({} as never); });
+    expect(result.current.state.accounts).toEqual([saved]);
+    expect(result.current.state.categories).toEqual([]);
+    expect(balance).toHaveBeenCalledWith("account-card");
+  });
+
+  it("remembers a saved transaction category", async () => {
+    mockLedgerLoads();
+    const saved = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.spyOn(ledgerApi, "createTransactionCategory").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.createCategory({} as never); });
+    expect(result.current.state.categories).toEqual([saved]);
+  });
+
+  it("keeps a saved account type out of the transaction categories", async () => {
+    mockLedgerLoads();
+    const saved = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => {
+      await result.current.createAccountCategory({ name: "Card", liability: true });
+    });
+    expect(result.current.state.categories).toEqual([]);
+    expect(result.current.state.accountCategories).toEqual([saved]);
+  });
+
+  it("remembers a saved currency", async () => {
+    mockLedgerLoads();
+    const saved = { ...loadedState.currencies[0]!, id: "currency-jpy", code: "JPY" };
+    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.createCurrency({} as never); });
+    expect(result.current.state.currencies).toEqual([saved]);
+    expect(result.current.state.categories).toEqual([]);
+  });
+
+  it("logs why a changed account balance could not refresh", async () => {
+    mockLedgerLoads();
+    const failure = new Error("temporary read failure");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue(loadedState.accounts[0]!);
+    vi.spyOn(ledgerApi, "getAccountBalance").mockRejectedValue(failure);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.updateAccount("account-cash", {}); });
+    expect(consoleError).toHaveBeenCalledWith("Could not refresh Ledger account balance.", failure);
+    expect(result.current.state.error).toBe("Changes were saved, but this account could not refresh.");
+  });
+
+  it("reloads account form choices for each refresh instead of reusing an older reload", async () => {
+    mockLedgerLoads();
+    const first = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const second = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const card = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.ensureAccountFormReferences!(); });
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    let firstRefresh!: Promise<boolean>;
+    act(() => { firstRefresh = result.current.refresh(); });
+    await waitFor(() => expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(2));
+    let secondRefresh!: Promise<boolean>;
+    act(() => { secondRefresh = result.current.refresh(); });
+    await waitFor(() => expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      first.resolve({ items: loadedState.accountCategories, nextOffset: null });
+      second.resolve({ items: [card], nextOffset: null });
+      await Promise.all([firstRefresh, secondRefresh]);
+    });
+    expect(result.current.state.accountCategories).toEqual([card]);
+  });
 });

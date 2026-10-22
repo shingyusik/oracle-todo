@@ -20,6 +20,7 @@ import type {
   BreakdownRow,
   Currency,
   LedgerComparison,
+  LedgerEntry,
   LedgerEntryInput,
   LedgerEntryUpdate,
   LedgerEntryView,
@@ -31,6 +32,7 @@ import type {
   TransactionCategory,
   TransferInput,
   TransferUpdate,
+  TransferView,
 } from "@/features/ledger/model/ledger-model";
 import {
   createLedgerTableViews,
@@ -63,6 +65,14 @@ type PendingLedgerViewCommand = {
   apply: (state: LedgerTableViewsState) => LedgerTableViewsState;
   persist: boolean;
 };
+
+type LedgerMutation =
+  | { kind: "entry"; record: LedgerEntry }
+  | { kind: "transfer"; record: TransferView }
+  | { kind: "account"; record: Account }
+  | { kind: "category"; record: TransactionCategory }
+  | { kind: "accountCategory"; record: AccountCategory }
+  | { kind: "currency"; record: Currency };
 
 type LoadStatus = "loading" | "loaded" | "error";
 type ReportStatus = "idle" | "loading" | "loaded" | "error";
@@ -436,7 +446,9 @@ export function useLedgerController(): LedgerController {
 
   const loadAccountFormReferences = useCallback((force = false): Promise<boolean> => {
     if (!force && accountFormReferencesLoaded.current) return Promise.resolve(true);
-    if (accountFormReferencesRequest.current) return accountFormReferencesRequest.current;
+    if (!force && accountFormReferencesRequest.current) {
+      return accountFormReferencesRequest.current;
+    }
     const request = Promise.all([
       drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
       drainPages((offset) => ledgerApi.listAccountCategories({ limit: 200, offset })),
@@ -447,7 +459,11 @@ export function useLedgerController(): LedgerController {
     }, (error) => {
       setState((current) => ({ ...current, error: errorMessage(error) }));
       return false;
-    }).finally(() => { accountFormReferencesRequest.current = null; });
+    }).finally(() => {
+      if (accountFormReferencesRequest.current === request) {
+        accountFormReferencesRequest.current = null;
+      }
+    });
     accountFormReferencesRequest.current = request;
     return request;
   }, []);
@@ -550,7 +566,8 @@ export function useLedgerController(): LedgerController {
       }));
       pendingAccountBalances.current.delete(id);
       return true;
-    } catch {
+    } catch (error) {
+      console.error("Could not refresh Ledger account balance.", error);
       return false;
     }
   }, []);
@@ -596,13 +613,13 @@ export function useLedgerController(): LedgerController {
   }, [refreshOutcome]);
 
   const mutate = useCallback(async (
-    operation: () => Promise<unknown>,
+    operation: () => Promise<LedgerMutation | void>,
     requireRefresh = false,
   ) => {
-    const record = await operation();
-    setState((current) => rememberLedgerMutation(current, record));
-    if (record && typeof record === "object" && "openingBalanceMinor" in record) {
-      const account = record as Account;
+    const mutation = await operation();
+    if (mutation) setState((current) => rememberLedgerMutation(current, mutation));
+    if (mutation?.kind === "account") {
+      const account = mutation.record;
       if (account.active) pendingAccountBalances.current.add(account.id);
       else pendingAccountBalances.current.delete(account.id);
     }
@@ -793,35 +810,66 @@ export function useLedgerController(): LedgerController {
     confirmTableViewAction,
     cancelTableViewAction: () => setTableViewConfirmation(null),
     refresh,
-    createEntry: (input) => mutate(() => ledgerApi.createEntry(input), true),
-    updateEntry: (id, input) => mutate(() => ledgerApi.updateEntry(id, input)),
-    transfer: (input) => mutate(() => ledgerApi.createTransfer(input), true),
-    updateTransfer: (id, input) => mutate(() => ledgerApi.updateTransfer(id, input)),
-    archive: (id) => mutate(() => ledgerApi.archiveEntry(id)),
-    restore: (id) => mutate(() => ledgerApi.restoreEntry(id)),
-    createAccount: (input) => mutate(() => ledgerApi.createAccount(input)),
-    updateAccount: (id, input) =>
-      mutate(() => ledgerApi.updateAccount(id, input)),
-    archiveAccount: (id) =>
-      mutate(() => ledgerApi.updateAccount(id, { active: false })),
-    restoreAccount: (id) =>
-      mutate(() => ledgerApi.updateAccount(id, { active: true })),
-    createCategory: (input) =>
-      mutate(() => ledgerApi.createTransactionCategory(input)),
-    updateCategory: (id, input) =>
-      mutate(() => ledgerApi.updateTransactionCategory(id, input)),
-    archiveCategory: (id) =>
-      mutate(() => ledgerApi.updateTransactionCategory(id, { active: false })),
-    restoreCategory: (id) =>
-      mutate(() => ledgerApi.updateTransactionCategory(id, { active: true })),
-    createCurrency: (input) => mutate(() => ledgerApi.createCurrency(input)),
-    updateCurrency: (id, input) => mutate(() => ledgerApi.updateCurrency(id, input)),
-    deactivateCurrency: (id) => mutate(() => ledgerApi.updateCurrency(id, { active: false })),
-    createAccountCategory: (input) => mutate(() => ledgerApi.createAccountCategory(input)),
-    updateAccountCategory: (id, input) =>
-      mutate(() => ledgerApi.updateAccountCategory(id, input)),
-    deactivateAccountCategory: (id) =>
-      mutate(() => ledgerApi.updateAccountCategory(id, { active: false })),
+    createEntry: (input) => mutate(async () => ({
+      kind: "entry", record: await ledgerApi.createEntry(input),
+    }), true),
+    updateEntry: (id, input) => mutate(async () => ({
+      kind: "entry", record: await ledgerApi.updateEntry(id, input),
+    })),
+    transfer: (input) => mutate(async () => ({
+      kind: "transfer", record: await ledgerApi.createTransfer(input),
+    }), true),
+    updateTransfer: (id, input) => mutate(async () => ({
+      kind: "transfer", record: await ledgerApi.updateTransfer(id, input),
+    })),
+    archive: (id) => mutate(async () => ({
+      kind: "entry", record: await ledgerApi.archiveEntry(id),
+    })),
+    restore: (id) => mutate(async () => ({
+      kind: "entry", record: await ledgerApi.restoreEntry(id),
+    })),
+    createAccount: (input) => mutate(async () => ({
+      kind: "account", record: await ledgerApi.createAccount(input),
+    })),
+    updateAccount: (id, input) => mutate(async () => ({
+      kind: "account", record: await ledgerApi.updateAccount(id, input),
+    })),
+    archiveAccount: (id) => mutate(async () => ({
+      kind: "account", record: await ledgerApi.updateAccount(id, { active: false }),
+    })),
+    restoreAccount: (id) => mutate(async () => ({
+      kind: "account", record: await ledgerApi.updateAccount(id, { active: true }),
+    })),
+    createCategory: (input) => mutate(async () => ({
+      kind: "category", record: await ledgerApi.createTransactionCategory(input),
+    })),
+    updateCategory: (id, input) => mutate(async () => ({
+      kind: "category", record: await ledgerApi.updateTransactionCategory(id, input),
+    })),
+    archiveCategory: (id) => mutate(async () => ({
+      kind: "category", record: await ledgerApi.updateTransactionCategory(id, { active: false }),
+    })),
+    restoreCategory: (id) => mutate(async () => ({
+      kind: "category", record: await ledgerApi.updateTransactionCategory(id, { active: true }),
+    })),
+    createCurrency: (input) => mutate(async () => ({
+      kind: "currency", record: await ledgerApi.createCurrency(input),
+    })),
+    updateCurrency: (id, input) => mutate(async () => ({
+      kind: "currency", record: await ledgerApi.updateCurrency(id, input),
+    })),
+    deactivateCurrency: (id) => mutate(async () => ({
+      kind: "currency", record: await ledgerApi.updateCurrency(id, { active: false }),
+    })),
+    createAccountCategory: (input) => mutate(async () => ({
+      kind: "accountCategory", record: await ledgerApi.createAccountCategory(input),
+    })),
+    updateAccountCategory: (id, input) => mutate(async () => ({
+      kind: "accountCategory", record: await ledgerApi.updateAccountCategory(id, input),
+    })),
+    deactivateAccountCategory: (id) => mutate(async () => ({
+      kind: "accountCategory", record: await ledgerApi.updateAccountCategory(id, { active: false }),
+    })),
     previewAccountCategoryPurge: (id) =>
       ledgerApi.previewMasterPurge("account-categories", id),
     purgeAccountCategory: (id, confirmation) =>
@@ -871,9 +919,7 @@ function rememberLedgerRows(state: LedgerState, items: LedgerTableOccurrence[]):
     if (item.scope === "ledger.transactions") {
       const views = item.record.transferEntry
         ? [item.record.detailEntry, item.record.transferEntry] : [item.record.detailEntry];
-      const entries = new Map(next.entries.map((view) => [view.entry.id, view]));
-      for (const view of views) entries.set(view.entry.id, view);
-      next = { ...next, entries: [...entries.values()] };
+      next = { ...next, entries: mergeEntryViews(next.entries, views) };
     } else if (item.scope === "ledger.accounts") {
       next = { ...next,
         accounts: mergeLedgerRecords(next.accounts, [item.record.account]),
@@ -889,30 +935,37 @@ function rememberLedgerRows(state: LedgerState, items: LedgerTableOccurrence[]):
   return next;
 }
 
-function rememberLedgerMutation(state: LedgerState, record: unknown): LedgerState {
-  if (!record || typeof record !== "object") return state;
-  if ("outEntry" in record && "inEntry" in record) {
-    const transfer = record as { outEntry: LedgerEntryView; inEntry: LedgerEntryView };
-    const entries = new Map(state.entries.map((view) => [view.entry.id, view]));
-    for (const view of [transfer.outEntry, transfer.inEntry]) entries.set(view.entry.id, view);
-    return { ...state, entries: [...entries.values()] };
+function mergeEntryViews(current: LedgerEntryView[], incoming: LedgerEntryView[]): LedgerEntryView[] {
+  const views = new Map(current.map((view) => [view.entry.id, view]));
+  for (const view of incoming) views.set(view.entry.id, view);
+  return [...views.values()];
+}
+
+function rememberLedgerMutation(state: LedgerState, mutation: LedgerMutation): LedgerState {
+  switch (mutation.kind) {
+    case "transfer":
+      return { ...state, entries: mergeEntryViews(state.entries, [mutation.record.outEntry, mutation.record.inEntry]) };
+    case "entry": {
+      const entry = mutation.record;
+      const previous = state.entries.find((view) => view.entry.id === entry.id);
+      const view: LedgerEntryView = {
+        entry,
+        accountName: state.accounts.find(({ id }) => id === entry.accountId)?.name
+          ?? (previous && previous.entry.accountId === entry.accountId ? previous.accountName : null),
+        categoryName: state.categories.find(({ id }) => id === entry.transactionCategoryId)?.name
+          ?? (previous && previous.entry.transactionCategoryId === entry.transactionCategoryId ? previous.categoryName : null),
+        currencyCode: state.currencies.find(({ id }) => id === entry.currencyId)?.code
+          ?? (previous && previous.entry.currencyId === entry.currencyId ? previous.currencyCode : null),
+      };
+      return { ...state, entries: [...state.entries.filter((view) => view.entry.id !== entry.id), view] };
+    }
+    case "account":
+      return { ...state, accounts: mergeLedgerRecords(state.accounts, [mutation.record]) };
+    case "category":
+      return { ...state, categories: mergeLedgerRecords(state.categories, [mutation.record]) };
+    case "accountCategory":
+      return { ...state, accountCategories: mergeLedgerRecords(state.accountCategories, [mutation.record]) };
+    case "currency":
+      return { ...state, currencies: mergeLedgerRecords(state.currencies, [mutation.record]) };
   }
-  if (!("id" in record)) return state;
-  if ("entryType" in record) {
-    const entry = record as LedgerEntryView["entry"];
-    const previous = state.entries.find((view) => view.entry.id === entry.id);
-    const view: LedgerEntryView = {
-      entry,
-      accountName: state.accounts.find(({ id }) => id === entry.accountId)?.name
-        ?? (previous && previous.entry.accountId === entry.accountId ? previous.accountName : null),
-      categoryName: state.categories.find(({ id }) => id === entry.transactionCategoryId)?.name
-        ?? (previous && previous.entry.transactionCategoryId === entry.transactionCategoryId ? previous.categoryName : null),
-      currencyCode: state.currencies.find(({ id }) => id === entry.currencyId)?.code
-        ?? (previous && previous.entry.currencyId === entry.currencyId ? previous.currencyCode : null),
-    };
-    return { ...state, entries: [...state.entries.filter((view) => view.entry.id !== entry.id), view] };
-  }
-  if ("openingBalanceMinor" in record) return { ...state, accounts: mergeLedgerRecords(state.accounts, [record as Account]) };
-  if ("parentId" in record) return { ...state, categories: mergeLedgerRecords(state.categories, [record as TransactionCategory]) };
-  return state;
 }
