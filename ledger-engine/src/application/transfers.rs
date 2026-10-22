@@ -99,7 +99,7 @@ struct CanonicalTransferPayload {
 #[allow(private_bounds)]
 impl<R: LedgerMutationRepository> LedgerService<R> {
     pub fn transfer(&mut self, command: TransferCommand) -> LedgerResult<TransferResult> {
-        self.retry_busy(|service| service.transfer_once(command.clone()))
+        self.retry_busy("transfer", |service| service.transfer_once(command.clone()))
     }
 
     fn transfer_once(&mut self, command: TransferCommand) -> LedgerResult<TransferResult> {
@@ -215,6 +215,16 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_transfer(
+        &mut self,
+        transfer_group_id: &str,
+        command: UpdateTransferCommand,
+    ) -> LedgerResult<TransferView> {
+        self.retry_busy("update_transfer", |service| {
+            service.update_transfer_once(transfer_group_id, command.clone())
+        })
+    }
+
+    fn update_transfer_once(
         &mut self,
         transfer_group_id: &str,
         command: UpdateTransferCommand,

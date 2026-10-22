@@ -506,6 +506,14 @@ describe("design system boundaries", () => {
     );
   });
 
+  it("keeps toolbar buttons at a 44px touch target", async () => {
+    const styles = await readSource("src/styles/globals.css");
+    const block = cssBlockAt(styles, styles.indexOf(".items-toolbar-button {"));
+
+    expect(block).toMatch(/min-width:\s*44px/);
+    expect(block).toMatch(/min-height:\s*44px/);
+  });
+
   it("keeps planner group controls compact and headerless", async () => {
     const panel = await readSource(
       "src/features/workbench/ui/PlannerGroupPanel.tsx",

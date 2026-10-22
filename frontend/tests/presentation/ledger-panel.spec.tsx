@@ -23,7 +23,9 @@ import type {
   LedgerTableOccurrence,
   LedgerTrend,
   MasterPurgePreview,
+  TransferView,
 } from "@/features/ledger/model/ledger-model";
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import { deriveAccountGroups } from "@/features/ledger/model/account-table";
 import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
@@ -261,6 +263,18 @@ function entryView(id: string, content: string): LedgerEntryView {
       updatedAt: "2026-07-30T00:00:00Z",
       deletedAt: null,
     },
+  };
+}
+
+function transferView(): TransferView {
+  return {
+    transferGroupId: "transfer-1",
+    outEntry: transactionEntry("transfer-out", "Move", { entryType: "transfer_out" }),
+    inEntry: transactionEntry("transfer-in", "Move", { entryType: "transfer_in" }),
+    amountMinor: 12000,
+    currencyCode: "KRW",
+    fromAccountName: "Cash",
+    toAccountName: "Cash",
   };
 }
 
@@ -1471,8 +1485,10 @@ describe("LedgerPanel", () => {
     vi.mocked(ledgerApi.listCurrencies)
       .mockResolvedValueOnce({ items: loadedState.currencies, nextOffset: null })
       .mockResolvedValue({ items: refreshedCurrencies, nextOffset: null });
-    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateCurrency").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue(refreshedCurrencies[0]!);
+    vi.spyOn(ledgerApi, "updateCurrency")
+      .mockResolvedValueOnce({ ...loadedState.currencies[1]!, name: "US Dollar" })
+      .mockResolvedValueOnce({ ...loadedState.currencies[1]!, name: "US Dollar", active: false });
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
@@ -1519,8 +1535,14 @@ describe("LedgerPanel", () => {
     vi.mocked(ledgerApi.listAccountCategories)
       .mockResolvedValueOnce({ items: loadedState.accountCategories, nextOffset: null })
       .mockResolvedValue({ items: refreshedCategories, nextOffset: null });
-    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateAccountCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue(refreshedCategories[0]!);
+    vi.spyOn(ledgerApi, "updateAccountCategory")
+      .mockResolvedValueOnce({ ...loadedState.accountCategories[0]!, id: "account-type-cash" })
+      .mockResolvedValueOnce({
+        ...loadedState.accountCategories[0]!,
+        id: "account-type-cash",
+        active: false,
+      });
     const purgePreview: MasterPurgePreview = {
       confirmationId: "account-type-card",
       recordType: "account_category",
@@ -2448,7 +2470,7 @@ describe("LedgerPanel", () => {
       vi.spyOn(ledgerApi, "listAccountBalances")
         .mockResolvedValue({ items: [], nextOffset: null });
       const save = mode === "transfer"
-        ? vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue({} as never)
+        ? vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(transferView())
         : vi.spyOn(ledgerApi, "createEntry")
             .mockResolvedValue(entryView("created-entry", "Lunch").entry);
 
@@ -2502,7 +2524,7 @@ describe("LedgerPanel", () => {
   it("clears failed creation recovery when Ledger remounts", async () => {
     const user = userEvent.setup();
     mockLedgerLoads();
-    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(entryView("expense-new", "Lunch").entry);
     function ProductionLedgerPanel() {
       return <LedgerPanel controller={useLedgerController()} />;
     }
@@ -2552,8 +2574,12 @@ describe("LedgerPanel", () => {
         .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
       vi.spyOn(ledgerApi, "listAccountBalances")
         .mockResolvedValue({ items: [], nextOffset: null });
-      vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
-      vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+      vi.spyOn(ledgerApi, "createEntry")
+        .mockResolvedValue(entryView("expense-new", "Lunch").entry);
+      vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+        ...entryView("entry-existing", "Existing").entry,
+        deletedAt: "2026-07-31T00:00:00Z",
+      });
 
       let liveController!: LedgerController;
       function ProductionLedgerPanel() {
@@ -2936,7 +2962,10 @@ describe("LedgerPanel", () => {
       })
       .mockRejectedValueOnce(new Error("Ledger refresh failed"))
       .mockResolvedValue({ items: [], nextOffset: null });
-    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+      ...entryView("expense-1", "Lunch").entry,
+      deletedAt: "2026-07-31T00:00:00Z",
+    });
 
     function ProductionLedgerPanel({
       leafTabId = "transactions",
@@ -2999,7 +3028,10 @@ describe("LedgerPanel", () => {
         nextOffset: null,
       };
     });
-    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+      ...entryView("expense-1", "Lunch").entry,
+      deletedAt: "2026-07-31T00:00:00Z",
+    });
 
     function TombstoneRetryHarness() {
       const ledger = useLedgerController();
@@ -4725,15 +4757,22 @@ describe("LedgerPanel", () => {
       .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
     vi.spyOn(ledgerApi, "listAccountBalances")
       .mockResolvedValue({ items: [], nextOffset: null });
-    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "createAccount").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "createTransactionCategory").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateTransactionCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(entryView("expense-new", "Dinner").entry);
+    vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue(entryView("entry", "Lunch").entry);
+    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(transferView());
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+      ...entryView("entry", "Lunch").entry,
+      deletedAt: "2026-07-31T00:00:00Z",
+    });
+    vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue(entryView("entry", "Lunch").entry);
+    vi.spyOn(ledgerApi, "createAccount")
+      .mockResolvedValue({ ...loadedState.accounts[0]!, id: "account", active: false });
+    vi.spyOn(ledgerApi, "updateAccount")
+      .mockResolvedValue({ ...loadedState.accounts[0]!, id: "account", active: false });
+    vi.spyOn(ledgerApi, "createTransactionCategory")
+      .mockResolvedValue({ ...loadedState.categories[0]!, id: "category" });
+    vi.spyOn(ledgerApi, "updateTransactionCategory")
+      .mockResolvedValue({ ...loadedState.categories[0]!, id: "category" });
     vi.spyOn(ledgerApi, "purgeMaster").mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useLedgerController());
@@ -5367,4 +5406,276 @@ it("drops a failed balance retry when the account is deactivated", async () => {
   await act(async () => { await result.current.archiveAccount(updated.id); });
   expect(balance).toHaveBeenCalledOnce();
   expect(result.current.state.error).toBeNull();
+});
+
+describe("Ledger mutation results", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("remembers a saved entry with its reference names", async () => {
+    mockLedgerLoads();
+    const saved = entryView("expense-new", "Dinner");
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(saved.entry);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.ensureTransactionFormReferences!(); });
+    await act(async () => {
+      await result.current.createEntry({
+        date: "2026-07-30", content: "Dinner", account: "account-cash",
+        entryType: "expense", amount: "12000", currency: "currency-krw",
+      });
+    });
+    expect(result.current.state.entries).toEqual([saved]);
+  });
+
+  it("remembers both sides of a saved transfer", async () => {
+    mockLedgerLoads();
+    const saved = transferView();
+    vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => {
+      await result.current.transfer({} as never);
+    });
+    expect(result.current.state.entries).toEqual([saved.outEntry, saved.inEntry]);
+  });
+
+  it("remembers a saved account and refreshes its balance", async () => {
+    mockLedgerLoads();
+    const saved = { ...loadedState.accounts[0]!, id: "account-card", name: "Card" };
+    vi.spyOn(ledgerApi, "createAccount").mockResolvedValue(saved);
+    const balance = vi.spyOn(ledgerApi, "getAccountBalance").mockResolvedValue({
+      account: saved, currencyCode: "KRW", decimalPlaces: 0, currentBalanceMinor: 0,
+    });
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.createAccount({} as never); });
+    expect(result.current.state.accounts).toEqual([saved]);
+    expect(result.current.state.categories).toEqual([]);
+    expect(balance).toHaveBeenCalledWith("account-card");
+  });
+
+  it("remembers a saved transaction category", async () => {
+    mockLedgerLoads();
+    const saved = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.spyOn(ledgerApi, "createTransactionCategory").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.createCategory({} as never); });
+    expect(result.current.state.categories).toEqual([saved]);
+  });
+
+  it("keeps a saved account type out of the transaction categories", async () => {
+    mockLedgerLoads();
+    const saved = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => {
+      await result.current.createAccountCategory({ name: "Card", liability: true });
+    });
+    expect(result.current.state.categories).toEqual([]);
+    expect(result.current.state.accountCategories).toEqual([saved]);
+  });
+
+  it("remembers a saved currency", async () => {
+    mockLedgerLoads();
+    const saved = { ...loadedState.currencies[0]!, id: "currency-jpy", code: "JPY" };
+    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue(saved);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.createCurrency({} as never); });
+    expect(result.current.state.currencies).toEqual([saved]);
+    expect(result.current.state.categories).toEqual([]);
+  });
+
+  it("logs why a changed account balance could not refresh", async () => {
+    mockLedgerLoads();
+    const failure = new Error("temporary read failure");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue(loadedState.accounts[0]!);
+    vi.spyOn(ledgerApi, "getAccountBalance").mockRejectedValue(failure);
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.updateAccount("account-cash", {}); });
+    expect(consoleError).toHaveBeenCalledWith("Could not refresh Ledger account balance.", failure);
+    expect(result.current.state.error).toBe("Changes were saved, but this account could not refresh.");
+  });
+
+  it("reloads account form choices for each refresh instead of reusing an older reload", async () => {
+    mockLedgerLoads();
+    const first = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const second = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const card = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    const { result } = renderHook(() => useLedgerController());
+    await act(async () => { await result.current.ensureAccountFormReferences!(); });
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    let firstRefresh!: Promise<boolean>;
+    act(() => { firstRefresh = result.current.refresh(); });
+    await waitFor(() => expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(2));
+    let secondRefresh!: Promise<boolean>;
+    act(() => { secondRefresh = result.current.refresh(); });
+    await waitFor(() => expect(ledgerApi.listAccountCategories).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      first.resolve({ items: loadedState.accountCategories, nextOffset: null });
+      second.resolve({ items: [card], nextOffset: null });
+      await Promise.all([firstRefresh, secondRefresh]);
+    });
+    expect(result.current.state.accountCategories).toEqual([card]);
+  });
+
+  it("keeps newer account form choices when an older forced reload finishes last", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const card = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureAccountFormReferences as (force: boolean) => Promise<boolean>;
+    let olderLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { olderLoad = load(true); });
+    act(() => { newerLoad = load(true); });
+    await act(async () => {
+      newer.resolve({ items: [card], nextOffset: null });
+      await newerLoad;
+      older.resolve({ items: loadedState.accountCategories, nextOffset: null });
+      await olderLoad;
+    });
+    expect(result.current.state.accountCategories).toEqual([card]);
+  });
+
+  it("keeps newer transaction form choices when an older forced reload finishes last", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force: boolean) => Promise<boolean>;
+    let olderLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { olderLoad = load(true); });
+    act(() => { newerLoad = load(true); });
+    await act(async () => {
+      newer.resolve({ items: [transit], nextOffset: null });
+      await newerLoad;
+      older.resolve({ items: loadedState.categories, nextOffset: null });
+      await olderLoad;
+    });
+    expect(result.current.state.categories).toEqual([transit]);
+  });
+
+  it("hands a joined transaction form caller the newer result when the older load fails late", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force?: boolean) => Promise<boolean>;
+    let olderLoad!: Promise<boolean>;
+    let joinedLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { olderLoad = load(); });
+    act(() => { joinedLoad = load(); });
+    act(() => { newerLoad = load(true); });
+    let joined: boolean | undefined;
+    await act(async () => {
+      newer.resolve({ items: [transit], nextOffset: null });
+      await newerLoad;
+      older.reject(new Error("older transaction references failed"));
+      joined = await joinedLoad;
+      await olderLoad;
+    });
+    expect(joined).toBe(true);
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.categories).toEqual([transit]);
+  });
+
+  it("hands a joined account form caller the newer result when the older load fails late", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const card = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureAccountFormReferences as (force?: boolean) => Promise<boolean>;
+    let joinedLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { void load(); });
+    act(() => { joinedLoad = load(); });
+    act(() => { newerLoad = load(true); });
+    let joined: boolean | undefined;
+    await act(async () => {
+      newer.resolve({ items: [card], nextOffset: null });
+      await newerLoad;
+      older.reject(new Error("older account references failed"));
+      joined = await joinedLoad;
+    });
+    expect(joined).toBe(true);
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.accountCategories).toEqual([card]);
+  });
+
+  it("makes a joined caller wait for the newer load when the older load fails first", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force?: boolean) => Promise<boolean>;
+    let joinedLoad!: Promise<boolean>;
+    act(() => { void load(); });
+    act(() => { joinedLoad = load(); });
+    act(() => { void load(true); });
+    let settled = false;
+    void joinedLoad.then(() => { settled = true; });
+    await act(async () => {
+      older.reject(new Error("older transaction references failed"));
+      await older.promise.catch(() => undefined);
+    });
+    expect(settled).toBe(false);
+    let joined: boolean | undefined;
+    await act(async () => {
+      newer.resolve({ items: [transit], nextOffset: null });
+      joined = await joinedLoad;
+    });
+    expect(joined).toBe(true);
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.categories).toEqual([transit]);
+  });
+
+  it("keeps the references dialog open when an older joined load fails after a newer one succeeds", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force?: boolean) => Promise<boolean>;
+    render(
+      <ReferenceDataBoundary load={load} onCancel={() => undefined}>
+        <p>Transaction form</p>
+      </ReferenceDataBoundary>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading references…");
+    let newerLoad!: Promise<boolean>;
+    act(() => { newerLoad = load(true); });
+    await act(async () => {
+      newer.resolve({ items: loadedState.categories, nextOffset: null });
+      await newerLoad;
+      older.reject(new Error("older transaction references failed"));
+    });
+    expect(await screen.findByText("Transaction form")).toBeInTheDocument();
+    expect(screen.queryByText("Could not load references.")).not.toBeInTheDocument();
+  });
 });
