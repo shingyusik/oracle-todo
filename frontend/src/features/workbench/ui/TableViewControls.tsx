@@ -341,7 +341,7 @@ export function TableViewControls({
                 {groupStatus === "loading" ? <p role="status">Loading groups…</p> : null}
                 {groupStatus === "error" ? <>
                   <p role="alert">Could not load groups.</p>
-                  <button type="button" aria-label="Retry groups" onClick={() => setGroupAttempt((value) => value + 1)}>Retry</button>
+                  <button className="items-toolbar-button" type="button" onClick={() => setGroupAttempt((value) => value + 1)}>Retry groups</button>
                 </> : null}
                 <PlannerGroupPanel
                   settings={{ ...adapter.settings.groupSettings, groupBy }}
