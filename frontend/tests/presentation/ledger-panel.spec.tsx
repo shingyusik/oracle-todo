@@ -1760,7 +1760,11 @@ describe("LedgerPanel", () => {
     expect(await screen.findByText(expected)).toBeInTheDocument();
   });
 
-  it.each(["2026-13", "garbage", ""])("falls back to the raw key for malformed month group key %j", async (key) => {
+  it.each([
+    ["2026-13", "2026-13"],
+    ["garbage", "garbage"],
+    ["", "No month"],
+  ])("falls back to the raw key for malformed month group key %j", async (key, expected) => {
     const ledger = controller();
     ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
       ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "month",
@@ -1770,7 +1774,7 @@ describe("LedgerPanel", () => {
       title="Transactions" headingId="transactions-heading" />);
     fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
     const item = (await screen.findByText("250")).closest("[role=listitem]")!;
-    expect(item.querySelector(".planner-group-name")?.textContent).toBe(key);
+    expect(item.querySelector(".planner-group-name")?.textContent).toBe(expected);
     expect(screen.queryByText("Invalid Date")).toBeNull();
   });
 
@@ -1786,6 +1790,19 @@ describe("LedgerPanel", () => {
       title="Transactions" headingId="transactions-heading" />);
     fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Group filter is invalid.");
+  });
+
+  it("shows the fallback reason when loading groups fails with a non-API error", async () => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockRejectedValue(new Error("raw storage failure"));
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load groups.");
+    expect(screen.queryByText(/raw storage failure/)).toBeNull();
   });
 
   it("distinguishes no active logical transactions from no view matches", () => {

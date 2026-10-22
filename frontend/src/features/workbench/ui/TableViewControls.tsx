@@ -29,7 +29,7 @@ import {
 } from "@/features/workbench/model/planner-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 
-const DEFAULT_GROUP_ERROR = "Could not load groups.";
+export const DEFAULT_GROUP_ERROR = "Could not load groups.";
 
 export type Option<T extends string> = {
   value: T;
