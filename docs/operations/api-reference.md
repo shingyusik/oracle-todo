@@ -636,8 +636,12 @@ may occur). Existing defaults and version guards remain unchanged.
 Every Ledger write (entry and transfer create/edit, archive/restore, master-data
 create/update, account-category purge and its preview, active-currency precision lookup)
 retries a busy transaction in the engine (whole transaction, 4 attempts, about 1.3 s worst
-case) before reporting busy; each retry logs a `ledger_busy_retry` warning event and the final
-give-up logs `ledger_busy_exhausted`. Database-busy responses from
+case) before reporting busy. Each retry emits a `ledger_busy_retry` warning and the final
+give-up emits `ledger_busy_exhausted`, both under the `ledger_engine` target with the
+`operation` name and attempt counts but no raw database error text. They follow the Raven
+logging levels: stderr per `RAVEN_CONSOLE_LOG` and `logs/raven.log.jsonl` per
+`RAVEN_FILE_LOG`; `--error-format json` disables tracing, so neither event is written.
+Database-busy responses from
 Ledger/Health retain HTTP 409 and the generic conflict code,
 with `committed: false` and `retryable: true`. Ordinary conflicts do not carry that safe-retry
 classification; internal/uncertain errors must not be treated as rolled back.

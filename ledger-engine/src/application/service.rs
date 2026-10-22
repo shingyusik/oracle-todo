@@ -24,6 +24,7 @@ impl<R> LedgerService<R> {
     /// has already rolled back on drop, so each attempt starts from committed state.
     pub(super) fn retry_busy<T>(
         &mut self,
+        operation: &'static str,
         mut unit: impl FnMut(&mut Self) -> LedgerResult<T>,
     ) -> LedgerResult<T> {
         let mut attempt = 1;
@@ -33,6 +34,7 @@ impl<R> LedgerService<R> {
                     let pause = BUSY_BACKOFF * attempt;
                     tracing::warn!(
                         event = "ledger_busy_retry",
+                        operation,
                         attempt,
                         max_attempts = BUSY_ATTEMPTS,
                         backoff_ms = pause.as_millis() as u64,
@@ -44,8 +46,8 @@ impl<R> LedgerService<R> {
                 Err(LedgerError::Busy(cause)) => {
                     tracing::warn!(
                         event = "ledger_busy_exhausted",
+                        operation,
                         attempts = BUSY_ATTEMPTS,
-                        cause = %cause,
                         "ledger database still busy; giving up"
                     );
                     return Err(LedgerError::Busy(format!(

@@ -23,7 +23,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     /// adapters can parse money without changing inactive, deleted, missing, or
     /// ambiguous reference semantics.
     pub fn resolve_active_currency_precision(&mut self, reference: &str) -> LedgerResult<u8> {
-        self.retry_busy(|service| service.resolve_active_currency_precision_once(reference))
+        self.retry_busy("resolve_active_currency_precision", |service| {
+            service.resolve_active_currency_precision_once(reference)
+        })
     }
 
     fn resolve_active_currency_precision_once(&mut self, reference: &str) -> LedgerResult<u8> {
@@ -34,7 +36,7 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
-        self.retry_busy(|service| service.create_currency_once(command.clone()))
+        self.retry_busy("create_currency", |service| service.create_currency_once(command.clone()))
     }
 
     fn create_currency_once(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
@@ -65,7 +67,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_currency(&mut self, id: &str, command: UpdateCurrency) -> LedgerResult<Currency> {
-        self.retry_busy(|service| service.update_currency_once(id, command.clone()))
+        self.retry_busy("update_currency", |service| {
+            service.update_currency_once(id, command.clone())
+        })
     }
 
     fn update_currency_once(
@@ -118,7 +122,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         &mut self,
         command: CreateAccountCategory,
     ) -> LedgerResult<AccountCategory> {
-        self.retry_busy(|service| service.create_account_category_once(command.clone()))
+        self.retry_busy("create_account_category", |service| {
+            service.create_account_category_once(command.clone())
+        })
     }
 
     fn create_account_category_once(
@@ -161,7 +167,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         id: &str,
         command: UpdateAccountCategory,
     ) -> LedgerResult<AccountCategory> {
-        self.retry_busy(|service| service.update_account_category_once(id, command.clone()))
+        self.retry_busy("update_account_category", |service| {
+            service.update_account_category_once(id, command.clone())
+        })
     }
 
     fn update_account_category_once(
@@ -208,7 +216,7 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_account(&mut self, command: CreateAccount) -> LedgerResult<Account> {
-        self.retry_busy(|service| service.create_account_once(command.clone()))
+        self.retry_busy("create_account", |service| service.create_account_once(command.clone()))
     }
 
     fn create_account_once(&mut self, command: CreateAccount) -> LedgerResult<Account> {
@@ -241,7 +249,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_account(&mut self, id: &str, command: UpdateAccount) -> LedgerResult<Account> {
-        self.retry_busy(|service| service.update_account_once(id, command.clone()))
+        self.retry_busy("update_account", |service| {
+            service.update_account_once(id, command.clone())
+        })
     }
 
     fn update_account_once(&mut self, id: &str, command: UpdateAccount) -> LedgerResult<Account> {
@@ -299,7 +309,7 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         &mut self,
         command: CreateTransactionCategory,
     ) -> LedgerResult<TransactionCategory> {
-        self.retry_busy(|service| service.create_category_once(command.clone()))
+        self.retry_busy("create_category", |service| service.create_category_once(command.clone()))
     }
 
     fn create_category_once(
@@ -346,7 +356,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         id: &str,
         command: UpdateTransactionCategory,
     ) -> LedgerResult<TransactionCategory> {
-        self.retry_busy(|service| service.update_category_once(id, command.clone()))
+        self.retry_busy("update_category", |service| {
+            service.update_category_once(id, command.clone())
+        })
     }
 
     fn update_category_once(

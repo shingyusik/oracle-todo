@@ -17,7 +17,7 @@ use crate::domain::{
 #[allow(private_bounds)]
 impl<R: LedgerMutationRepository> LedgerService<R> {
     pub fn create_entry(&mut self, command: CreateEntry) -> LedgerResult<LedgerEntry> {
-        self.retry_busy(|service| service.create_entry_once(command.clone()))
+        self.retry_busy("create_entry", |service| service.create_entry_once(command.clone()))
     }
 
     fn create_entry_once(&mut self, command: CreateEntry) -> LedgerResult<LedgerEntry> {
@@ -67,7 +67,7 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn update_entry(&mut self, id: &str, command: UpdateEntry) -> LedgerResult<LedgerEntry> {
-        self.retry_busy(|service| service.update_entry_once(id, command.clone()))
+        self.retry_busy("update_entry", |service| service.update_entry_once(id, command.clone()))
     }
 
     fn update_entry_once(&mut self, id: &str, command: UpdateEntry) -> LedgerResult<LedgerEntry> {
