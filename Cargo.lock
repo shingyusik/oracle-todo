@@ -1358,6 +1358,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "time",
+ "tracing",
  "unicode-casefold",
  "unicode-normalization",
  "uuid",
