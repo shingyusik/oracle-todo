@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use ledger_engine::application::commands::{
     CreateAccount, CreateAccountCategory, CreateCurrency, CreateEntry, CreateTransactionCategory,
-    UpdateAccount,
+    UpdateAccount, UpdateAccountCategory, UpdateCurrency, UpdateEntry, UpdateTransactionCategory,
 };
-use ledger_engine::application::error::LedgerError;
+use ledger_engine::application::error::{LedgerError, LedgerResult};
 use ledger_engine::application::ports::{EntryQuery, Page};
 use ledger_engine::application::service::LedgerService;
 use ledger_engine::application::transfers::{
@@ -567,6 +567,191 @@ fn transfer_reports_busy_without_writing_when_the_lock_outlasts_every_retry() {
 }
 
 #[test]
+fn create_entry_reports_busy_without_writing_when_the_lock_outlasts_every_retry() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    seeded
+        .service
+        .create_category(CreateTransactionCategory {
+            name: "Food".to_string(),
+            parent: None,
+            kind: TransactionCategoryKind::Expense,
+            actor: "seed".to_string(),
+        })
+        .unwrap();
+    let audit_events = table_count(&database, "audit_events");
+    let lock = hold_write_lock(&database, Duration::from_millis(2_500));
+
+    let result = seeded.service.create_entry(lunch_entry());
+    lock.join().unwrap();
+
+    assert!(
+        matches!(&result, Err(LedgerError::Busy(message)) if message.contains("try again shortly")),
+        "{result:?}"
+    );
+    assert_eq!(table_count(&database, "ledger_entries"), 0);
+    assert_eq!(table_count(&database, "audit_events"), audit_events);
+}
+
+#[test]
+fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let mut seeded = seeded_service_at(&database);
+    let krw_id = seeded.krw_id.clone();
+    let wallet_id = seeded.wallet_id.clone();
+    let service = &mut seeded.service;
+
+    let food = through_held_lock(&database, 1, || {
+        service.create_category(CreateTransactionCategory {
+            name: "Food".to_string(),
+            parent: None,
+            kind: TransactionCategoryKind::Expense,
+            actor: "tester".to_string(),
+        })
+    });
+    through_held_lock(&database, 1, || {
+        service.update_category(
+            food.id(),
+            UpdateTransactionCategory {
+                name: Some("Meals".to_string()),
+                actor: "tester".to_string(),
+                ..Default::default()
+            },
+        )
+    });
+    let precision =
+        through_held_lock(&database, 0, || service.resolve_active_currency_precision("KRW"));
+    assert_eq!(precision, 0);
+
+    let mut lunch = lunch_entry();
+    lunch.category = Some("Meals".to_string());
+    let entry = through_held_lock(&database, 1, || service.create_entry(lunch));
+    assert_eq!(table_count(&database, "ledger_entries"), 1);
+    through_held_lock(&database, 1, || {
+        service.update_entry(
+            entry.id(),
+            UpdateEntry {
+                content: Some("Dinner".to_string()),
+                actor: "tester".to_string(),
+                ..Default::default()
+            },
+        )
+    });
+    through_held_lock(&database, 1, || service.archive_entry(entry.id()));
+    through_held_lock(&database, 1, || service.restore_entry(entry.id()));
+
+    let transfer = through_held_lock(&database, 1, || service.transfer(valid_transfer()));
+    assert_eq!(table_count(&database, "ledger_entries"), 3);
+    assert_eq!(table_count(&database, "transfer_operations"), 1);
+    through_held_lock(&database, 1, || {
+        service.update_transfer(
+            &transfer.transfer_group_id,
+            UpdateTransferCommand {
+                date: "2026-07-31".to_string(),
+                content: "Move more to savings".to_string(),
+                from_account: "Wallet".to_string(),
+                to_account: "Savings".to_string(),
+                amount: Money::from_minor_units(20_000),
+                currency: "KRW".to_string(),
+                notes: None,
+                actor: "tester".to_string(),
+                reason: None,
+            },
+        )
+    });
+    through_held_lock(&database, 1, || service.archive_entry(&transfer.out_entry_id));
+
+    through_held_lock(&database, 1, || {
+        service.update_currency(
+            &krw_id,
+            UpdateCurrency {
+                name: Some("South Korean won".to_string()),
+                actor: "tester".to_string(),
+                ..Default::default()
+            },
+        )
+    });
+    through_held_lock(&database, 1, || {
+        service.create_account(CreateAccount {
+            name: "Pocket".to_string(),
+            category: "Cash".to_string(),
+            currency: "KRW".to_string(),
+            opening_balance: Money::from_minor_units(0),
+            actor: "tester".to_string(),
+        })
+    });
+    through_held_lock(&database, 1, || {
+        service.update_account(
+            &wallet_id,
+            UpdateAccount {
+                name: Some("Main wallet".to_string()),
+                actor: "tester".to_string(),
+                ..Default::default()
+            },
+        )
+    });
+    let spare = through_held_lock(&database, 1, || {
+        service.create_account_category(CreateAccountCategory {
+            name: "Spare".to_string(),
+            parent: None,
+            liability: false,
+            actor: "tester".to_string(),
+        })
+    });
+    through_held_lock(&database, 1, || {
+        service.update_account_category(
+            spare.id(),
+            UpdateAccountCategory {
+                name: Some("Spare cash".to_string()),
+                actor: "tester".to_string(),
+                ..Default::default()
+            },
+        )
+    });
+    through_held_lock(&database, 0, || service.purge_account_category_preview(spare.id()));
+    through_held_lock(&database, 1, || service.purge_account_category(spare.id(), spare.id()));
+
+    assert_eq!(table_count(&database, "ledger_entries"), 3);
+    assert_eq!(table_count(&database, "accounts"), 4);
+    assert_eq!(table_count(&database, "account_categories"), 1);
+}
+
+/// Runs one service call while another connection holds the write lock past one busy
+/// timeout, then checks it succeeded with exactly `audits` new audit events.
+fn through_held_lock<T>(
+    database: &Path,
+    audits: i64,
+    write: impl FnOnce() -> LedgerResult<T>,
+) -> T {
+    let audit_events = table_count(database, "audit_events");
+    let lock = hold_write_lock(database, Duration::from_millis(500));
+    let result = write();
+    lock.join().unwrap();
+    let value = result.unwrap();
+    assert_eq!(table_count(database, "audit_events"), audit_events + audits);
+    value
+}
+
+fn lunch_entry() -> CreateEntry {
+    CreateEntry {
+        date: "2026-07-30".to_string(),
+        written_at: datetime!(2026-07-30 12:00 UTC),
+        content: "Lunch".to_string(),
+        category: Some("Food".to_string()),
+        account: "Wallet".to_string(),
+        entry_type: EntryType::Expense,
+        amount: Money::from_minor_units(9_000),
+        currency: "KRW".to_string(),
+        transfer_group: None,
+        source: "test".to_string(),
+        notes: None,
+        actor: "tester".to_string(),
+    }
+}
+
+#[test]
 fn concurrent_transfer_and_entry_create_are_both_saved() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
@@ -598,20 +783,7 @@ fn concurrent_transfer_and_entry_create_are_both_saved() {
         std::thread::spawn(move || {
             let mut service = LedgerService::new(SqliteLedgerRepository::open(&database).unwrap());
             barrier.wait();
-            service.create_entry(CreateEntry {
-                date: "2026-07-30".to_string(),
-                written_at: datetime!(2026-07-30 12:00 UTC),
-                content: "Lunch".to_string(),
-                category: Some("Food".to_string()),
-                account: "Wallet".to_string(),
-                entry_type: EntryType::Expense,
-                amount: Money::from_minor_units(9_000),
-                currency: "KRW".to_string(),
-                transfer_group: None,
-                source: "test".to_string(),
-                notes: None,
-                actor: "tester".to_string(),
-            })
+            service.create_entry(lunch_entry())
         })
     };
 
