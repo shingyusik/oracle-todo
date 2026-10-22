@@ -117,6 +117,17 @@ describe("compact group loading", () => {
     expect(rows.map((row) => row.querySelector(".planner-group-count")?.textContent)).toEqual(["100", "0", "250"]);
   });
 
+  it("labels the group retry button with its visible text and the toolbar button style", async () => {
+    const load = vi.fn().mockRejectedValue(new Error("offline"));
+    render(<Harness load={load} />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Tasks" }));
+    await screen.findByRole("alert");
+    const retry = screen.getByRole("button", { name: "Retry groups" });
+    expect(retry).toHaveTextContent(/^Retry groups$/);
+    expect(retry).not.toHaveAttribute("aria-label");
+    expect(retry).toHaveClass("items-toolbar-button");
+  });
+
   it("shows safe failure with retry and preserves full counts, empty and hidden groups, manual order", async () => {
     const load = vi.fn().mockRejectedValueOnce(new Error("raw database secret path"))
       .mockResolvedValue([{ key: "focus", label: "Focus", count: 250 }, { key: "hidden", label: "Hidden", count: 70 }]);

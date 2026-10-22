@@ -44,6 +44,7 @@ fn raven_targets(level: LevelFilter) -> Targets {
     Targets::new()
         .with_default(LevelFilter::OFF)
         .with_target("raven_cli", level)
+        .with_target("ledger_engine", level)
 }
 
 fn warning_enabled(level: LevelFilter) -> bool {
@@ -203,4 +204,21 @@ fn log_max_files_from_env() -> usize {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(DEFAULT_LOG_MAX_FILES)
+}
+
+#[cfg(test)]
+mod tests {
+    use tracing::Level;
+    use tracing_subscriber::filter::LevelFilter;
+
+    use super::raven_targets;
+
+    #[test]
+    fn ledger_engine_events_follow_the_destination_level() {
+        let target = "ledger_engine::application::service";
+        assert!(raven_targets(LevelFilter::WARN).would_enable(target, &Level::WARN));
+        assert!(!raven_targets(LevelFilter::ERROR).would_enable(target, &Level::WARN));
+        assert!(!raven_targets(LevelFilter::OFF).would_enable(target, &Level::WARN));
+        assert!(!raven_targets(LevelFilter::TRACE).would_enable("rusqlite", &Level::WARN));
+    }
 }
