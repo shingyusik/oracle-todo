@@ -8,8 +8,10 @@
 - pull requests targeting `main`;
 - manual `workflow_dispatch`.
 
-Runs share one concurrency group per pull request or ref. A newer push cancels an
-in-progress pull request run; `main` and manual runs are never cancelled.
+Pull request runs share one concurrency group per pull request, and a newer push cancels
+the in-progress run. Pushes to `main` and manual runs get one group per commit SHA, so
+they are never cancelled and never replaced while pending. GitHub keeps only one pending
+run per group, so a shared group could silently drop a pending `main` run.
 
 The workflow has `contents: read` permission, uses no secrets, and pins every action to a
 full commit SHA.
@@ -24,6 +26,7 @@ and `rust`. Renaming either job breaks branch protection that requires it.
 
 - Node.js 24 matches `release.yml`; `frontend/package.json` requires `>=22.13.0`.
 - Stable Rust matches `release.yml`; the workspace `rust-version = "1.88"` is the MSRV.
+- The Rust cache is saved only from `main` runs (`save-if`); other runs restore it.
 - No system packages are installed. `rusqlite` uses the `bundled` SQLite feature and
   `reqwest` uses `rustls-tls` without default features, so no system SQLite or OpenSSL
   is linked.
