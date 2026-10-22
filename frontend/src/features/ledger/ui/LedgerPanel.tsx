@@ -65,10 +65,17 @@ export function LedgerPanel({
     return (
       <section>
         <h1>Ledger</h1>
-        <p role="alert" className="items-message">
-          {controller.state.error ?? "Ledger is unavailable"}
-        </p>
-        <button type="button" onClick={() => void controller.refresh()}>Retry</button>
+        <div role="alert" className="items-message ledger-load-error">
+          <h2>Ledger could not be loaded</h2>
+          <p>{controller.state.error ?? "Ledger is unavailable"}</p>
+          <button
+            type="button"
+            className="button-primary ledger-load-error-retry"
+            onClick={() => void controller.refresh()}
+          >
+            Retry
+          </button>
+        </div>
       </section>
     );
   }

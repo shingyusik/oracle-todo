@@ -2711,6 +2711,26 @@ describe("LedgerPanel", () => {
     expect(loadedErrorController.refresh).toHaveBeenCalledOnce();
   });
 
+  it("shows a prominent retry notice without add actions when Ledger cannot load", async () => {
+    const user = userEvent.setup();
+    const failed = controller({ ...loadedState, status: "error", error: "Ledger is unavailable" });
+    render(<LedgerPanel controller={failed} />);
+
+    const notice = screen.getByRole("alert");
+    expect(notice).toHaveClass("ledger-load-error");
+    expect(within(notice).getByRole("heading", { name: "Ledger could not be loaded" })).toBeInTheDocument();
+    expect(notice).toHaveTextContent("Ledger is unavailable");
+    const retry = within(notice).getByRole("button", { name: "Retry" });
+    expect(retry).toHaveClass("button-primary");
+    expect(screen.queryByRole("button", { name: /^Add / })).not.toBeInTheDocument();
+
+    await user.click(retry);
+    expect(failed.refresh).toHaveBeenCalledOnce();
+
+    const css = await fs.readFile(path.join(process.cwd(), "src/styles/globals.css"), "utf8");
+    expect(css).toMatch(/\.ledger-load-error-retry\s*\{[^}]*min-height:\s*44px/s);
+  });
+
   it("loads account and category references into their leaves", () => {
     const ledger = controller({
       ...loadedState,
