@@ -39,6 +39,11 @@ File logging is best-effort. Directory creation, rotation, open, lock, or write 
 not abort the domain command; Raven emits a non-recursive warning to stderr when the console
 level includes warnings.
 
+## Targets
+
+Only `raven_cli` and `ledger_engine` events are enabled; both follow the console and file
+levels above. Dependency crates stay silent.
+
 ## Event fields
 
 Top-level commands emit `command_started`, `command_completed`, or `command_failed` with:
@@ -47,6 +52,9 @@ Top-level commands emit `command_started`, `command_completed`, or `command_fail
 - owning engine
 - elapsed milliseconds
 - mapped exit code
+
+Ledger writes emit `ledger_busy_retry` (per retry: `operation`, `attempt`, `max_attempts`,
+`backoff_ms`) and `ledger_busy_exhausted` (`operation`, `attempts`) warnings.
 
 The composed API creates its own request IDs for sanitized errors. Secrets, raw bearer
 tokens, UI session values, database paths in API errors, and Health image bytes must never

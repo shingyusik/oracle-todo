@@ -633,8 +633,15 @@ Health diet/event get accepts `include_archived=true`.
 in addition to category/key/daily filters and returns `next_offset` (a final empty page
 may occur). Existing defaults and version guards remain unchanged.
 
-Ledger transfer and entry creation retry a busy write in the engine (whole transaction,
-4 attempts, about 1.3 s worst case) before reporting busy. Database-busy responses from
+Every Ledger write (entry and transfer create/edit, archive/restore, master-data
+create/update, account-category purge and its preview, active-currency precision lookup)
+retries a busy transaction in the engine (whole transaction, 4 attempts, about 1.3 s worst
+case) before reporting busy. Each retry emits a `ledger_busy_retry` warning and the final
+give-up emits `ledger_busy_exhausted`, both under the `ledger_engine` target with the
+`operation` name and attempt counts but no raw database error text. They follow the Raven
+logging levels: stderr per `RAVEN_CONSOLE_LOG` and `logs/raven.log.jsonl` per
+`RAVEN_FILE_LOG`; `--error-format json` disables tracing, so neither event is written.
+Database-busy responses from
 Ledger/Health retain HTTP 409 and the generic conflict code,
 with `committed: false` and `retryable: true`. Ordinary conflicts do not carry that safe-retry
 classification; internal/uncertain errors must not be treated as rolled back.
