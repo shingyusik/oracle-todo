@@ -45,6 +45,7 @@ export function LedgerPanel({
 }: LedgerPanelProps) {
   const [transactionRefreshRecovery, setTransactionRefreshRecovery] = useState(false);
   const [tombstonedIds, setTombstonedIds] = useState<Set<string>>(() => new Set());
+  const [retryingLoad, setRetryingLoad] = useState(false);
 
   useEffect(() => {
     if (controller.state.status !== "loaded" || tombstonedIds.size === 0) return;
@@ -65,10 +66,26 @@ export function LedgerPanel({
     return (
       <section>
         <h1>Ledger</h1>
-        <p role="alert" className="items-message">
-          {controller.state.error ?? "Ledger is unavailable"}
-        </p>
-        <button type="button" onClick={() => void controller.refresh()}>Retry</button>
+        <div className="items-message ledger-load-error">
+          <h2>Ledger could not be loaded</h2>
+          <p role="alert">Ledger is unavailable</p>
+          <button
+            autoFocus
+            type="button"
+            className="items-toolbar-button button-primary"
+            disabled={retryingLoad}
+            onClick={async () => {
+              setRetryingLoad(true);
+              try {
+                await controller.refresh();
+              } finally {
+                setRetryingLoad(false);
+              }
+            }}
+          >
+            {retryingLoad ? "Retrying…" : "Retry"}
+          </button>
+        </div>
       </section>
     );
   }

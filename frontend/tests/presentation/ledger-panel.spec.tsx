@@ -2872,6 +2872,54 @@ describe("LedgerPanel", () => {
     expect(loadedErrorController.refresh).toHaveBeenCalledOnce();
   });
 
+  it("shows a prominent retry notice without add actions when Ledger cannot load", async () => {
+    const user = userEvent.setup();
+    const failed = controller({ ...loadedState, status: "error", error: "Server timeout" });
+    const { container } = render(<LedgerPanel controller={failed} />);
+
+    const notice = container.querySelector(".ledger-load-error");
+    expect(notice).not.toBeNull();
+    expect(notice).not.toHaveAttribute("role");
+    const message = screen.getByRole("alert");
+    expect(message.tagName).toBe("P");
+    expect(notice).toContainElement(message);
+    expect(within(notice as HTMLElement).getByRole("heading", { name: "Ledger could not be loaded" }))
+      .toBeInTheDocument();
+    expect(message).toHaveTextContent("Ledger is unavailable");
+    const retry = within(notice as HTMLElement).getByRole("button", { name: "Retry" });
+    expect(retry).toHaveClass("items-toolbar-button", "button-primary");
+    expect(retry).toHaveFocus();
+    expect(screen.queryByRole("button", { name: /^Add / })).not.toBeInTheDocument();
+
+    await user.click(retry);
+    expect(failed.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not leak raw storage errors when Ledger cannot load", () => {
+    const raw = "SQLITE_BUSY: database is locked /path/to/db/ledger.sqlite";
+    render(<LedgerPanel controller={controller({ ...loadedState, status: "error", error: raw })} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Ledger is unavailable");
+    expect(screen.queryByText(/SQLITE_BUSY|\/path\/to\/db/)).not.toBeInTheDocument();
+  });
+
+  it("disables the load retry while it is in progress", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<boolean>();
+    const failed = controller({ ...loadedState, status: "error", error: "Server timeout" });
+    vi.mocked(failed.refresh).mockReturnValue(pending.promise);
+    render(<LedgerPanel controller={failed} />);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    const retrying = screen.getByRole("button", { name: "Retrying…" });
+    expect(retrying).toBeDisabled();
+    await user.click(retrying);
+    expect(failed.refresh).toHaveBeenCalledOnce();
+
+    await act(async () => pending.resolve(false));
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
   it("loads account and category references into their leaves", () => {
     const ledger = controller({
       ...loadedState,
@@ -4734,7 +4782,8 @@ describe("LedgerPanel", () => {
       );
     }
     render(<RecoveryHarness />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("raw transaction storage failure");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ledger is unavailable");
+    expect(screen.queryByText("raw transaction storage failure")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Load accounts scope" }));
     expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.queryByText("No transactions yet.")).toBeNull();
