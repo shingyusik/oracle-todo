@@ -25,6 +25,7 @@ import type {
   MasterPurgePreview,
   TransferView,
 } from "@/features/ledger/model/ledger-model";
+import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { deriveTransactionGroups } from "@/features/ledger/model/transaction-table";
 import { deriveAccountGroups } from "@/features/ledger/model/account-table";
 import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
@@ -5514,5 +5515,118 @@ describe("Ledger mutation results", () => {
       await olderLoad;
     });
     expect(result.current.state.categories).toEqual([transit]);
+  });
+
+  it("hands a joined transaction form caller the newer result when the older load fails late", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force?: boolean) => Promise<boolean>;
+    let olderLoad!: Promise<boolean>;
+    let joinedLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { olderLoad = load(); });
+    act(() => { joinedLoad = load(); });
+    act(() => { newerLoad = load(true); });
+    let joined: boolean | undefined;
+    await act(async () => {
+      newer.resolve({ items: [transit], nextOffset: null });
+      await newerLoad;
+      older.reject(new Error("older transaction references failed"));
+      joined = await joinedLoad;
+      await olderLoad;
+    });
+    expect(joined).toBe(true);
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.categories).toEqual([transit]);
+  });
+
+  it("hands a joined account form caller the newer result when the older load fails late", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["accountCategories"]; nextOffset: null }>();
+    const card = { id: "account-type-card", name: "Card", parentId: null, liability: true, active: true };
+    vi.mocked(ledgerApi.listAccountCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureAccountFormReferences as (force?: boolean) => Promise<boolean>;
+    let joinedLoad!: Promise<boolean>;
+    let newerLoad!: Promise<boolean>;
+    act(() => { void load(); });
+    act(() => { joinedLoad = load(); });
+    act(() => { newerLoad = load(true); });
+    let joined: boolean | undefined;
+    await act(async () => {
+      newer.resolve({ items: [card], nextOffset: null });
+      await newerLoad;
+      older.reject(new Error("older account references failed"));
+      joined = await joinedLoad;
+    });
+    expect(joined).toBe(true);
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.accountCategories).toEqual([card]);
+  });
+
+  it("makes a joined caller wait for the newer load when the older load fails first", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const transit = { ...loadedState.categories[0]!, id: "category-transit", name: "Transit" };
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force?: boolean) => Promise<boolean>;
+    let joinedLoad!: Promise<boolean>;
+    act(() => { void load(); });
+    act(() => { joinedLoad = load(); });
+    act(() => { void load(true); });
+    let settled = false;
+    void joinedLoad.then(() => { settled = true; });
+    await act(async () => {
+      older.reject(new Error("older transaction references failed"));
+      await older.promise.catch(() => undefined);
+    });
+    expect(settled).toBe(false);
+    let joined: boolean | undefined;
+    await act(async () => {
+      newer.resolve({ items: [transit], nextOffset: null });
+      joined = await joinedLoad;
+    });
+    expect(joined).toBe(true);
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.categories).toEqual([transit]);
+  });
+
+  it("keeps the references dialog open when an older joined load fails after a newer one succeeds", async () => {
+    mockLedgerLoads();
+    const older = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    const newer = deferred<{ items: LedgerState["categories"]; nextOffset: null }>();
+    vi.mocked(ledgerApi.listTransactionCategories)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    const { result } = renderHook(() => useLedgerController());
+    const load = result.current.ensureTransactionFormReferences as (force?: boolean) => Promise<boolean>;
+    render(
+      <ReferenceDataBoundary load={load} onCancel={() => undefined}>
+        <p>Transaction form</p>
+      </ReferenceDataBoundary>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading references…");
+    let newerLoad!: Promise<boolean>;
+    act(() => { newerLoad = load(true); });
+    await act(async () => {
+      newer.resolve({ items: loadedState.categories, nextOffset: null });
+      await newerLoad;
+      older.reject(new Error("older transaction references failed"));
+    });
+    expect(await screen.findByText("Transaction form")).toBeInTheDocument();
+    expect(screen.queryByText("Could not load references.")).not.toBeInTheDocument();
   });
 });

@@ -422,6 +422,9 @@ export function useLedgerController(): LedgerController {
     if (!force && transactionFormReferencesRequest.current) {
       return transactionFormReferencesRequest.current;
     }
+    // A superseded response defers to the newest request, or its settled outcome.
+    const latestTransactionFormReferences = () =>
+      transactionFormReferencesRequest.current ?? transactionFormReferencesLoaded.current;
     const request = Promise.all([
       drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
       drainPages((offset) => ledgerApi.listAccounts({ limit: 200, offset })),
@@ -432,13 +435,15 @@ export function useLedgerController(): LedgerController {
         setState((current) => ({
           ...current, status: "loaded", error: force ? current.error : null, currencies, accounts, categories,
         }));
+        return true;
       }
-      return true;
+      return latestTransactionFormReferences();
     }, (error) => {
       if (transactionFormReferencesRequest.current === request) {
         setState((current) => ({ ...current, error: errorMessage(error) }));
+        return false;
       }
-      return false;
+      return latestTransactionFormReferences();
     }).finally(() => {
       if (transactionFormReferencesRequest.current === request) {
         transactionFormReferencesRequest.current = null;
@@ -453,6 +458,9 @@ export function useLedgerController(): LedgerController {
     if (!force && accountFormReferencesRequest.current) {
       return accountFormReferencesRequest.current;
     }
+    // A superseded response defers to the newest request, or its settled outcome.
+    const latestAccountFormReferences = () =>
+      accountFormReferencesRequest.current ?? accountFormReferencesLoaded.current;
     const request = Promise.all([
       drainPages((offset) => ledgerApi.listCurrencies({ limit: 200, offset })),
       drainPages((offset) => ledgerApi.listAccountCategories({ limit: 200, offset })),
@@ -460,13 +468,15 @@ export function useLedgerController(): LedgerController {
       if (accountFormReferencesRequest.current === request) {
         accountFormReferencesLoaded.current = true;
         setState((current) => ({ ...current, error: force ? current.error : null, currencies, accountCategories }));
+        return true;
       }
-      return true;
+      return latestAccountFormReferences();
     }, (error) => {
       if (accountFormReferencesRequest.current === request) {
         setState((current) => ({ ...current, error: errorMessage(error) }));
+        return false;
       }
-      return false;
+      return latestAccountFormReferences();
     }).finally(() => {
       if (accountFormReferencesRequest.current === request) {
         accountFormReferencesRequest.current = null;
