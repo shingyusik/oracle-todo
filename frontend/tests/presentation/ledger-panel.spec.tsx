@@ -778,7 +778,10 @@ describe("LedgerPanel", () => {
     },
   );
 
-  it.each(["filtered", "lookup failure"])("keeps a clean detail outside its page after %s", async (reason) => {
+  it.each([
+    { reason: "filtered", expectNotice: false },
+    { reason: "lookup failure", expectNotice: true },
+  ])("keeps a clean detail outside its page after $reason", async ({ reason, expectNotice }) => {
     const user = userEvent.setup();
     const initial = transactionEntry("expense-1", "Lunch");
     const ledger = controller({ ...loadedState, entries: [initial] });
@@ -793,8 +796,7 @@ describe("LedgerPanel", () => {
     view.rerender(<LedgerPanel controller={ledger} />);
     await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
-    if (reason === "filtered") expect(screen.queryByText("Couldn't check for the latest version.")).toBeNull();
-    else expect(await screen.findByText("Couldn't check for the latest version.")).toBeVisible();
+    expect(Boolean(screen.queryByText("Couldn't check for the latest version."))).toBe(expectNotice);
   });
 
   it("warns when a clean detail's latest version can't be checked and closes once deletion is confirmed", async () => {
@@ -815,6 +817,45 @@ describe("LedgerPanel", () => {
     view.rerender(<LedgerPanel controller={ledger} />);
     await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
     expect(screen.getByRole("table", { name: "Transactions" })).toBeInTheDocument();
+  });
+
+  it("clears the latest-version warning once a later check succeeds", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(new RavenTransportError("network"));
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Couldn't check for the latest version.");
+    lookup.mockResolvedValue(initial.entry);
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 2 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(screen.queryByText("Couldn't check for the latest version.")).toBeNull());
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+  });
+
+  it("keeps a dirty detail open when its latest-version check finds no entry", async () => {
+    const user = userEvent.setup();
+    const initial = transactionEntry("expense-1", "Lunch");
+    const ledger = controller({ ...loadedState, entries: [initial] });
+    ledger.hasReferenceData = () => false;
+    const lookup = vi.spyOn(ledgerApi, "getEntry").mockRejectedValue(
+      new RavenApiError("not_found", "The requested record was not found.", {}, "request", 404),
+    );
+    const view = render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
+    await user.type(screen.getByLabelText("Content"), " edited");
+    const page = ledger.tablePage!("ledger.transactions");
+    ledger.tablePage = () => ({ ...page, items: [], generation: page.generation + 1 });
+    view.rerender(<LedgerPanel controller={ledger} />);
+    await waitFor(() => expect(lookup).toHaveBeenCalledWith(initial.entry.id));
+    await act(async () => {});
+    expect(screen.getByLabelText("Content")).toHaveValue("Lunch edited");
   });
 
   it("keeps edits begun while an external archive lookup is pending", async () => {
