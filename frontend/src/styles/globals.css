@@ -2339,11 +2339,6 @@ textarea::placeholder {
   margin: 0;
 }
 
-.ledger-load-error-retry {
-  min-width: 88px;
-  min-height: 44px;
-}
-
 .infinite-table-footer td {
   padding: 12px 14px;
   text-align: center;
