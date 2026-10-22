@@ -29,6 +29,8 @@ import {
 } from "@/features/workbench/model/planner-model";
 import { PlannerGroupPanel } from "@/features/workbench/ui/PlannerGroupPanel";
 
+const DEFAULT_GROUP_ERROR = "Could not load groups.";
+
 export type Option<T extends string> = {
   value: T;
   label: string;
@@ -185,7 +187,7 @@ export function TableViewControls({
       (error: unknown) => {
         if (active) setGroupResult({
           key: groupRequestKey, status: "error", candidates: [],
-          error: groupErrorMessageRef.current?.(error) ?? "Could not load groups.",
+          error: groupErrorMessageRef.current?.(error) ?? DEFAULT_GROUP_ERROR,
         });
       },
     );
@@ -348,7 +350,7 @@ export function TableViewControls({
               >
                 {groupStatus === "loading" ? <p role="status">Loading groups…</p> : null}
                 {groupStatus === "error" ? <>
-                  <p role="alert">{groupResult?.error ?? "Could not load groups."}</p>
+                  <p role="alert">{groupResult?.error}</p>
                   <button type="button" aria-label="Retry groups" onClick={() => setGroupAttempt((value) => value + 1)}>Retry</button>
                 </> : null}
                 <PlannerGroupPanel
