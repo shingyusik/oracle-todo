@@ -308,4 +308,5 @@ source ToDo data.
 - [AI CLI usage](docs/operations/ai-cli-usage.md)
 - [API reference](docs/operations/api-reference.md)
 - [Verification and smoke](docs/operations/verification-and-smoke.md)
+- [Continuous integration](docs/operations/ci.md)
 - [Logging and rotation](docs/operations/logging-and-rotation.md)
