@@ -13,7 +13,7 @@ use ledger_engine::application::transfers::{
     TransferCommand, TransferOperationKey, UpdateTransferCommand,
 };
 use ledger_engine::domain::{EntryType, Money, TransactionCategoryKind};
-use ledger_engine::infrastructure::sqlite::SqliteLedgerRepository;
+use ledger_engine::infrastructure::sqlite::{SQLITE_BUSY_TIMEOUT, SqliteLedgerRepository};
 use rusqlite::Connection;
 use time::macros::datetime;
 use uuid::Uuid;
@@ -536,7 +536,7 @@ fn transfer_waits_out_a_write_lock_held_longer_than_one_busy_timeout() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     let mut seeded = seeded_service_at(&database);
-    let lock = hold_write_lock(&database, Duration::from_millis(500));
+    let lock = hold_write_lock(&database, SQLITE_BUSY_TIMEOUT * 2);
 
     let result = seeded.service.transfer(valid_transfer());
     lock.join().unwrap();
@@ -718,15 +718,16 @@ fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
     assert_eq!(table_count(&database, "account_categories"), 1);
 }
 
-/// Runs one service call while another connection holds the write lock past one busy
-/// timeout, then checks it succeeded with exactly `audits` new audit events.
+/// Runs one service call while another connection holds the write lock for two busy
+/// timeouts, so a write's first attempt must hit Busy and only a retry can succeed, then
+/// checks it succeeded with exactly `audits` new audit events.
 fn through_held_lock<T>(
     database: &Path,
     audits: i64,
     write: impl FnOnce() -> LedgerResult<T>,
 ) -> T {
     let audit_events = table_count(database, "audit_events");
-    let lock = hold_write_lock(database, Duration::from_millis(500));
+    let lock = hold_write_lock(database, SQLITE_BUSY_TIMEOUT * 2);
     let result = write();
     lock.join().unwrap();
     let value = result.unwrap();

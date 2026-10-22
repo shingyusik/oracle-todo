@@ -45,6 +45,7 @@ impl<R> LedgerService<R> {
                     tracing::warn!(
                         event = "ledger_busy_exhausted",
                         attempts = BUSY_ATTEMPTS,
+                        cause = %cause,
                         "ledger database still busy; giving up"
                     );
                     return Err(LedgerError::Busy(format!(
