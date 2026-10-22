@@ -1484,8 +1484,10 @@ describe("LedgerPanel", () => {
     vi.mocked(ledgerApi.listCurrencies)
       .mockResolvedValueOnce({ items: loadedState.currencies, nextOffset: null })
       .mockResolvedValue({ items: refreshedCurrencies, nextOffset: null });
-    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateCurrency").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createCurrency").mockResolvedValue(refreshedCurrencies[0]!);
+    vi.spyOn(ledgerApi, "updateCurrency")
+      .mockResolvedValueOnce({ ...loadedState.currencies[1]!, name: "US Dollar" })
+      .mockResolvedValueOnce({ ...loadedState.currencies[1]!, name: "US Dollar", active: false });
 
     const { result } = renderHook(() => useLedgerController());
     await waitFor(() => expect(result.current.state.status).toBe("loaded"));
@@ -1532,8 +1534,14 @@ describe("LedgerPanel", () => {
     vi.mocked(ledgerApi.listAccountCategories)
       .mockResolvedValueOnce({ items: loadedState.accountCategories, nextOffset: null })
       .mockResolvedValue({ items: refreshedCategories, nextOffset: null });
-    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateAccountCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createAccountCategory").mockResolvedValue(refreshedCategories[0]!);
+    vi.spyOn(ledgerApi, "updateAccountCategory")
+      .mockResolvedValueOnce({ ...loadedState.accountCategories[0]!, id: "account-type-cash" })
+      .mockResolvedValueOnce({
+        ...loadedState.accountCategories[0]!,
+        id: "account-type-cash",
+        active: false,
+      });
     const purgePreview: MasterPurgePreview = {
       confirmationId: "account-type-card",
       recordType: "account_category",
@@ -2515,7 +2523,7 @@ describe("LedgerPanel", () => {
   it("clears failed creation recovery when Ledger remounts", async () => {
     const user = userEvent.setup();
     mockLedgerLoads();
-    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(entryView("expense-new", "Lunch").entry);
     function ProductionLedgerPanel() {
       return <LedgerPanel controller={useLedgerController()} />;
     }
@@ -2565,8 +2573,12 @@ describe("LedgerPanel", () => {
         .mockResolvedValue({ items: loadedState.categories, nextOffset: null });
       vi.spyOn(ledgerApi, "listAccountBalances")
         .mockResolvedValue({ items: [], nextOffset: null });
-      vi.spyOn(ledgerApi, "createEntry").mockResolvedValue({} as never);
-      vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+      vi.spyOn(ledgerApi, "createEntry")
+        .mockResolvedValue(entryView("expense-new", "Lunch").entry);
+      vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+        ...entryView("entry-existing", "Existing").entry,
+        deletedAt: "2026-07-31T00:00:00Z",
+      });
 
       let liveController!: LedgerController;
       function ProductionLedgerPanel() {
@@ -2901,7 +2913,10 @@ describe("LedgerPanel", () => {
       })
       .mockRejectedValueOnce(new Error("Ledger refresh failed"))
       .mockResolvedValue({ items: [], nextOffset: null });
-    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+      ...entryView("expense-1", "Lunch").entry,
+      deletedAt: "2026-07-31T00:00:00Z",
+    });
 
     function ProductionLedgerPanel({
       leafTabId = "transactions",
@@ -2964,7 +2979,10 @@ describe("LedgerPanel", () => {
         nextOffset: null,
       };
     });
-    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+      ...entryView("expense-1", "Lunch").entry,
+      deletedAt: "2026-07-31T00:00:00Z",
+    });
 
     function TombstoneRetryHarness() {
       const ledger = useLedgerController();
@@ -4690,14 +4708,21 @@ describe("LedgerPanel", () => {
     vi.spyOn(ledgerApi, "listAccountBalances")
       .mockResolvedValue({ items: [], nextOffset: null });
     vi.spyOn(ledgerApi, "createEntry").mockResolvedValue(entryView("expense-new", "Dinner").entry);
-    vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "updateEntry").mockResolvedValue(entryView("entry", "Lunch").entry);
     vi.spyOn(ledgerApi, "createTransfer").mockResolvedValue(transferView());
-    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "createAccount").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateAccount").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "createTransactionCategory").mockResolvedValue({} as never);
-    vi.spyOn(ledgerApi, "updateTransactionCategory").mockResolvedValue({} as never);
+    vi.spyOn(ledgerApi, "archiveEntry").mockResolvedValue({
+      ...entryView("entry", "Lunch").entry,
+      deletedAt: "2026-07-31T00:00:00Z",
+    });
+    vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue(entryView("entry", "Lunch").entry);
+    vi.spyOn(ledgerApi, "createAccount")
+      .mockResolvedValue({ ...loadedState.accounts[0]!, id: "account", active: false });
+    vi.spyOn(ledgerApi, "updateAccount")
+      .mockResolvedValue({ ...loadedState.accounts[0]!, id: "account", active: false });
+    vi.spyOn(ledgerApi, "createTransactionCategory")
+      .mockResolvedValue({ ...loadedState.categories[0]!, id: "category" });
+    vi.spyOn(ledgerApi, "updateTransactionCategory")
+      .mockResolvedValue({ ...loadedState.categories[0]!, id: "category" });
     vi.spyOn(ledgerApi, "purgeMaster").mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useLedgerController());
