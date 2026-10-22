@@ -16,7 +16,9 @@ import {
   type LedgerTableScopeId,
 } from "@/features/ledger/model/ledger-table-views";
 import type { LedgerState } from "@/features/ledger/hooks/useLedgerController";
+import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import {
+  DEFAULT_GROUP_ERROR,
   TableViewActivePills,
   TableViewControls,
   type PlannerFilterOptions,
@@ -82,9 +84,10 @@ export function LedgerTableViewHeader({
     update: (updater) => controller.updateTableSettings(scope, updater),
     loadGroupCandidates: async () => (await ledgerApi.tableGroups(scope, { ...settings, filterRules: [], sortRules: defaultLedgerTableSettings(scope).sortRules }))
       .map((candidate) => ({ ...candidate, label: scope === "ledger.transactions" && settings.groupSettings.groupBy === "month"
-        ? new Date(`${candidate.key}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+        ? monthLabel(candidate.key)
         : scope === "ledger.transactions" && settings.groupSettings.groupBy === "entry_type"
           ? label(candidate.label) : candidate.label })),
+    groupErrorMessage: (error) => safeLedgerErrorMessage(error, DEFAULT_GROUP_ERROR),
   };
 
   const tableTabs = (
@@ -220,6 +223,13 @@ function ledgerFilterOptions(
       parents: lookupOptions("categories"),
     },
   };
+}
+
+function monthLabel(key: string): string {
+  if (key === "") return "No month";
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(key)
+    ? new Date(`${key}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+    : key;
 }
 
 function label(value: string): string {

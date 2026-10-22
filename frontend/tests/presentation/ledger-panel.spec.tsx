@@ -1782,6 +1782,51 @@ describe("LedgerPanel", () => {
     expect(await screen.findByText(expected)).toBeInTheDocument();
   });
 
+  it.each([
+    ["2026-13", "2026-13"],
+    ["garbage", "garbage"],
+    ["", "No month"],
+  ])("falls back to the raw key for malformed month group key %j", async (key, expected) => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "month",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockResolvedValue([{ key, label: key, count: 250 }]);
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    const item = (await screen.findByText("250")).closest("[role=listitem]")!;
+    expect(item.querySelector(".planner-group-name")?.textContent).toBe(expected);
+    expect(screen.queryByText("Invalid Date")).toBeNull();
+  });
+
+  it("shows the server reason when loading groups fails", async () => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockRejectedValue(
+      new RavenApiError("validation_failed", "Group filter is invalid.", {}, "request", 422),
+    );
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Group filter is invalid.");
+  });
+
+  it("shows the fallback reason when loading groups fails with a non-API error", async () => {
+    const ledger = controller();
+    ledger.tableSettings = (scope) => transactionSettings({ groupSettings: {
+      ...defaultLedgerTableSettings(scope).groupSettings, groupBy: "account",
+    } });
+    vi.spyOn(ledgerApi, "tableGroups").mockRejectedValue(new Error("raw storage failure"));
+    render(<LedgerTableViewHeader controller={ledger} scope="ledger.transactions"
+      title="Transactions" headingId="transactions-heading" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group Transactions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load groups.");
+    expect(screen.queryByText(/raw storage failure/)).toBeNull();
+  });
+
   it("distinguishes no active logical transactions from no view matches", () => {
     const archived = transactionEntry("archived", "Archived", {
       deletedAt: "2026-08-01T00:00:00Z",
