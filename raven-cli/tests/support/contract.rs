@@ -54,6 +54,13 @@ impl Home {
             .unwrap_or_else(|_| panic!("{args:?} printed non-JSON: {stdout}"))
     }
 
+    /// Exit code, stdout and stderr, each parsed as JSON when possible.
+    pub fn cli_raw(&self, args: &[&str]) -> (i32, Value, Value) {
+        let (code, stdout, stderr) = raven_full(&self.path, args);
+        let parse = |text: &str| serde_json::from_str(text.trim()).unwrap_or(Value::Null);
+        (code, parse(&stdout), parse(&stderr))
+    }
+
     /// CLI failure: exit code and the JSON error object on stderr.
     pub fn cli_err(&self, args: &[&str]) -> (i32, Value) {
         let (code, stdout, stderr) = raven_full(&self.path, args);
