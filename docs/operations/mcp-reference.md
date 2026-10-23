@@ -85,7 +85,8 @@ Service Auth token and a signed scope assertion. Clients use the gateway URL,
 - Identity: owner-only Cloudflare Access One-time PIN login on every new authorization.
 - Authorization: PKCE `S256`, exact registered callbacks, per-domain read/write scopes.
 - Grants: access tokens last 10 minutes; a grant expires 30 days after authorization, and
-  refresh does not extend it.
+  refresh does not extend it. A grant not refreshed for 14 days also expires (gateway
+  constant `GRANT_IDLE_DAYS`, owner-adjustable).
 
 | Client | CIMD client ID | Token endpoint authentication | Callback |
 | --- | --- | --- | --- |
@@ -95,7 +96,11 @@ Service Auth token and a signed scope assertion. Clients use the gateway URL,
 | Grok Bot, Grok web connectors, Cursor agents | `https://cursor.com/oauth/mcp-client.json` | `none` (public client, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback` or `https://grok.com/connectors-oauth-exchange-code/` |
 
 The gateway rejects other client IDs, mismatched callbacks and mixed authentication methods.
-Public clients may present the previous refresh token once after rotation. Consent shows an
+Public clients may present the previous refresh token once after rotation. Presenting any
+other rotated refresh token revokes the whole grant: its access and refresh tokens stop
+working at once, and the client must reconnect. The gateway logs `RAVEN_SECURITY_EVENT` and
+keeps a `security-event:` record (time, reason, client ID, SHA-256 of the grant ID; never
+token text) for 30 days. Consent shows an
 extra warning for loopback callbacks. Claude and Cursor client IDs are shared by every user of
 those products; approve consent only for connections you started. Clients outside this table,
 such as VS Code or Gemini CLI, can use the Service Auth header route above when they support

@@ -37,7 +37,7 @@ Client allowlist with per-client authentication. Changes by gateway source modul
 | `src/policy.js` | `authorizedIdentity` accepts tokens of allowlisted clients |
 | `src/authority.js` | `validateToken` accepts grants of allowlisted clients |
 | `src/worker.js` | Discovery advertises `["private_key_jwt", "none"]` |
-| `vendor/oauth-provider.js` | Server methods `["private_key_jwt", "none"]`; a CIMD with ChatGPT's approved JWKS always negotiates `private_key_jwt`; public CIMD documents must carry no `jwks`/`jwks_uri`; public clients may use the previous refresh token once |
+| `vendor/oauth-provider.js` | Server methods `["private_key_jwt", "none"]`; a CIMD with ChatGPT's approved JWKS always negotiates `private_key_jwt`; public CIMD documents must carry no `jwks`/`jwks_uri`; public clients may use the previous refresh token once (reuse after that revokes the grant since SHI-451) |
 
 Unchanged: owner-only Access One-time PIN, identity contract, PKCE `S256`, resource and scope
 checks, ChatGPT assertion verification, rate limits and token lifetimes.
@@ -91,15 +91,37 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   authorization; refresh does not extend it, so the next refresh failed with `invalid_grant`.
 - Resolution: grant lifetime 30 days, still fixed at authorization. Access tokens stay at
   10 minutes; no idle-based expiry, so a stolen token cannot outlive the 30-day cap.
+  (Idle expiry was added later without extending the cap; see the next section.)
 - Deployment: version `82a5d2c8-6dc4-4283-adb3-71a8e904c036`, main module SHA-256
   `120e8289bdc107e09d474660bec241cf94240466f5ee095387c48076fceb7a7d`; rollback target
   `03393445-cfb9-4228-b936-6adf68c30ca5`. Gateway tests: 43 passed.
 - Grants issued before this version keep their 8-hour expiry; the next connection gets 30 days.
 
+## Follow-up: refresh-token reuse and idle expiry (SHI-451)
+
+- Previous behavior of the refresh path (`handleRefreshTokenGrant` in the vendored provider):
+  the current refresh token rotates and becomes the grant's previous token; a public client
+  may present that previous token once more (grace), after which it is cleared; any other
+  token, including older rotated ones, was rejected with `invalid_grant` like an unknown
+  token, and the grant stayed usable.
+- Change: every refresh token that leaves the current/previous pair is remembered by hash
+  until the grant expires. Presenting one revokes the whole grant (all access and refresh
+  tokens; MCP calls fail with `401` at once), logs `RAVEN_SECURITY_EVENT` with the client ID
+  and the SHA-256 of the grant ID, and stores the same record under
+  `security-event:<time>:<grant id hash>` for 30 days. Tokens never seen are only rejected.
+- Idle expiry: a refresh more than `GRANT_IDLE_DAYS` (14, gateway `src/oauth-options.js`)
+  after the last refresh or authorization fails with `invalid_grant`. The 30-day absolute
+  expiry from authorization is unchanged and never extended.
+- Existing grants have no last-refresh time; their idle time starts at their next refresh, so
+  the upgrade neither expires nor revokes them. The one-time grace keeps working across it.
+- Patch: `patches/refresh-reuse-idle-expiry.py` in `raven-mcp-gateway`; not yet deployed.
+
 ## Residual risks
 
 - Public-client tokens are bearer tokens: a stolen current refresh token works until the
-  30-day grant expiry. New authorizations still require the owner's One-time PIN.
+  grant expires (30 days after authorization, or 14 days without refresh). Once the thief
+  and the legitimate client both refresh, the next rotated token presented revokes the grant.
+  New authorizations still require the owner's One-time PIN.
 - Claude and Cursor client IDs are shared by all users of those products. An authorization
   started by someone else and approved by the owner would issue tokens to that person.
 - No pre-bundle gateway source exists. The deployed bundle, this patch, its tests and the
