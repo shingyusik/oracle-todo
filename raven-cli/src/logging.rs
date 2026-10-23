@@ -44,6 +44,7 @@ fn raven_targets(level: LevelFilter) -> Targets {
     Targets::new()
         .with_default(LevelFilter::OFF)
         .with_target("raven_cli", level)
+        .with_target("raven_api", level)
         .with_target("ledger_engine", level)
 }
 
@@ -220,5 +221,21 @@ mod tests {
         assert!(!raven_targets(LevelFilter::ERROR).would_enable(target, &Level::WARN));
         assert!(!raven_targets(LevelFilter::OFF).would_enable(target, &Level::WARN));
         assert!(!raven_targets(LevelFilter::TRACE).would_enable("rusqlite", &Level::WARN));
+    }
+
+    #[test]
+    fn raven_api_events_follow_the_destination_level() {
+        let info = raven_targets(LevelFilter::INFO);
+        assert!(info.would_enable("raven_api::mcp", &Level::WARN));
+        assert!(info.would_enable("raven_api::mcp::access", &Level::WARN));
+        assert!(info.would_enable("raven_api", &Level::INFO));
+        assert!(info.would_enable("raven_api::error", &Level::ERROR));
+        assert!(!info.would_enable("raven_api::mcp", &Level::DEBUG));
+        assert!(
+            raven_targets(LevelFilter::DEBUG).would_enable("raven_api::mcp::access", &Level::DEBUG)
+        );
+        for dependency in ["rmcp", "axum", "reqwest", "hyper"] {
+            assert!(!raven_targets(LevelFilter::TRACE).would_enable(dependency, &Level::WARN));
+        }
     }
 }

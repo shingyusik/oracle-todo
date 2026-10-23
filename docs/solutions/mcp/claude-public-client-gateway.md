@@ -112,8 +112,11 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   grant with many live tokens cannot exceed the authority's 2048-write limit and roll the
   revocation back. The record, kept under `security-event:<time>:<grant id hash>` for 30
   days, holds the client ID, the SHA-256 of the grant ID and the outcome (`revoked`,
-  access-token rows deleted and left); `RAVEN_SECURITY_EVENT` logs it after the revocation.
-  Tokens never seen are only rejected.
+  access-token rows deleted and left). `RAVEN_SECURITY_EVENT` logs `revoke_attempt`, then
+  `revoke_committed` or `revoke_rolled_back` once the authority commits or rolls back. Every
+  grant revocation (reuse, RFC 7009 revocation, grant replacement on re-authorization and
+  authorization-code replay) uses the same bounded deletion. Tokens never seen are only
+  rejected.
 - Idle expiry: a refresh 14 days or more (`GRANT_IDLE_DAYS`, gateway `src/oauth-options.js`)
   after the last refresh or authorization fails with `invalid_grant`. The 30-day absolute
   expiry from authorization is unchanged and never extended.
