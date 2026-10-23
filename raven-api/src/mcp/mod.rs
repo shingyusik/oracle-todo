@@ -1,5 +1,6 @@
 mod access;
 mod catalog;
+mod policy;
 mod receipts;
 mod schema;
 
@@ -450,13 +451,19 @@ impl ServerHandler for McpAdapter {
     async fn list_tools(
         &self,
         request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         if request.is_some_and(|request| request.cursor.is_some()) {
             return Err(ErrorData::invalid_params("Unknown tool-list cursor", None));
         }
+        let scopes = grant(&context).map_or(&[][..], |grant| &grant.scopes);
         Ok(ListToolsResult {
-            tools: self.catalog.iter().map(|spec| spec.tool.clone()).collect(),
+            tools: self
+                .catalog
+                .iter()
+                .filter(|spec| policy::visible(&spec.tool.name, scopes))
+                .map(|spec| spec.tool.clone())
+                .collect(),
             ..Default::default()
         })
     }
@@ -471,7 +478,7 @@ impl ServerHandler for McpAdapter {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         if !self
             .catalog
@@ -483,14 +490,30 @@ impl ServerHandler for McpAdapter {
                 None,
             ));
         }
-        Ok(self
-            .call(
-                &request.name,
-                Value::Object(request.arguments.unwrap_or_default()),
-            )
-            .await
-            .into())
+        let args = Value::Object(request.arguments.unwrap_or_default());
+        let grant = grant(&context);
+        if !grant.is_some_and(|grant| policy::allowed(&request.name, &args, &grant.scopes)) {
+            tracing::warn!(
+                tool = %request.name,
+                caller = grant.map_or("none", |grant| grant.caller.as_str()),
+                "MCP tool call denied: missing scope"
+            );
+            return Err(ErrorData::invalid_params(
+                "Tool unavailable for this permission",
+                None,
+            ));
+        }
+        Ok(self.call(&request.name, args).await.into())
     }
+}
+
+/// Grant attached by the Access middleware; absent means no tool is allowed.
+fn grant(context: &RequestContext<RoleServer>) -> Option<&access::Grant> {
+    context
+        .extensions
+        .get::<axum::http::request::Parts>()?
+        .extensions
+        .get::<access::Grant>()
 }
 
 #[cfg(test)]

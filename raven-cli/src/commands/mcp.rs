@@ -9,6 +9,10 @@ pub enum McpCommandError {
         "MCP requires valid public origin, Cloudflare Access issuer and application audience; consult raven mcp --help"
     )]
     Configuration,
+    #[error(
+        "MCP requires a valid caller allowlist: gateway client ID with public key, or service clients; consult raven mcp --help"
+    )]
+    Callers,
     #[error("Raven MCP could not start")]
     Server,
 }
@@ -16,7 +20,7 @@ pub enum McpCommandError {
 impl McpCommandError {
     pub fn cli_exit_code(&self) -> i32 {
         match self {
-            Self::Configuration => 2,
+            Self::Configuration | Self::Callers => 2,
             Self::Server => 1,
         }
     }
@@ -32,6 +36,12 @@ pub fn run(paths: &RavenPaths, args: McpArgs) -> anyhow::Result<()> {
             .map_err(|_| McpCommandError::Configuration)?;
             McpAccessConfig::new(origin, issuer, audience)
                 .map_err(|_| McpCommandError::Configuration)?
+                .with_callers(
+                    args.gateway_client_id,
+                    args.gateway_public_key,
+                    args.service_clients,
+                )
+                .map_err(|_| McpCommandError::Callers)?
         }
         _ => return Err(McpCommandError::Configuration.into()),
     };

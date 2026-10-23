@@ -12,16 +12,34 @@ use std::{
 use tokio::sync::Mutex;
 
 const ASSERTION: HeaderName = HeaderName::from_static("cf-access-jwt-assertion");
+const SCOPE_ASSERTION: HeaderName = HeaderName::from_static("raven-scope-assertion");
 const KEY_TTL: Duration = Duration::from_secs(600);
 const REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_JWKS_BYTES: usize = 256 * 1024;
 const MAX_JWT_BYTES: usize = 16 * 1024;
+const ASSERTION_LEEWAY: i64 = 30;
+const MAX_ASSERTION_LIFETIME: i64 = 120;
 
 #[derive(Clone)]
 pub struct McpAccessConfig {
     pub(super) origin: String,
     issuer: String,
     audience: String,
+    callers: Callers,
+}
+
+/// Access service tokens allowed to call MCP, identified by `common_name` (Client ID).
+#[derive(Clone, Default)]
+struct Callers {
+    gateway: Option<(String, DecodingKey)>,
+    direct: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// Caller and OAuth scopes of one authenticated MCP request.
+#[derive(Clone)]
+pub(super) struct Grant {
+    pub(super) caller: String,
+    pub(super) scopes: Vec<String>,
 }
 
 impl std::fmt::Debug for McpAccessConfig {
@@ -71,8 +89,112 @@ impl McpAccessConfig {
             origin,
             issuer,
             audience,
+            callers: Callers::default(),
         })
     }
+
+    /// Set the caller allowlist. The gateway service token must send a scope assertion signed
+    /// by `gateway_public_key` (base64url Ed25519, JWK `x`). `service_clients` lists direct
+    /// service tokens as whitespace-separated `<client-id>=<scope>[,<scope>...]`.
+    pub fn with_callers(
+        mut self,
+        gateway_client_id: Option<String>,
+        gateway_public_key: Option<String>,
+        service_clients: Option<String>,
+    ) -> Result<Self, McpAccessConfigError> {
+        let valid_id = |id: &str| {
+            !id.is_empty()
+                && id.len() <= 256
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_graphic() && !b"=,".contains(&byte))
+        };
+        let mut callers = Callers::default();
+        match (gateway_client_id, gateway_public_key) {
+            (Some(id), Some(public)) if valid_id(&id) => {
+                let key = base64::Engine::decode(
+                    &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                    &public,
+                )
+                .map_err(|_| McpAccessConfigError)?;
+                if key.len() != 32 {
+                    return Err(McpAccessConfigError);
+                }
+                callers.gateway = Some((id, DecodingKey::from_ed_der(&key)));
+            }
+            (None, None) => {}
+            _ => return Err(McpAccessConfigError),
+        }
+        for entry in service_clients.as_deref().unwrap_or("").split_whitespace() {
+            let (id, scopes) = entry.split_once('=').ok_or(McpAccessConfigError)?;
+            let scopes: Vec<String> = scopes.split(',').map(str::to_owned).collect();
+            if !valid_id(id)
+                || scopes
+                    .iter()
+                    .any(|scope| !super::policy::SCOPES.contains(&scope.as_str()))
+                || callers
+                    .gateway
+                    .as_ref()
+                    .is_some_and(|(gateway, _)| gateway == id)
+                || callers.direct.insert(id.to_owned(), scopes).is_some()
+            {
+                return Err(McpAccessConfigError);
+            }
+        }
+        if callers.gateway.is_none() && callers.direct.is_empty() {
+            return Err(McpAccessConfigError);
+        }
+        self.callers = callers;
+        Ok(self)
+    }
+}
+
+impl Callers {
+    fn grant(
+        &self,
+        caller: &str,
+        headers: &axum::http::HeaderMap,
+        audience: &str,
+    ) -> Result<Vec<String>, &'static str> {
+        if let Some((gateway, key)) = &self.gateway
+            && gateway == caller
+        {
+            let token = single(headers, SCOPE_ASSERTION).ok_or("scope assertion missing")?;
+            return valid_assertion(token, key, audience).ok_or("scope assertion invalid");
+        }
+        if headers.contains_key(SCOPE_ASSERTION) {
+            return Err("scope assertion from non-gateway caller");
+        }
+        self.direct.get(caller).cloned().ok_or("unknown caller")
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ScopeClaims {
+    scope: String,
+    client_id: String,
+    iat: i64,
+    exp: i64,
+}
+
+/// Returns the scopes of a gateway assertion: EdDSA, exact audience, short lifetime.
+fn valid_assertion(token: &str, key: &DecodingKey, audience: &str) -> Option<Vec<String>> {
+    if token.len() > MAX_JWT_BYTES {
+        return None;
+    }
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.leeway = ASSERTION_LEEWAY as u64;
+    validation.set_required_spec_claims(&["exp", "aud"]);
+    validation.set_audience(&[audience]);
+    let claims = decode::<ScopeClaims>(token, key, &validation).ok()?.claims;
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    if claims.client_id.is_empty()
+        || claims.iat > now + ASSERTION_LEEWAY
+        || claims.exp - claims.iat > MAX_ASSERTION_LIFETIME
+    {
+        return None;
+    }
+    Some(claims.scope.split_whitespace().map(str::to_owned).collect())
 }
 
 struct Keys {
@@ -93,6 +215,9 @@ impl AccessAuth {
         &self.config.origin
     }
     pub(super) async fn load(config: McpAccessConfig) -> anyhow::Result<Self> {
+        if config.callers.gateway.is_none() && config.callers.direct.is_empty() {
+            anyhow::bail!("MCP caller allowlist required");
+        }
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(5))
@@ -112,19 +237,15 @@ impl AccessAuth {
         })
     }
 
-    async fn verify(&self, token: &str) -> bool {
+    async fn verify(&self, token: &str) -> Option<serde_json::Value> {
         if token.is_empty() || token.len() > MAX_JWT_BYTES {
-            return false;
+            return None;
         }
-        let Ok(header) = decode_header(token) else {
-            return false;
-        };
+        let header = decode_header(token).ok()?;
         if header.alg != Algorithm::RS256 {
-            return false;
+            return None;
         }
-        let Some(kid) = header.kid else {
-            return false;
-        };
+        let kid = header.kid?;
         let mut keys = self.keys.lock().await;
         if keys.loaded.elapsed() >= KEY_TTL || keys.set.find(&kid).is_none() {
             if keys.attempted.elapsed() >= REFRESH_COOLDOWN {
@@ -135,27 +256,28 @@ impl AccessAuth {
                 }
             }
             if keys.loaded.elapsed() >= KEY_TTL {
-                return false;
+                return None;
             }
         }
-        let Some(jwk) = keys.set.find(&kid) else {
-            return false;
-        };
-        let Ok(key) = DecodingKey::from_jwk(jwk) else {
-            return false;
-        };
+        let key = DecodingKey::from_jwk(keys.set.find(&kid)?).ok()?;
         valid_token(token, &key, &self.config)
     }
 }
 
-fn valid_token(token: &str, key: &DecodingKey, config: &McpAccessConfig) -> bool {
+fn valid_token(
+    token: &str,
+    key: &DecodingKey,
+    config: &McpAccessConfig,
+) -> Option<serde_json::Value> {
     let mut validation = Validation::new(Algorithm::RS256);
     validation.leeway = 0;
     validation.validate_nbf = true;
     validation.set_required_spec_claims(&["exp", "iss", "aud"]);
     validation.set_issuer(&[&config.issuer]);
     validation.set_audience(&[&config.audience]);
-    decode::<serde_json::Value>(token, key, &validation).is_ok()
+    decode::<serde_json::Value>(token, key, &validation)
+        .ok()
+        .map(|data| data.claims)
 }
 
 async fn fetch(client: &reqwest::Client, issuer: &str) -> Result<JwkSet, ()> {
@@ -213,16 +335,32 @@ pub(super) async fn authenticate(
     {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let valid = match single(headers, ASSERTION) {
+    let claims = match single(headers, ASSERTION) {
         Some(token) => auth.verify(token).await,
-        None => false,
+        None => None,
     };
-    if !valid {
+    let Some(claims) = claims else {
         return StatusCode::UNAUTHORIZED.into_response();
+    };
+    // Only service tokens carry common_name; identity logins are not MCP callers.
+    let caller = claims["common_name"].as_str().unwrap_or("").to_owned();
+    let audience = format!("{}/mcp", auth.config.origin);
+    if caller.is_empty() {
+        tracing::warn!(caller = "none", "MCP request denied: unknown caller");
+        return StatusCode::FORBIDDEN.into_response();
     }
+    let scopes = match auth.config.callers.grant(&caller, headers, &audience) {
+        Ok(scopes) => scopes,
+        Err(reason) => {
+            tracing::warn!(caller = %caller, "MCP request denied: {reason}");
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    };
+    request.extensions_mut().insert(Grant { caller, scopes });
     // Credentials must not enter SDK request metadata or tool handlers.
     for name in [
         ASSERTION,
+        SCOPE_ASSERTION,
         header::AUTHORIZATION,
         header::COOKIE,
         HeaderName::from_static("cf-access-client-secret"),

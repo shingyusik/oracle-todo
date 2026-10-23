@@ -54,10 +54,14 @@ pub fn describe(error: &anyhow::Error) -> CliError {
     {
         return validation("configuration");
     }
-    if let Some(crate::commands::mcp::McpCommandError::Configuration) =
-        error.downcast_ref::<crate::commands::mcp::McpCommandError>()
-    {
-        return validation("configuration");
+    match error.downcast_ref::<crate::commands::mcp::McpCommandError>() {
+        Some(crate::commands::mcp::McpCommandError::Configuration) => {
+            return validation("configuration");
+        }
+        Some(crate::commands::mcp::McpCommandError::Callers) => {
+            return validation("caller_allowlist");
+        }
+        _ => {}
     }
     if let Some(error) = error.downcast_ref::<crate::commands::ui::UiCommandError>() {
         return match error {

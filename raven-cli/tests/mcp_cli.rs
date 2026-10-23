@@ -63,6 +63,8 @@ fn mcp_origin_cannot_alias_its_custom_listener_port() {
             "https://test.cloudflareaccess.com",
             "--access-audience",
             "test-audience",
+            "--service-clients",
+            "test-direct.access=raven.todo.read",
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -80,4 +82,40 @@ fn mcp_origin_cannot_alias_its_custom_listener_port() {
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["code"], "validation_error");
+}
+
+#[test]
+fn mcp_without_caller_allowlist_refuses_to_start() {
+    let temp = tempfile::tempdir().unwrap();
+    for extra in [
+        &[][..],
+        &["--gateway-client-id", "test-gateway.access"][..],
+        &["--service-clients", "test-direct.access=raven.todo.admin"][..],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_raven"))
+            .args([
+                "--home",
+                temp.path().to_str().unwrap(),
+                "--error-format",
+                "json",
+                "mcp",
+                "--public-origin",
+                "https://mcp.example.com",
+                "--access-issuer",
+                "https://test.cloudflareaccess.com",
+                "--access-audience",
+                "test-audience",
+            ])
+            .args(extra)
+            .env_remove("RAVEN_MCP_GATEWAY_CLIENT_ID")
+            .env_remove("RAVEN_MCP_GATEWAY_PUBLIC_KEY")
+            .env_remove("RAVEN_MCP_SERVICE_CLIENTS")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{extra:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("caller_allowlist"), "{stderr}");
+        assert!(!stderr.contains("test-gateway") && !stderr.contains("test-direct"));
+        assert!(!temp.path().join("todo.sqlite").exists());
+    }
 }
