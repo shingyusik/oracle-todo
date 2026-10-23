@@ -10,7 +10,8 @@ UI 세션 쿠키는 필요하지 않습니다. 키를 지정한 생성은 로컬
 ## 실행
 
 새 데이터 홈은 `raven init`으로 초기화하고, 기존 홈은 `--home`으로 지정합니다.
-아래 세 인증 설정은 모두 필요합니다.
+공개 origin·Access issuer·audience와 호출자를 하나 이상 등록한 호출자 허용 목록이
+필요합니다([호출자와 scope](#호출자와-scope) 참고).
 
 | 옵션 | 환경 변수 | 값 |
 | --- | --- | --- |
@@ -18,18 +19,25 @@ UI 세션 쿠키는 필요하지 않습니다. 키를 지정한 생성은 로컬
 | `--public-origin` | `RAVEN_MCP_PUBLIC_ORIGIN` | `/mcp`를 제외한 공개 HTTPS origin |
 | `--access-issuer` | `RAVEN_MCP_ACCESS_ISSUER` | 끝 `/` 없는 `https://<team>.cloudflareaccess.com` |
 | `--access-audience` | `RAVEN_MCP_ACCESS_AUDIENCE` | MCP용 Access 애플리케이션의 AUD |
+| `--gateway-client-id` | `RAVEN_MCP_GATEWAY_CLIENT_ID` | 게이트웨이 Access 서비스 토큰의 Client ID |
+| `--gateway-public-key` | `RAVEN_MCP_GATEWAY_PUBLIC_KEY` | 게이트웨이 scope assertion용 Ed25519 공개 키, base64url(JWK `x`) |
+| `--service-clients` | `RAVEN_MCP_SERVICE_CLIENTS` | 직접 연결 서비스 토큰: 공백으로 구분한 `<client-id>=<scope>[,<scope>...]` |
 
 ```powershell
 $env:RAVEN_MCP_PUBLIC_ORIGIN = 'https://mcp.example.com'
 $env:RAVEN_MCP_ACCESS_ISSUER = 'https://your-team.cloudflareaccess.com'
 $env:RAVEN_MCP_ACCESS_AUDIENCE = '<MCP application AUD>'
+$env:RAVEN_MCP_GATEWAY_CLIENT_ID = '<gateway service token Client ID>'
+$env:RAVEN_MCP_GATEWAY_PUBLIC_KEY = '<gateway public key x>'
 raven --home 'D:\RavenData' mcp
 ```
 
 UI용 AUD와 MCP용 AUD를 구분합니다. 공개 origin은 `RAVEN_UI_PUBLIC_ORIGIN`과 같은
 정규화 규칙을 따릅니다. 호스트는 소문자이며 인증 정보·경로·쿼리·fragment·명시적
 기본 포트는 허용하지 않습니다. 잘못된 설정은 종료 코드 `2`, 시작 실패는 `1`을 반환하며
-설정값이나 저장소 경로를 노출하지 않습니다. 시작할 때 서명 키 서버에 접근할 수 있어야 합니다.
+설정값이나 저장소 경로를 노출하지 않습니다. 호출자 허용 목록이 없거나 잘못되면
+`raven mcp`는 시작하지 않습니다(종료 코드 `2`, 필드 `caller_allowlist`). 호출자 제한 없이
+MCP를 제공하는 경우는 없습니다. 시작할 때 서명 키 서버에 접근할 수 있어야 합니다.
 조회 때문에 도메인 저장소를 생성하거나 마이그레이션하지 않습니다.
 
 ## Cloudflare Tunnel과 Access
@@ -57,7 +65,8 @@ UI용 AUD와 MCP용 AUD를 구분합니다. 공개 origin은 `RAVEN_UI_PUBLIC_OR
 사용자 지정 HTTP 헤더를 지원하는 클라이언트는 Service Auth 정책과
 `CF-Access-Client-Id`, `CF-Access-Client-Secret`을 사용할 수 있습니다. 자격 증명은
 클라이언트의 비밀 설정에 보관하며 저장소에 넣지 않습니다. Cloudflare가 인증하고 Access JWT를
-전달합니다. Raven이 이 원본 자격 증명을 자체 토큰으로 받는 것은 아닙니다.
+전달합니다. Raven이 이 원본 자격 증명을 자체 토큰으로 받는 것은 아닙니다. 이런 서비스
+토큰은 `RAVEN_MCP_SERVICE_CLIENTS`에 scope와 함께 등록해야 합니다.
 [Cloudflare 서비스 토큰 문서](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)를 참고하세요.
 
 Access Bypass 정책을 사용하지 않습니다. UI 브라우저 로그인은 MCP 클라이언트의 인증 설정을
@@ -68,7 +77,8 @@ Access Bypass 정책을 사용하지 않습니다. UI 브라우저 로그인은 
 Raven 자체에는 OAuth 인증 서버나 discovery 엔드포인트가 없습니다. 대화형 OAuth 클라이언트는
 이 저장소 밖에서 별도로 배포한 Cloudflare Worker `raven-mcp-gateway`를 거쳐 연결합니다.
 게이트웨이는 자체 공개 origin에서 discovery·동의·인가·토큰 엔드포인트를 제공하고, 자체
-Service Auth 토큰으로 Access가 보호하는 원본에 MCP 요청을 전달합니다. 클라이언트에는 원본
+Service Auth 토큰과 서명된 scope assertion을 붙여 Access가 보호하는 원본에 MCP 요청을
+전달합니다. 클라이언트에는 원본
 URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합니다.
 
 - 클라이언트 등록: Client ID Metadata Document(CIMD)만 지원하며 동적 등록은 지원하지 않습니다.
@@ -104,6 +114,65 @@ One-time PIN 로그인을 완료합니다. 동의를 다시 제출하면 `RAVEN-
 Cloudflare zone 보호 기능은 게이트웨이보다 먼저 적용됩니다. Browser Integrity Check, 봇 규칙,
 AI 봇 정책이 클라이언트 업체의 서버 요청을 차단하면 discovery나 토큰 교환이 실패합니다.
 
+## 호출자와 scope
+
+Raven은 검증된 Access JWT의 `common_name` claim으로 호출자를 식별합니다. Cloudflare는 이
+값에 서비스 토큰의 Client ID를 넣습니다. `common_name`이 없는 신원 로그인과 허용 목록에 없는
+서비스 토큰은 `403`입니다. 서명되지 않은 헤더로는 권한을 얻을 수 없습니다.
+
+| 호출자 | scope |
+| --- | --- |
+| `RAVEN_MCP_GATEWAY_CLIENT_ID` | 요청마다 유효한 `Raven-Scope-Assertion` 헤더 하나에서 읽음 |
+| `RAVEN_MCP_SERVICE_CLIENTS`의 Client ID | 해당 Client ID에 설정한 고정 목록 |
+
+게이트웨이 Client ID와 공개 키는 함께 설정합니다. 같은 Client ID를 게이트웨이와 직접 연결
+클라이언트로 동시에 등록할 수 없습니다. scope는 `raven.{todo,ledger,health}.{read,write}`,
+`raven.ledger.export`, `raven.ledger.purge`, `raven.health.media`입니다. 예:
+`RAVEN_MCP_SERVICE_CLIENTS='abc.access=raven.todo.read,raven.todo.write def.access=raven.health.read'`.
+
+`Raven-Scope-Assertion`은 게이트웨이가 Ed25519(`alg: EdDSA`)로 서명한 JWT입니다. Raven은
+다음 claim을 요구합니다.
+
+| Claim | 값 |
+| --- | --- |
+| `aud` | 정확히 `<public origin>/mcp` |
+| `scope` | 게이트웨이 grant의 OAuth scope, 공백 구분 |
+| `client_id` | grant의 OAuth 클라이언트 ID, 비어 있지 않음 |
+| `iat`, `exp` | 발급·만료 시각, `exp - iat`는 최대 120초, 시계 오차 30초 허용 |
+
+게이트웨이가 보낸 assertion이 누락·중복·위조·만료되었거나 audience가 다르면 `403`이며,
+다른 호출자가 assertion을 보내도 `403`입니다. 개인 키는 게이트웨이에만 있고, Raven에는
+비밀이 아닌 공개 키만 설정합니다.
+
+도구마다 필요한 scope는 게이트웨이 정책과 같습니다.
+
+| 도구 | 필요한 scope |
+| --- | --- |
+| `<domain>` 조회: search, choices, get, list, history, reports, audit, doctor | `raven.<domain>.read` |
+| `<domain>` 변경: create, update, transition, archive, restore, materialize, daily upsert | `raven.<domain>.write` |
+| `raven_dashboard` | 세 도메인 read scope 모두 |
+| `ledger_export` | `raven.ledger.read`, `raven.ledger.export` |
+| `ledger_account_category_purge_preview` / `_purge` | `raven.ledger.read` / `raven.ledger.write`, 그리고 `raven.ledger.purge` |
+| `health_diet_image_get` / `_create`, `_update` | `raven.health.read` / `raven.health.write`, 그리고 `raven.health.media` |
+
+`media_file` 대상 `health_audit`와 `remove_image: true`인 `health_diet_update`에도
+`raven.health.media`가 필요합니다. `tools/list`에는 호출자가 scope를 가진 도구만 표시합니다.
+그 밖의 `tools/call`은 JSON-RPC 오류 `-32602` `Tool unavailable for this permission`을
+반환하며, 매핑되지 않은 도구는 거부합니다. 거부 로그에는 도구 이름과 호출자 Client ID만
+기록하고 토큰이나 assertion은 기록하지 않습니다.
+
+### 배포 순서
+
+기존 게이트웨이 grant를 재인가 없이 유지하려면 다음 순서로 배포합니다.
+
+1. Ed25519 키 쌍을 만들고 개인 JWK를 게이트웨이 secret `ORIGIN_SCOPE_ASSERTION_KEY`로
+   설정한 뒤 `Raven-Scope-Assertion`을 보내는 게이트웨이 버전을 배포합니다. 호출자 검사가
+   없는 Raven 버전은 이 헤더를 무시합니다.
+2. `RAVEN_MCP_GATEWAY_CLIENT_ID`, `RAVEN_MCP_GATEWAY_PUBLIC_KEY`(JWK `x`), 필요하면
+   `RAVEN_MCP_SERVICE_CLIENTS`를 설정하고 이 버전으로 `raven mcp`를 다시 시작합니다.
+
+게이트웨이에 저장된 grant는 바뀌지 않습니다. assertion은 요청마다 각 grant의 scope로 만듭니다.
+
 ## 전송과 인증
 
 원본 URL은 `https://mcp.example.com/mcp`, 전송 방식은 Streamable HTTP입니다. Service Auth
@@ -119,7 +188,7 @@ assertion은 `401`입니다. 서명 키 캐시와 갱신 간격을 제한하며,
 Host는 설정한 공개 authority와 같아야 하며 다르면 `421`입니다. Origin이 있으면 공개
 origin과 정확히 같아야 하며 다르면 `403`입니다. 브라우저가 아닌 클라이언트는 Origin을
 생략할 수 있습니다. `/api/v1`, `/healthz`, UI 파일이나 세션 발급 경로는 제공하지 않습니다.
-인증 헤더와 쿠키는 MCP SDK에 전달하기 전에 제거합니다. 요청 크기는 최대 16 MiB입니다.
+인증 헤더·scope assertion·쿠키는 MCP SDK에 전달하기 전에 제거합니다. 요청 크기는 최대 16 MiB입니다.
 
 ## AI 사용 순서
 

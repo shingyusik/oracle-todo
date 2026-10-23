@@ -10,7 +10,8 @@ API process or UI session cookie is required. Keyed creates use durable local re
 ## Start
 
 Initialize a new home with `raven init`, or select the existing home with `--home`.
-All three configuration values are required:
+The public origin, Access issuer and audience are required, plus a caller allowlist with at
+least one caller (see [Callers and scopes](#callers-and-scopes)):
 
 | Flag | Environment | Value |
 | --- | --- | --- |
@@ -18,11 +19,16 @@ All three configuration values are required:
 | `--public-origin` | `RAVEN_MCP_PUBLIC_ORIGIN` | Canonical public HTTPS origin, without `/mcp` |
 | `--access-issuer` | `RAVEN_MCP_ACCESS_ISSUER` | `https://<team>.cloudflareaccess.com`, without trailing slash |
 | `--access-audience` | `RAVEN_MCP_ACCESS_AUDIENCE` | Audience (AUD) of the MCP Access application |
+| `--gateway-client-id` | `RAVEN_MCP_GATEWAY_CLIENT_ID` | Client ID of the gateway's Access service token |
+| `--gateway-public-key` | `RAVEN_MCP_GATEWAY_PUBLIC_KEY` | Gateway scope-assertion Ed25519 public key, base64url (JWK `x`) |
+| `--service-clients` | `RAVEN_MCP_SERVICE_CLIENTS` | Direct service tokens: whitespace-separated `<client-id>=<scope>[,<scope>...]` |
 
 ```powershell
 $env:RAVEN_MCP_PUBLIC_ORIGIN = 'https://mcp.example.com'
 $env:RAVEN_MCP_ACCESS_ISSUER = 'https://your-team.cloudflareaccess.com'
 $env:RAVEN_MCP_ACCESS_AUDIENCE = '<MCP application AUD>'
+$env:RAVEN_MCP_GATEWAY_CLIENT_ID = '<gateway service token Client ID>'
+$env:RAVEN_MCP_GATEWAY_PUBLIC_KEY = '<gateway public key x>'
 raven --home 'D:\RavenData' mcp
 ```
 
@@ -30,6 +36,8 @@ Use the MCP application's audience, rather than the UI application's audience. P
 validation follows the canonical HTTPS rules of `RAVEN_UI_PUBLIC_ORIGIN`: lowercase host,
 no credentials, path, query or fragment, no explicit default port. Configuration errors exit
 `2`; startup failures exit `1`, without exposing configuration values or storage paths.
+Without a valid caller allowlist `raven mcp` refuses to start (exit `2`, field
+`caller_allowlist`); it never serves MCP with unrestricted callers.
 Signing keys must be reachable at startup. Reads never initialize or migrate domain stores.
 
 ## Cloudflare Tunnel and Access
@@ -58,6 +66,7 @@ For a client supporting custom HTTP headers, a Service Auth policy can accept
 `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Store credentials in the client's secret
 configuration, never in repository files or command examples. Cloudflare authenticates them
 and forwards an Access JWT; Raven does not accept those raw credentials as its own token.
+Each such service token must also be listed in `RAVEN_MCP_SERVICE_CLIENTS` with its scopes.
 See [Cloudflare service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/).
 
 Do not use Access Bypass policies. A browser login to the UI does not supply MCP client
@@ -69,7 +78,8 @@ Raven itself supplies no OAuth authorization server or discovery endpoints. Inte
 clients connect through `raven-mcp-gateway`, a separately deployed Cloudflare Worker outside
 this workspace. The gateway serves discovery, consent, authorization and token endpoints on
 its own public origin, then forwards MCP requests to the Access-protected origin with its own
-Service Auth token. Clients use the gateway URL, `https://<gateway-host>/mcp`, not the origin URL.
+Service Auth token and a signed scope assertion. Clients use the gateway URL,
+`https://<gateway-host>/mcp`, not the origin URL.
 
 - Registration: Client ID Metadata Documents (CIMD) only; no dynamic client registration.
 - Identity: owner-only Cloudflare Access One-time PIN login on every new authorization.
@@ -106,6 +116,66 @@ start the connection again.
 Cloudflare zone protections apply before the gateway. Browser Integrity Check, bot rules or
 AI bot policies that block vendor backends prevent discovery or token exchange.
 
+## Callers and scopes
+
+Raven identifies the caller by the `common_name` claim of the verified Access JWT, which
+Cloudflare sets to the service token's Client ID. Identity logins without `common_name`,
+and service tokens outside the allowlist, receive `403`. Unsigned headers never grant access.
+
+| Caller | Scopes |
+| --- | --- |
+| `RAVEN_MCP_GATEWAY_CLIENT_ID` | From one valid `Raven-Scope-Assertion` header per request |
+| Client ID in `RAVEN_MCP_SERVICE_CLIENTS` | The fixed list configured for that Client ID |
+
+The gateway client ID and public key are set together. A Client ID cannot be both gateway
+and direct client. Scopes are `raven.{todo,ledger,health}.{read,write}`,
+`raven.ledger.export`, `raven.ledger.purge` and `raven.health.media`. Example:
+`RAVEN_MCP_SERVICE_CLIENTS='abc.access=raven.todo.read,raven.todo.write def.access=raven.health.read'`.
+
+`Raven-Scope-Assertion` is a JWT signed by the gateway with Ed25519 (`alg: EdDSA`). Raven
+requires these claims:
+
+| Claim | Value |
+| --- | --- |
+| `aud` | `<public origin>/mcp`, exactly |
+| `scope` | Space-separated OAuth scopes of the gateway grant |
+| `client_id` | OAuth client ID of the grant, non-empty |
+| `iat`, `exp` | Issue and expiry time; `exp - iat` at most 120 seconds, 30 seconds clock leeway |
+
+A missing, duplicated, forged, expired or wrong-audience assertion from the gateway returns
+`403`, as does any assertion sent by another caller. The private key exists only in the
+gateway; Raven holds the public key, which is not secret.
+
+Each tool requires scopes; the mapping matches the gateway policy:
+
+| Tools | Required scopes |
+| --- | --- |
+| `<domain>` reads: search, choices, get, list, history, reports, audit, doctor | `raven.<domain>.read` |
+| `<domain>` writes: create, update, transition, archive, restore, materialize, daily upsert | `raven.<domain>.write` |
+| `raven_dashboard` | All three domain read scopes |
+| `ledger_export` | `raven.ledger.read`, `raven.ledger.export` |
+| `ledger_account_category_purge_preview` / `_purge` | `raven.ledger.read` / `raven.ledger.write`, plus `raven.ledger.purge` |
+| `health_diet_image_get` / `_create`, `_update` | `raven.health.read` / `raven.health.write`, plus `raven.health.media` |
+
+`health_audit` for `media_file` and `health_diet_update` with `remove_image: true` also
+require `raven.health.media`. `tools/list` shows only tools whose scopes the caller holds.
+Other `tools/call` requests return JSON-RPC error `-32602` `Tool unavailable for this
+permission`; unmapped tools are denied. Denials are logged with the tool name and caller
+Client ID only, never tokens or assertions.
+
+### Deployment order
+
+Deploy in this order so existing gateway grants keep working without re-authorization:
+
+1. Generate an Ed25519 key pair. Set the private JWK as gateway secret
+   `ORIGIN_SCOPE_ASSERTION_KEY`, then deploy the gateway version that sends
+   `Raven-Scope-Assertion`. A Raven version without caller checks ignores the header.
+2. Configure `RAVEN_MCP_GATEWAY_CLIENT_ID`, `RAVEN_MCP_GATEWAY_PUBLIC_KEY` (the JWK `x`)
+   and any `RAVEN_MCP_SERVICE_CLIENTS`, then restart `raven mcp` with this version.
+
+Grants stored by the gateway are unchanged; the assertion is derived from each grant's
+scopes on every request.
+
 ## Transport and authentication
 
 The origin URL is `https://mcp.example.com/mcp`. Service Auth header clients use it directly;
@@ -120,8 +190,9 @@ a bounded cache and cooldown. Failed refresh of expired keys denies access.
 
 Host must match the configured public authority (`421` otherwise). A supplied Origin must
 match the public origin (`403` otherwise); non-browser clients may omit Origin. The listener
-does not expose `/api/v1`, `/healthz`, static UI or session bootstrap routes. Auth headers and
-cookies are removed before requests enter the MCP SDK. Requests are limited to 16 MiB.
+does not expose `/api/v1`, `/healthz`, static UI or session bootstrap routes. Auth headers,
+scope assertions and cookies are removed before requests enter the MCP SDK. Requests are
+limited to 16 MiB.
 
 ## Discovery and workflow
 

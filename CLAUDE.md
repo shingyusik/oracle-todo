@@ -73,6 +73,8 @@ npm --prefix npm/raven test
 - Public UI origin: optional canonical HTTPS `RAVEN_UI_PUBLIC_ORIGIN`; UI remains loopback-only.
 - MCP: loopback port `3003`; requires `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER`
   and `RAVEN_MCP_ACCESS_AUDIENCE`; validates Cloudflare Access JWT signatures and application claims.
+  Requires a caller allowlist (`RAVEN_MCP_GATEWAY_CLIENT_ID` + `RAVEN_MCP_GATEWAY_PUBLIC_KEY`
+  and/or `RAVEN_MCP_SERVICE_CLIENTS`) and enforces per-tool OAuth scopes.
 
 ## Gotchas
 

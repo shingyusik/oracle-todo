@@ -41,8 +41,11 @@ level includes warnings.
 
 ## Targets
 
-Only `raven_cli` and `ledger_engine` events are enabled; both follow the console and file
-levels above. Dependency crates stay silent.
+Only `raven_cli`, `raven_api` and `ledger_engine` events are enabled; all follow the console
+and file levels above. Dependency crates (including `rmcp`) stay silent. `raven_api` emits
+sanitized internal errors (request ID only) and MCP access lines: `warn` denials with the caller
+Client ID and, for tool calls, the tool name and OAuth `client_id`, plus a `debug`
+"MCP request authorized" line per request. Token text is never logged.
 
 ## Event fields
 

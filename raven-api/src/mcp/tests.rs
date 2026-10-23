@@ -266,6 +266,19 @@ async fn rpc(
     method: &str,
     params: Value,
 ) -> axum::response::Response {
+    let headers: Vec<(&str, &str)> = token
+        .map(|token| ("cf-access-jwt-assertion", token))
+        .into_iter()
+        .collect();
+    rpc_as(app, &headers, method, params).await
+}
+
+async fn rpc_as(
+    app: &axum::Router,
+    headers: &[(&str, &str)],
+    method: &str,
+    params: Value,
+) -> axum::response::Response {
     let mut request = Request::builder()
         .method("POST")
         .uri("/mcp")
@@ -273,8 +286,8 @@ async fn rpc(
         .header("accept", "application/json, text/event-stream")
         .header("content-type", "application/json")
         .header("mcp-protocol-version", "2025-11-25");
-    if let Some(token) = token {
-        request = request.header("cf-access-jwt-assertion", token);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
     }
     app.clone()
         .oneshot(
@@ -1096,4 +1109,338 @@ fn uncertain_committed_and_nonretryable_receipts_never_release_claims() {
         receipts::claim(&path, "key", "digest").unwrap(),
         receipts::Claim::Replay(_)
     ));
+}
+
+async fn rpc_json(
+    app: &axum::Router,
+    headers: &[(&str, &str)],
+    method: &str,
+    params: Value,
+) -> Value {
+    let response = rpc_as(app, headers, method, params).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+fn listed(result: &Value) -> Vec<String> {
+    result["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn todo_store(cfg: &RavenApiConfig) {
+    let connection =
+        todo_engine::infrastructure::sqlite::connect(cfg.todo_db.to_str().unwrap()).unwrap();
+    todo_engine::infrastructure::sqlite::init_schema(&connection).unwrap();
+}
+
+#[test]
+fn every_catalog_tool_requires_known_scopes() {
+    for spec in catalog::build() {
+        let required = policy::required(&spec.tool.name)
+            .unwrap_or_else(|| panic!("{} has no required scope", spec.tool.name));
+        assert!(!required.is_empty());
+        assert!(required.iter().all(|scope| policy::SCOPES.contains(scope)));
+    }
+    assert_eq!(policy::required("todo_unknown_tool"), None);
+}
+
+#[test]
+fn tool_policy_matches_gateway_domain_and_media_rules() {
+    let scopes = |list: &str| list.split(' ').map(str::to_owned).collect::<Vec<_>>();
+    let read = scopes("raven.health.read raven.health.write");
+    let media = scopes("raven.health.read raven.health.write raven.health.media");
+    let allowed = |name, args: Value, scopes: &[String]| policy::allowed(name, &args, scopes);
+    assert!(allowed(
+        "todo_get",
+        json!({"id":"x"}),
+        &scopes("raven.todo.read")
+    ));
+    assert!(!allowed(
+        "todo_get",
+        json!({"id":"x"}),
+        &scopes("raven.todo.write")
+    ));
+    assert!(!allowed(
+        "todo_task_create",
+        json!({}),
+        &scopes("raven.todo.read")
+    ));
+    assert!(!allowed(
+        "ledger_entry_create",
+        json!({}),
+        &scopes("raven.todo.write")
+    ));
+    assert!(allowed(
+        "ledger_entry_create",
+        json!({}),
+        &scopes("raven.ledger.write")
+    ));
+    assert!(!allowed(
+        "raven_dashboard",
+        json!({}),
+        &scopes("raven.todo.read raven.ledger.read")
+    ));
+    assert!(allowed(
+        "raven_dashboard",
+        json!({}),
+        &scopes("raven.todo.read raven.ledger.read raven.health.read")
+    ));
+    assert!(!allowed(
+        "ledger_export",
+        json!({}),
+        &scopes("raven.ledger.read")
+    ));
+    assert!(!allowed(
+        "ledger_account_category_purge",
+        json!({}),
+        &scopes("raven.ledger.write")
+    ));
+    assert!(allowed(
+        "ledger_account_category_purge",
+        json!({}),
+        &scopes("raven.ledger.write raven.ledger.purge")
+    ));
+    assert!(!allowed("health_diet_image_get", json!({}), &read));
+    assert!(allowed("health_diet_image_get", json!({}), &media));
+    assert!(allowed(
+        "health_audit",
+        json!({"record_type":"diet_entry"}),
+        &read
+    ));
+    assert!(!allowed(
+        "health_audit",
+        json!({"record_type":"media_file"}),
+        &read
+    ));
+    assert!(allowed(
+        "health_audit",
+        json!({"record_type":"media_file"}),
+        &media
+    ));
+    assert!(!allowed(
+        "health_search",
+        json!({"scope":"health.other"}),
+        &media
+    ));
+    assert!(allowed(
+        "health_search",
+        json!({"scope":"health.diet"}),
+        &read
+    ));
+    assert!(!allowed(
+        "health_diet_update",
+        json!({"remove_image":true}),
+        &read
+    ));
+    assert!(allowed(
+        "health_diet_update",
+        json!({"remove_image":false}),
+        &read
+    ));
+    assert!(allowed(
+        "health_diet_update",
+        json!({"remove_image":true}),
+        &media
+    ));
+    assert!(!allowed("todo_get", json!({}), &[]));
+}
+
+#[tokio::test]
+async fn gateway_grant_with_six_scopes_lists_and_calls_read_and_write_tools_as_before() {
+    use access::tests::{GATEWAY, SIX_SCOPES, access_token, scope_assertion};
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    todo_store(&cfg);
+    let (auth, _) = access::tests::auth_and_token();
+    let app = router_with_auth(cfg, auth).unwrap();
+    let token = access_token(Some(GATEWAY));
+    let full = scope_assertion(&format!(
+        "{SIX_SCOPES} raven.ledger.export raven.ledger.purge raven.health.media"
+    ));
+    let all: Vec<String> = catalog::build()
+        .into_iter()
+        .map(|spec| spec.tool.name.to_string())
+        .collect();
+    let headers = [
+        ("cf-access-jwt-assertion", token.as_str()),
+        ("raven-scope-assertion", full.as_str()),
+    ];
+    assert_eq!(
+        listed(&rpc_json(&app, &headers, "tools/list", json!({})).await),
+        all
+    );
+    let six = scope_assertion(SIX_SCOPES);
+    let headers = [
+        ("cf-access-jwt-assertion", token.as_str()),
+        ("raven-scope-assertion", six.as_str()),
+    ];
+    let tools = listed(&rpc_json(&app, &headers, "tools/list", json!({})).await);
+    for name in [
+        "raven_dashboard",
+        "todo_task_create",
+        "todo_get",
+        "ledger_entry_create",
+        "ledger_search",
+        "health_diet_create",
+        "health_daily_upsert",
+    ] {
+        assert!(tools.iter().any(|tool| tool == name), "{name}");
+    }
+    for name in [
+        "ledger_export",
+        "ledger_account_category_purge",
+        "health_diet_image_get",
+        "health_diet_image_create",
+    ] {
+        assert!(!tools.iter().any(|tool| tool == name), "{name}");
+    }
+    let created = rpc_json(
+        &app,
+        &headers,
+        "tools/call",
+        json!({"name":"todo_task_create","arguments":{"title":"Gateway task"}}),
+    )
+    .await;
+    assert_eq!(created["result"]["isError"], false, "{created}");
+    let id = created["result"]["structuredContent"]["id"].clone();
+    let read = rpc_json(
+        &app,
+        &headers,
+        "tools/call",
+        json!({"name":"todo_get","arguments":{"id":id}}),
+    )
+    .await;
+    assert_eq!(read["result"]["isError"], false, "{read}");
+    assert_eq!(read["result"]["structuredContent"]["title"], "Gateway task");
+}
+
+/// Captures every tracing event, at every level, as text.
+#[derive(Clone, Default)]
+struct Logs(Arc<std::sync::Mutex<String>>);
+
+impl tracing::Subscriber for Logs {
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, event: &tracing::Event<'_>) {
+        struct Text<'a>(&'a mut String);
+        impl tracing::field::Visit for Text<'_> {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0.push_str(&format!("{}={value:?} ", field.name()));
+            }
+        }
+        let mut text = self.0.lock().unwrap();
+        event.record(&mut Text(&mut text));
+        text.push('\n');
+    }
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+#[tokio::test]
+async fn direct_read_only_caller_is_limited_and_denials_log_no_credentials() {
+    use access::tests::{CURSOR_CLIENT, GATEWAY, READER, access_token, scope_assertion};
+    let _serial = access::tests::DENIAL_LOGS.lock().await;
+    let logs = Logs::default();
+    let _guard = tracing::subscriber::set_default(logs.clone());
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    todo_store(&cfg);
+    let (auth, _) = access::tests::auth_and_token();
+    let app = router_with_auth(cfg, auth).unwrap();
+    let reader = access_token(Some(READER));
+    let headers = [("cf-access-jwt-assertion", reader.as_str())];
+    let tools = listed(&rpc_json(&app, &headers, "tools/list", json!({})).await);
+    assert!(tools.iter().any(|tool| tool == "todo_options"));
+    assert!(tools.iter().all(|tool| tool.starts_with("todo_")));
+    assert!(
+        !tools
+            .iter()
+            .any(|tool| tool.ends_with("_create") || tool.ends_with("_update"))
+    );
+    let options = rpc_json(
+        &app,
+        &headers,
+        "tools/call",
+        json!({"name":"todo_options","arguments":{"type":"task"}}),
+    )
+    .await;
+    assert_eq!(options["result"]["isError"], false, "{options}");
+    for name in ["todo_task_create", "ledger_search", "raven_dashboard"] {
+        let denied = rpc_json(
+            &app,
+            &headers,
+            "tools/call",
+            json!({"name":name,"arguments":{"title":"Denied"}}),
+        )
+        .await;
+        assert_eq!(denied["error"]["code"], -32602, "{denied}");
+        assert_eq!(
+            denied["error"]["message"],
+            "Tool unavailable for this permission"
+        );
+    }
+    let gateway = access_token(Some(GATEWAY));
+    let forged = format!("{}x", scope_assertion("raven.todo.read"));
+    let response = rpc_as(
+        &app,
+        &[
+            ("cf-access-jwt-assertion", gateway.as_str()),
+            ("raven-scope-assertion", forged.as_str()),
+        ],
+        "tools/list",
+        json!({}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // Parallel tests also hit the "authorized" callsite, which may have cached interest
+    // before this subscriber existed; the callsite is registered by now, so refresh it.
+    tracing::callsite::rebuild_interest_cache();
+    let read_only = scope_assertion("raven.todo.read");
+    let gateway_headers = [
+        ("cf-access-jwt-assertion", gateway.as_str()),
+        ("raven-scope-assertion", read_only.as_str()),
+    ];
+    let denied = rpc_json(
+        &app,
+        &gateway_headers,
+        "tools/call",
+        json!({"name":"ledger_entry_create","arguments":{}}),
+    )
+    .await;
+    assert_eq!(denied["error"]["code"], -32602, "{denied}");
+    let text = logs.0.lock().unwrap().clone();
+    assert!(text.contains("todo_task_create"), "{text}");
+    assert!(text.contains(READER), "{text}");
+    assert!(text.contains(GATEWAY), "{text}");
+    let authorized = text
+        .lines()
+        .find(|line| line.contains("MCP request authorized") && line.contains(GATEWAY))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(authorized.contains(CURSOR_CLIENT), "{text}");
+    let denial = text
+        .lines()
+        .find(|line| line.contains("missing scope") && line.contains("ledger_entry_create"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        denial.contains(GATEWAY) && denial.contains(CURSOR_CLIENT),
+        "{text}"
+    );
+    for secret in [&reader, &gateway, &forged, &read_only] {
+        for part in secret.split('.') {
+            assert!(!text.contains(part), "credential text logged: {text}");
+        }
+    }
 }

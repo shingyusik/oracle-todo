@@ -74,6 +74,15 @@ pub struct McpArgs {
     /// Application Audience (AUD) of the MCP Access application.
     #[arg(long, env = "RAVEN_MCP_ACCESS_AUDIENCE")]
     pub access_audience: Option<String>,
+    /// Access service token Client ID of the OAuth gateway.
+    #[arg(long, env = "RAVEN_MCP_GATEWAY_CLIENT_ID")]
+    pub gateway_client_id: Option<String>,
+    /// Gateway scope assertion public key: base64url Ed25519 (JWK x).
+    #[arg(long, env = "RAVEN_MCP_GATEWAY_PUBLIC_KEY")]
+    pub gateway_public_key: Option<String>,
+    /// Direct service tokens: whitespace-separated <client-id>=<scope>[,<scope>...].
+    #[arg(long, env = "RAVEN_MCP_SERVICE_CLIENTS")]
+    pub service_clients: Option<String>,
 }
 
 #[derive(Debug, Args)]

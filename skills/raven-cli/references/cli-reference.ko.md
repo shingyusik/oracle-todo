@@ -36,7 +36,10 @@ help는 데이터 홈 없이 실행되며 저장소나 로그를 초기화하지
 
 MCP에는 `--public-origin`·`--access-issuer`·`--access-audience` 또는 환경 변수
 `RAVEN_MCP_PUBLIC_ORIGIN`·`RAVEN_MCP_ACCESS_ISSUER`·`RAVEN_MCP_ACCESS_AUDIENCE`가 필요합니다.
-Tunnel·인증·도구 사용은 [원격 MCP 참고서](mcp-reference.ko.md)를 확인하세요.
+호출자 허용 목록도 필요합니다: `--gateway-client-id`와 `--gateway-public-key`, 또는
+`--service-clients`(`RAVEN_MCP_GATEWAY_CLIENT_ID`·`RAVEN_MCP_GATEWAY_PUBLIC_KEY`·
+`RAVEN_MCP_SERVICE_CLIENTS`). 호출자가 없으면 시작하지 않습니다.
+Tunnel·인증·scope·도구 사용은 [원격 MCP 참고서](mcp-reference.ko.md)를 확인하세요.
 
 `RAVEN_UI_PUBLIC_ORIGIN`은 Cloudflare Access를 통한 공개 UI 접근을 설정합니다.
 정규화된 HTTPS origin 하나만 허용합니다. 호스트는 소문자여야 하며, 선택적으로 지정하는
