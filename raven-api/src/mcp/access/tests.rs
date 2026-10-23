@@ -16,10 +16,14 @@ fn claims() -> Value {
 }
 
 fn sign(claims: Value) -> String {
+    sign_with_kid(claims, "test-key")
+}
+
+fn sign_with_kid(claims: Value, kid: &str) -> String {
     // Disposable test-only key, never an operational credential.
     let key = EncodingKey::from_rsa_der(include_bytes!("test-key.der"));
     let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some("test-key".into());
+    header.kid = Some(kid.into());
     encode(&header, &claims, &key).unwrap()
 }
 
@@ -467,6 +471,137 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
                 String::from_utf8(bytes.to_vec()).unwrap(),
                 body,
                 "case {index}"
+            );
+        }
+    }
+}
+
+/// Runs `check` with the current Unix second, retrying if the second changed meanwhile, so
+/// exact one-second boundaries are not flaky.
+fn at_fixed_second<T>(check: impl Fn(i64) -> T) -> T {
+    loop {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let result = check(now);
+        if time::OffsetDateTime::now_utc().unix_timestamp() == now {
+            return result;
+        }
+    }
+}
+
+#[test]
+fn scope_assertion_lifetime_skew_and_expiry_boundaries() {
+    let key = DecodingKey::from_ed_components(&GATEWAY_KEY.1).unwrap();
+    let accepted = |iat: i64, exp: i64| {
+        let mut claims = assertion_claims("raven.todo.read");
+        claims["iat"] = json!(iat);
+        claims["exp"] = json!(exp);
+        valid_assertion(
+            &scope_assertion_with(&claims),
+            &key,
+            "https://mcp.example.com/mcp",
+        )
+        .is_some()
+    };
+    // Lifetime exp - iat must be 1..=MAX_ASSERTION_LIFETIME (120) seconds.
+    assert!(at_fixed_second(|now| accepted(now, now + 1)), "1 s");
+    assert!(at_fixed_second(|now| accepted(now, now + 120)), "120 s");
+    assert!(!at_fixed_second(|now| accepted(now, now + 121)), "121 s");
+    // Clock skew: iat may be at most ASSERTION_LEEWAY (30) seconds in the future.
+    assert!(
+        at_fixed_second(|now| accepted(now + 30, now + 90)),
+        "iat +30"
+    );
+    assert!(
+        !at_fixed_second(|now| accepted(now + 31, now + 91)),
+        "iat +31"
+    );
+    // jsonwebtoken (Validation.leeway = ASSERTION_LEEWAY = 30) expires a token only
+    // when exp < now - 30, so exp = now - 30 still passes and now - 31 does not.
+    assert!(
+        at_fixed_second(|now| accepted(now - 90, now - 30)),
+        "exp -30"
+    );
+    assert!(
+        !at_fixed_second(|now| accepted(now - 91, now - 31)),
+        "exp -31"
+    );
+}
+
+/// Local JWKS endpoint that fails every request in `mode` and counts the fetches.
+async fn failing_issuer(mode: &'static str) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let fetches = Arc::new(AtomicUsize::new(0));
+    if mode == "closed" {
+        // Nothing listens on this port once the listener is dropped.
+        return (issuer, fetches);
+    }
+    let counter = fetches.clone();
+    let app = axum::Router::new().route(
+        "/cdn-cgi/access/certs",
+        axum::routing::get(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            async move {
+                match mode {
+                    "500" => (StatusCode::INTERNAL_SERVER_ERROR, "unavailable").into_response(),
+                    _ => (StatusCode::OK, "{not a key set").into_response(),
+                }
+            }
+        }),
+    );
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (issuer, fetches)
+}
+
+#[tokio::test]
+async fn jwks_refresh_failure_rejects_and_respects_the_cooldown() {
+    use std::sync::atomic::Ordering;
+    let long_ago = |age: Duration| Instant::now().checked_sub(age).unwrap();
+    for mode in ["500", "garbage", "closed"] {
+        let (issuer, fetches) = failing_issuer(mode).await;
+        let mut token = claims();
+        token["iss"] = json!(issuer);
+        let known = sign(token.clone());
+        let rotated = sign_with_kid(token, "rotated-key");
+        let (mut auth, _) = auth_and_token();
+        // Local http issuer for the test only; production config requires Cloudflare HTTPS.
+        auth.config.issuer = issuer;
+        auth.client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let count = || fetches.load(Ordering::SeqCst);
+        assert!(auth.verify(&known).await.is_some(), "{mode}: fresh cache");
+        assert_eq!(count(), 0, "{mode}: fresh known key needs no fetch");
+
+        // (a) Unknown kid, refresh allowed but failing: rejected.
+        auth.keys.lock().await.attempted = long_ago(REFRESH_COOLDOWN);
+        assert!(auth.verify(&rotated).await.is_none(), "{mode}: unknown kid");
+        let after_unknown = count();
+        // (c) Within the cooldown, more unknown kids trigger no further fetch.
+        for _ in 0..5 {
+            assert!(auth.verify(&rotated).await.is_none(), "{mode}: unknown kid");
+        }
+        assert_eq!(count(), after_unknown, "{mode}: cooldown");
+        // The fresh cached key still works after a failed refresh.
+        assert!(auth.verify(&known).await.is_some(), "{mode}: cached key");
+
+        // (b) Cache past KEY_TTL, refresh failing: rejected, not served stale.
+        {
+            let mut keys = auth.keys.lock().await;
+            keys.loaded = long_ago(KEY_TTL + Duration::from_secs(1));
+            keys.attempted = long_ago(REFRESH_COOLDOWN);
+        }
+        assert!(auth.verify(&known).await.is_none(), "{mode}: stale keys");
+        let after_stale = count();
+        // (c) Stale cache within the cooldown: still rejected, no new fetch per request.
+        for _ in 0..5 {
+            assert!(auth.verify(&known).await.is_none(), "{mode}: stale keys");
+        }
+        assert_eq!(count(), after_stale, "{mode}: cooldown");
+        if mode != "closed" {
+            assert_eq!(
+                (after_unknown, after_stale),
+                (1, 2),
+                "{mode}: one fetch each"
             );
         }
     }
