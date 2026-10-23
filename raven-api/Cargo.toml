@@ -5,6 +5,10 @@ edition = "2024"
 rust-version.workspace = true
 description = "Unified HTTP API composition for Raven"
 
+[features]
+# Test-only MCP router with a disposable Access key; never enable in the `raven` binary.
+contract-test-support = []
+
 [dependencies]
 anyhow = "1.0"
 base64 = "0.22"

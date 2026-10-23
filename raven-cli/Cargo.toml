@@ -29,6 +29,7 @@ name = "raven"
 path = "src/main.rs"
 
 [dev-dependencies]
+raven-api = { path = "../raven-api", features = ["contract-test-support"] }
 assert_cmd = "2"
 axum = "0.7"
 http-body-util = "0.1"

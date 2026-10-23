@@ -237,6 +237,21 @@ impl AccessAuth {
         })
     }
 
+    /// Contract tests only: trust a fixed key set and never contact the issuer.
+    #[cfg(feature = "contract-test-support")]
+    pub(super) fn with_keys(config: McpAccessConfig, set: JwkSet) -> Self {
+        let now = Instant::now();
+        Self {
+            config,
+            client: reqwest::Client::new(),
+            keys: Arc::new(Mutex::new(Keys {
+                set,
+                loaded: now,
+                attempted: now,
+            })),
+        }
+    }
+
     async fn verify(&self, token: &str) -> Option<serde_json::Value> {
         if token.is_empty() || token.len() > MAX_JWT_BYTES {
             return None;
