@@ -119,6 +119,53 @@ One-time PIN 로그인을 완료합니다. 동의를 다시 제출하면 `RAVEN-
 Cloudflare zone 보호 기능은 게이트웨이보다 먼저 적용됩니다. Browser Integrity Check, 봇 규칙,
 AI 봇 정책이 클라이언트 업체의 서버 요청을 차단하면 discovery나 토큰 교환이 실패합니다.
 
+### 토큰 유출 시 grant 폐기
+
+게이트웨이 접근·갱신 토큰이 유출되었을 수 있을 때(로그·채팅·스크린샷·공유 파일에 붙여 넣음, 기기
+분실), `events`에 `refresh_token_reuse`가 보일 때, 목록에 직접 만들지 않은 grant가 있을 때
+사용합니다. 게이트웨이 저장소의 `scripts/grants.mjs`가 소유자 전용 관리 경로로 grant를 조회하고
+폐기합니다. Node.js 22가 필요하고 Cloudflare API 토큰은 필요하지 않습니다.
+
+```bash
+export RAVEN_GATEWAY_URL=https://<gateway-host>
+export RAVEN_GRANT_ADMIN_TOKEN=...      # 비밀번호 관리자에서 가져오며 인자로 넘기지 않음
+node scripts/grants.mjs list            # 클라이언트, grant ID, scope, 발급, 마지막 사용, 만료
+node scripts/grants.mjs events          # refresh_token_reuse, admin_revoke 기록
+```
+
+1. 확인: `list`는 grant마다 한 줄을 보여 줍니다. `CLIENT`는 제품 이름이고, Cursor grant는
+   콜백에 따라 `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)`으로 나뉩니다(클라이언트
+   표 참고, 지금까지 Grok Bot 연결은 bot 콜백을 사용). `LAST USED`는 마지막 갱신 시각이며,
+   14일 유휴 규칙 이전에 발급된 grant는 다음 갱신 전까지 `unknown`입니다. 직접 만든 연결과
+   대응되지 않는 grant는 의심 대상입니다.
+2. 가장 좁은 범위로 폐기: 모든 명령은 먼저 폐기 대상을 출력하며 `--dry-run`이면 거기서
+   멈춥니다. 확인 문구는 대화형 터미널에서 직접 입력해야 하고, 파이프로 실행하면 거부합니다.
+
+   | 명령 | 폐기 대상 | 확인 입력 |
+   | --- | --- | --- |
+   | `revoke <grant-id>` | grant 하나 | grant ID |
+   | `revoke --client <client-id>` | 해당 클라이언트의 모든 grant | grant 개수 |
+   | `revoke --all` | 모든 grant(유출 범위를 모를 때) | `revoke all` |
+
+3. 검증: `list`에 해당 grant가 없고 `events`에 폐기한 grant마다 `admin_revoke` 기록이 하나씩
+   있는지 확인합니다. 폐기한 정상 클라이언트는 다시 연결합니다. 새 인가에는 소유자의
+   One-time PIN 로그인이 필요하므로 유출된 토큰으로 새 grant를 받을 수 없습니다.
+
+폐기는 게이트웨이 authority Durable Object에서 grant와 그 접근·갱신 토큰을 모두 삭제합니다.
+모든 `/mcp` 요청은 같은 직렬화된 저장소에서 접근 토큰을 grant와 대조하므로, 명령 직후 다음
+요청은 `401`, 다음 갱신은 `invalid_grant`를 받습니다. 10분 유예는 없습니다. 게이트웨이 테스트는
+폐기 직전에 발급된 접근 토큰으로 이를 확인하고, 다른 grant는 계속 동작함을 확인합니다. 이미
+원본으로 전달된 요청은 끝까지 처리됩니다. 응답과 출력에는 grant ID, 클라이언트 ID, 콜백,
+scope, 시각만 있으며 토큰 원문은 없습니다.
+
+소유자 최초 설정: 긴 무작위 관리 토큰을 로컬에서 생성하고(예:
+`node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))'`) 비밀번호
+관리자에만 보관합니다. 그 SHA-256 hex(`printf %s "$RAVEN_GRANT_ADMIN_TOKEN" | shasum -a 256`)만
+게이트웨이 secret `GRANT_ADMIN_TOKEN_SHA256`으로 새 버전에 저장하고 승격합니다. secret이 없으면
+관리 경로는 `404`를 반환하며 클라이언트에는 변화가 없습니다. 새 토큰의 해시를 저장하면 교체되고,
+secret을 삭제하면 비활성화됩니다. 관리 경로가 포함된 게이트웨이 버전 배포와 secret 설정은
+소유자 승인이 필요합니다.
+
 ## 호출자와 scope
 
 Raven은 검증된 Access JWT의 `common_name` claim으로 호출자를 식별합니다. Cloudflare는 이

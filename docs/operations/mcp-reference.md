@@ -121,6 +121,56 @@ start the connection again.
 Cloudflare zone protections apply before the gateway. Browser Integrity Check, bot rules or
 AI bot policies that block vendor backends prevent discovery or token exchange.
 
+### Revoking grants after a token leak
+
+Use this when a gateway access or refresh token may have leaked (pasted into a log, chat,
+screenshot or shared file; a lost device), when `events` shows `refresh_token_reuse`, or when
+the list contains a grant you did not create. The gateway's `scripts/grants.mjs` lists and
+revokes grants through owner-only admin routes; it needs Node.js 22 and no Cloudflare API
+token.
+
+```bash
+export RAVEN_GATEWAY_URL=https://<gateway-host>
+export RAVEN_GRANT_ADMIN_TOKEN=...      # from the password manager, never as an argument
+node scripts/grants.mjs list            # client, grant ID, scope, issued, last used, expiry
+node scripts/grants.mjs events          # refresh_token_reuse and admin_revoke records
+```
+
+1. Identify. `list` shows one row per grant. `CLIENT` names the product; Cursor grants are
+   split by callback: `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)` (see the client
+   table; Grok Bot connections so far used the bot callback). `LAST USED` is the last refresh (`unknown` for grants issued before the
+   14-day idle rule until their next refresh). A grant you cannot match to a connection you
+   made is suspect.
+2. Revoke the narrowest set. Each command first prints what it will revoke; `--dry-run`
+   stops there. Confirmation is typed in an interactive terminal; piped runs are refused.
+
+   | Command | Revokes | Type to confirm |
+   | --- | --- | --- |
+   | `revoke <grant-id>` | One grant | The grant ID |
+   | `revoke --client <client-id>` | Every grant of that client | The number of grants |
+   | `revoke --all` | Every grant (unknown leak) | `revoke all` |
+
+3. Verify. `list` no longer shows the grant and `events` has one `admin_revoke` record per
+   revoked grant. Reconnect the legitimate clients you revoked; a new authorization needs
+   the owner's One-time PIN login, so a leaked token cannot be used to obtain a new grant.
+
+Revocation deletes the grant and all its access and refresh tokens in the gateway's authority
+Durable Object. Every `/mcp` request checks its access token against the grant in that same
+serialized storage, so the next request after the command returns `401` and the next refresh
+returns `invalid_grant`; there is no 10-minute window. Tests in the gateway prove this for an
+access token issued just before the revocation, and that other grants keep working. A request
+already forwarded to the origin finishes. Responses and output contain grant IDs, client IDs,
+callbacks, scopes and times only, never token text.
+
+Owner setup, once: generate a long random admin token locally (for example
+`node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))'`) and keep it
+only in a password manager. Store only its SHA-256 hex
+(`printf %s "$RAVEN_GRANT_ADMIN_TOKEN" | shasum -a 256`) as gateway secret
+`GRANT_ADMIN_TOKEN_SHA256` in a new version and promote it. Without the secret the admin
+routes return `404` and clients see no change. Rotate by storing the hash of a new token;
+disable by deleting the secret. Deploying the gateway version with the admin routes, and
+setting the secret, need the owner's approval.
+
 ## Callers and scopes
 
 Raven identifies the caller by the `common_name` claim of the verified Access JWT, which
