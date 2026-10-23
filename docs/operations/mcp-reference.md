@@ -231,7 +231,9 @@ by name ascending. An explicit empty sort list is rejected by Ledger.
 
 `todo_list` exposes CLI list filters with `scope` (`list`, `archive`, `today`), paging,
 and historical statuses/types; `scope=today` requires caller-local `today`. `status=active`
-selects pending work. Follow `next` as the next offset. Creation accepts ToDo `actor` for
+selects pending work. Follow `next` as the next offset. `todo_transition` with
+`action=postpone` requires caller-local `today` and `scheduled`; MCP applies no default date.
+`scheduled` must be later than `today`, or equal to it for an overdue source. Creation accepts ToDo `actor` for
 project/goal/routine/task/event. Routine creation and update accept `future_occurrences`;
 `todo_routine_materialize` can omit it to preserve the saved target. Use
 `todo_routines_materialize` to sweep all active routines using the server's local date.
@@ -246,8 +248,9 @@ exports should use the CLI. Export `include_archived=true` produces a restore-ca
 
 `ledger_audit(record_type=entry)` reads immutable create/update/archive history,
 including archived entries. Requests map `entry` to canonical `ledger_entry`;
-returned events retain `record_type: ledger_entry`. Use `limit`/`offset` and follow
-`next_offset` until null.
+returned events retain `record_type: ledger_entry`. `record_type=transfer` with the transfer
+group ID reads paired-transfer create/update/archive/restore history. Use `limit`/`offset`
+and follow `next_offset` until null; null marks the last page.
 
 `health_event_list` accepts `category`, `metric_key`, `daily_only`, `metrics_only` and paging.
 Categories are weight/bowel/sleep/lab/symptom/medication; query overall condition with
@@ -257,6 +260,35 @@ history including older lab/symptom keys. Follow
 filters are available through `health_search` scope filters. `health_audit` also accepts
 `media_file`. Historical metric show/archive/restore use existing event tools and guards.
 Diet/event get tools accept `include_archived=true` to read versions for recovery.
+`health_records` and `health_audit` return `{items,next_offset}`; follow `next_offset` until
+null, which marks the last page.
+
+## CLI equivalence
+
+MCP tools and CLI commands call the same application services, so validation, lifecycle,
+atomicity and audit policy match. Adapter-level differences:
+
+| Area | CLI | MCP |
+| --- | --- | --- |
+| Clock defaults | `todo postpone` defaults to tomorrow; `todo today` uses the local date | Caller supplies `today`/`scheduled`; `todo_list` `scope=today` requires `today` |
+| Page cursor | `{items,next}` | ToDo `{items,next}`; Ledger and Health `{items,next_offset}` |
+| Page size | `--limit` up to 1000 (ToDo) or 500 (Ledger, Health) | List and audit `limit` at most 100; searches at most 50 |
+| ToDo rejection codes | `validation_error`, `policy_error`, `goal_*` | `validation_error` for every rejected input |
+| Ledger records | `amount_minor` plus resolved account/category/currency names | Stored entry with minor-unit `amount`; transfer sides as `{entry,account_name,category_name,currency_code}` |
+| Ledger masters, balances | `account_category_id`, `opening_balance_minor`, flat balance rows | `category_id`, `opening_balance`, balance rows with nested `account` |
+| Ledger report dates | `range` as ISO `YYYY-MM-DD` | `range` as `[year, ordinal_day]`; Health reports use this form on both adapters |
+| `ledger_report_compare` | `current`, `previous` | Same, plus per-currency `currencies` deltas |
+| Health audit `occurred_at` | RFC 3339 | `[year, ordinal, hour, minute, second, nanosecond, offset_h, offset_m, offset_s]` |
+| Archived reads | Ledger `entry show` hides archived; Health `show` returns them | `*_get` requires `include_archived=true` |
+| Purge | Preview prints `confirmation_id` and exits `2` (`confirmation_mismatch`); purge prints `{purged,id}` | Preview succeeds; purge returns `{ok:true}`; wrong confirmation is `validation_error` |
+| Routine materialize | Created items array | `{created}`; single routine adds `routine` |
+| Health event list end | Exact `next` | `health_event_list` may return one final empty page |
+| Provenance | Ledger `source`/`actor` `raven-cli`; Health actor `raven-cli` | Ledger `source: api`, actor `raven-api`; Health actor `raven-api` |
+| Create receipts | `retry.sqlite` table `receipts` | `retry.sqlite` table `mcp_receipts`; one key does not deduplicate across adapters |
+
+Archive and restore audit events name the service (`ledger-service`, Health `local`) on both
+adapters. Unknown IDs are `not_found`, stale guards `conflict`, and same-key transfer or
+create retries with changed input `conflict`/`request_key_conflict` on both adapters.
 
 ## Mutations and images
 

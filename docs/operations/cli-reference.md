@@ -197,6 +197,10 @@ Entries support `archive <id>` and `restore <id>`. Master data uses
 then repeat with `--confirm <confirmation-id>`. Audit history remains available.
 `entry list --include-archived` includes archived entries in search results. The list
 contains their complete CLI record; `entry show` reads only non-archived entries.
+`ledger audit --record-type <type> --record-id <id>` accepts `ledger_entry` (alias `entry`),
+`transfer` with the transfer group ID, `currency`, `account_category`, `account`, and
+`transaction_category`. Transfer history covers paired create, update, archive, and restore.
+
 Entry source, actor, and written timestamp are assigned by the adapter. Adjustment
 records remain readable; creation and conversion to adjustment types are rejected.
 Manual entry add/update type choices are `expense` and `income`; create transfers through

@@ -197,6 +197,10 @@ Purge는 account-category만 제공합니다. 먼저 미리보기를 조회하�
 `entry list --include-archived`는 보관된 거래를 검색 결과에 포함합니다.
 목록에는 전체 CLI 레코드가 포함됩니다. `entry show`는 보관되지 않은 거래만 조회합니다.
 
+`ledger audit --record-type <type> --record-id <id>`는 `ledger_entry`(별칭 `entry`),
+이체 그룹 ID를 쓰는 `transfer`, `currency`, `account_category`, `account`,
+`transaction_category`를 받습니다. 이체 이력은 짝 이체의 생성·수정·보관·복구를 포함합니다.
+
 거래 source·actor·작성 타임스탬프는 어댑터가 지정합니다.
 Adjustment 레코드는 조회할 수 있지만 직접 생성하거나 해당 타입으로 변환할 수 없습니다.
 직접 add/update하는 거래 타입은 `expense`, `income`입니다. 이체는 `ledger transfer`로 생성합니다.

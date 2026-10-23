@@ -149,5 +149,9 @@ Ledger 이체는 전역 request key 대신 `--operation-key`를 사용합니다.
 제한 시간은 요청 내용의 동일성을 판단하는 기준에 포함되지 않습니다.
 키가 있는 요청의 백업에는 `retry.sqlite`도 보관합니다.
 
+CLI와 MCP를 함께 쓰는 에이전트는 어댑터별로 요청 키를 따로 관리합니다. CLI와 MCP 영수증은
+서로 중복을 제거하지 않습니다. CLI가 로컬 시계를 쓰는 곳에서 MCP는 명시적인 날짜가 필요합니다.
+어댑터별 차이는 [원격 MCP](mcp-reference.ko.md#cli와의-동등성)에 정리되어 있습니다.
+
 전체 옵션은 [CLI 참고서](cli-reference.ko.md) 또는 `raven <domain> <command> --help`에서 확인합니다.
 JSON 입력은 명령행 `--json` 인수로 전달합니다.

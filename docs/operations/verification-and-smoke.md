@@ -35,6 +35,14 @@ cargo test -p raven-api --lib mcp
 cargo test -p raven-cli --test mcp_cli
 ```
 
+CLI/MCP contract tests run the same fixture through the `raven` binary and through MCP
+JSON-RPC over the authenticated HTTP transport. They compare normalized results and audit
+records:
+
+```bash
+cargo test -p raven-cli --test contract_todo --test contract_ledger --test contract_health --test contract_retry
+```
+
 Automatic UI refresh checks cover independent CLI and MCP mutations, SSE authentication,
 WAL writes, rollback, missing stores, multiple subscribers, and reconnect synchronization:
 

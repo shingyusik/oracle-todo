@@ -226,6 +226,9 @@ Ledger 정렬을 생략하면 UI 기본값인 거래 날짜 내림차순·계좌
 `todo_list`는 CLI 목록 필터·이력 타입·상태와 페이징을 제공합니다. `scope`는
 `list`, `archive`, `today`이며 오늘 조회에는 사용자 로컬 `today`가 필요합니다.
 `status=active`로 진행 중 항목을 선택하고 `next`를 다음 offset으로 사용합니다.
+`todo_transition`의 `action=postpone`에는 호출자 로컬 `today`와 `scheduled`가 필요하며 MCP는
+기본 날짜를 정하지 않습니다. `scheduled`는 `today` 이후여야 하고, 기한이 지난 원본만 `today`를
+허용합니다.
 ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지원합니다.
 `todo_routine_materialize`는 저장된 목표를 유지하도록 목표 인수를 생략할 수 있으며,
 `todo_routines_materialize`는 서버 로컬 날짜로 모든 활성 루틴을 생성합니다.
@@ -237,6 +240,12 @@ ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지�
 `max_bytes`를 지정할 수 있으며 MCP 바이트 예산·응답은 최대 8 MiB입니다.
 큰 내보내기는 CLI를 사용합니다. `include_archived=true` 내보내기는 복구 가능한 스냅샷입니다.
 
+`ledger_audit(record_type=entry)`는 보관 거래를 포함해 생성·수정·보관의 불변 감사 이력을 읽습니다.
+공개 요청 값 `entry`는 내부 `ledger_entry`로 매핑되며 반환 이벤트의 `record_type`은
+`ledger_entry`입니다. `record_type=transfer`와 이체 그룹 ID로 짝 이체의
+생성·수정·보관·복구 이력을 읽습니다. `limit`·`offset`으로 페이지를 지정하고
+`next_offset`이 null이 될 때까지 조회합니다. null은 마지막 페이지입니다.
+
 `health_event_list`는 `category`, `metric_key`, `daily_only`, `metrics_only`와 페이징을
 지원합니다. `category`는 weight/bowel/sleep/lab/symptom/medication이며 전체 컨디션은
 `category=symptom, metric_key=overall_condition`으로 조회합니다.
@@ -245,7 +254,35 @@ ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지�
 식단·배변·투약 목록 필터는 `health_search`로 조회하고 매체 감사는
 `health_audit(record_type=media_file)`로 읽습니다. 과거 지표 상세·보관·복구는 이벤트 도구와
 버전 가드를 사용합니다. 식단·이벤트 상세의 `include_archived=true`로 보관된 레코드의
-버전도 조회할 수 있습니다.
+버전도 조회할 수 있습니다. `health_records`와 `health_audit`는 `{items,next_offset}`을
+반환하며 `next_offset`이 null(마지막 페이지)이 될 때까지 조회합니다.
+
+## CLI와의 동등성
+
+MCP 도구와 CLI 명령은 같은 애플리케이션 서비스를 호출하므로 검증·수명주기·원자성·감사 정책이
+같습니다. 어댑터별 차이는 다음과 같습니다.
+
+| 영역 | CLI | MCP |
+| --- | --- | --- |
+| 기본 날짜 | `todo postpone` 기본값은 내일, `todo today`는 로컬 날짜 사용 | 호출자가 `today`·`scheduled` 지정, `todo_list` `scope=today`는 `today` 필수 |
+| 페이지 커서 | `{items,next}` | ToDo `{items,next}`, Ledger·Health `{items,next_offset}` |
+| 페이지 크기 | `--limit` 최대 1000(ToDo), 500(Ledger·Health) | 목록·감사 `limit` 최대 100, 검색 최대 50 |
+| ToDo 거부 코드 | `validation_error`, `policy_error`, `goal_*` | 모든 거부 입력이 `validation_error` |
+| Ledger 레코드 | `amount_minor`와 계정·분류·통화 이름 | 저장 레코드와 최소 단위 `amount`, 이체 양쪽은 `{entry,account_name,category_name,currency_code}` |
+| Ledger 기준 데이터·잔액 | `account_category_id`, `opening_balance_minor`, 평면 잔액 행 | `category_id`, `opening_balance`, `account`를 포함한 잔액 행 |
+| Ledger 보고서 날짜 | `range`가 ISO `YYYY-MM-DD` | `range`가 `[year, ordinal_day]`, Health 보고서는 두 어댑터 모두 이 형식 |
+| `ledger_report_compare` | `current`, `previous` | 동일하며 통화별 `currencies` 차이 추가 |
+| Health 감사 `occurred_at` | RFC 3339 | `[year, ordinal, hour, minute, second, nanosecond, offset_h, offset_m, offset_s]` |
+| 보관 레코드 읽기 | Ledger `entry show`는 숨김, Health `show`는 반환 | `*_get`에 `include_archived=true` 필요 |
+| 영구 삭제 | 미리보기는 `confirmation_id`를 출력하고 `2`(`confirmation_mismatch`)로 종료, 삭제는 `{purged,id}` | 미리보기 성공, 삭제는 `{ok:true}`, 잘못된 확인값은 `validation_error` |
+| 루틴 생성 | 생성 항목 배열 | `{created}`, 단일 루틴은 `routine` 추가 |
+| Health 이벤트 목록 끝 | 정확한 `next` | `health_event_list`는 마지막 빈 페이지가 있을 수 있음 |
+| 출처 | Ledger `source`·`actor` `raven-cli`, Health actor `raven-cli` | Ledger `source: api`, actor `raven-api`, Health actor `raven-api` |
+| 생성 영수증 | `retry.sqlite`의 `receipts` 테이블 | `retry.sqlite`의 `mcp_receipts` 테이블, 같은 키라도 어댑터 간 중복 제거되지 않음 |
+
+보관·복구 감사 이벤트는 두 어댑터 모두 서비스 이름(`ledger-service`, Health `local`)을
+기록합니다. 알 수 없는 ID는 `not_found`, 오래된 버전 가드는 `conflict`, 같은 키로 입력을 바꾼
+이체·생성 재시도는 두 어댑터 모두 `conflict`·`request_key_conflict`입니다.
 
 ## 변경·재시도·사진
 
