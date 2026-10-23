@@ -41,6 +41,8 @@ pub fn run(paths: &RavenPaths, args: McpArgs) -> anyhow::Result<()> {
                     args.gateway_public_key,
                     args.service_clients,
                 )
+                // Rejects an empty allowlist here for a clean exit 2; the library also
+                // refuses to serve without one (`AccessAuth::load`) as a fail-closed backstop.
                 .map_err(|_| McpCommandError::Callers)?
         }
         _ => return Err(McpCommandError::Configuration.into()),
