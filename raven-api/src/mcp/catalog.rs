@@ -360,6 +360,7 @@ pub(super) fn build() -> Vec<Spec> {
             "ledger",
             &[
                 "entry",
+                "transfer",
                 "currency",
                 "account_category",
                 "account",
