@@ -1113,3 +1113,56 @@ async fn account_balance_by_id_ignores_duplicate_names_and_validates_missing_ids
         assert!(!value.to_string().contains(id));
     }
 }
+
+#[tokio::test]
+async fn confirmed_account_category_purge_commits_through_a_writable_store() {
+    let (_temp, app) = app();
+    let created = body(
+        post_json(
+            &app,
+            "/api/v1/ledger/account-categories",
+            json!({"name":"Spare"}),
+        )
+        .await,
+    )
+    .await;
+    let id = created["id"].as_str().unwrap();
+    let preview = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/ledger/account-categories/{id}/purge"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.status(), StatusCode::OK);
+    let confirmation = body(preview).await["confirmation_id"].clone();
+    let purged = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/api/v1/ledger/account-categories/{id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"confirmation":confirmation}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(purged.status(), StatusCode::NO_CONTENT);
+    let list = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/ledger/account-categories")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let names: Vec<_> = body(list).await["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].clone())
+        .collect();
+    assert_eq!(names, [json!("Cash")]);
+}
