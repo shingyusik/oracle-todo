@@ -185,9 +185,10 @@ const GENERATED_TIMES: &[&str] = &[
     "at",
 ];
 
-/// Replace generated IDs (by first appearance) and the timestamps in `GENERATED_TIMES`
-/// (plus audit-event `occurred_at`) so that two homes that ran the same operations compare
-/// equal. Nulls stay null; fixture timestamps such as Health `occurred_at` are compared.
+/// Replace generated IDs (by first appearance) and the RFC 3339 timestamps in
+/// `GENERATED_TIMES` (plus audit-event `occurred_at`) so that two homes that ran the same
+/// operations compare equal. Nulls and non-timestamp values under those names stay visible;
+/// fixture timestamps such as Health `occurred_at` are compared.
 pub fn normalize(value: &Value) -> Value {
     fn walk(value: &Value, ids: &mut HashMap<String, String>) -> Value {
         match value {
@@ -203,7 +204,7 @@ pub fn normalize(value: &Value) -> Value {
                         .map(|(key, value)| {
                             let generated = GENERATED_TIMES.contains(&key.as_str())
                                 || (audit_event && key == "occurred_at");
-                            let value = if generated && value.is_string() {
+                            let value = if generated && value.as_str().is_some_and(is_rfc3339) {
                                 json!("<ts>")
                             } else {
                                 walk(value, ids)
@@ -217,6 +218,10 @@ pub fn normalize(value: &Value) -> Value {
         }
     }
     walk(value, &mut HashMap::new())
+}
+
+fn is_rfc3339(text: &str) -> bool {
+    time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).is_ok()
 }
 
 fn is_generated_id(text: &str) -> bool {

@@ -96,3 +96,28 @@ async fn same_key_replays_and_changed_input_conflicts_on_both_adapters() {
         assert_eq!(count(&mcp, &case.count), 2, "{}", case.tool);
     }
 }
+
+/// Harness check (kept here once, since `support/contract.rs` is compiled into every
+/// contract binary): only RFC 3339 values under generated-time names are masked.
+#[test]
+fn normalize_masks_only_rfc3339_generated_times() {
+    let value = json!({
+        "created_at": "2026-10-23T08:05:05.982182279Z",
+        "updated_at": "not-a-timestamp",
+        "deleted_at": null,
+        "at": 7,
+        "occurred_at": "2026-10-02T03:00:00Z",
+        "events": [{"action":"create","occurred_at":"2026-10-23T08:05:06Z"}],
+    });
+    assert_eq!(
+        normalize(&value),
+        json!({
+            "created_at": "<ts>",
+            "updated_at": "not-a-timestamp",
+            "deleted_at": null,
+            "at": 7,
+            "occurred_at": "2026-10-02T03:00:00Z",
+            "events": [{"action":"create","occurred_at":"<ts>"}],
+        })
+    );
+}

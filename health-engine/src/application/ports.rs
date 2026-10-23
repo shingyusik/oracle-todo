@@ -377,6 +377,11 @@ mod exact_page_tests {
     #[test]
     fn next_offset_is_exact_and_null_on_the_last_page() {
         let page = |offset, limit| Page::new(offset, limit).unwrap();
+        // 3 records, page size 2: the first page has 0 and 1 and points at 2.
+        assert_eq!(
+            exact_page(page(0, 2), read(3)).unwrap(),
+            (vec![0, 1], Some(2))
+        );
         assert_eq!(
             exact_page(page(0, 2), read(5)).unwrap(),
             (vec![0, 1], Some(2))
