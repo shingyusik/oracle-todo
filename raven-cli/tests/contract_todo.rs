@@ -2,15 +2,15 @@
 #[path = "support/contract.rs"]
 mod contract;
 
-use contract::{Home, day, normalize, same_error};
+use contract::{Home, TestDay, normalize, same_error};
 use serde_json::{Value, json};
 
 /// Active, scheduled, overdue, searchable and terminal items, created through the CLI.
-fn seed(home: &Home) -> Value {
+fn seed(home: &Home, date: TestDay) -> Value {
     let area = home.cli(&["todo", "area", "create", "Health"]);
     let area_id = area["id"].as_str().unwrap();
-    let today = day(0);
-    let overdue = day(-2);
+    let today = date.day(0);
+    let overdue = date.day(-2);
     let dentist = home.cli(&[
         "todo",
         "task",
@@ -49,9 +49,10 @@ fn seed(home: &Home) -> Value {
 
 #[tokio::test]
 async fn list_pending_today_archive_and_filters_agree() {
+    let date = TestDay::fix();
     let home = Home::new().await;
-    let fixture = seed(&home);
-    let today = day(0);
+    let fixture = seed(&home, date);
+    let today = date.day(0);
     for (cli, mcp) in [
         (vec!["todo", "list"], json!({})),
         (
@@ -125,6 +126,7 @@ async fn list_pending_today_archive_and_filters_agree() {
         home.cli(&["todo", "show", id]),
         home.mcp("todo_get", json!({"id":id})).await
     );
+    date.assert_cli_clock();
 }
 
 #[tokio::test]
@@ -182,6 +184,7 @@ async fn create_results_actor_and_history_agree() {
 
 /// Run the same postpone on two identically seeded homes; returns (CLI, MCP) outcomes.
 async fn postpone_both(
+    date: TestDay,
     scheduled: Option<String>,
     source: &str,
 ) -> (
@@ -192,8 +195,8 @@ async fn postpone_both(
 ) {
     let cli = Home::new().await;
     let mcp = Home::new().await;
-    let seeded_cli = seed(&cli);
-    let seeded_mcp = seed(&mcp);
+    let seeded_cli = seed(&cli, date);
+    let seeded_mcp = seed(&mcp, date);
     let cli_id = seeded_cli[source]["id"].as_str().unwrap().to_owned();
     let mut args = vec!["todo", "postpone", cli_id.as_str()];
     if let Some(date) = scheduled.as_deref() {
@@ -208,9 +211,9 @@ async fn postpone_both(
     let input = json!({
         "id": seeded_mcp[source]["id"],
         "action": "postpone",
-        "today": day(0),
+        "today": date.day(0),
         // MCP has no clock default: the caller sends tomorrow explicitly.
-        "scheduled": scheduled.unwrap_or_else(|| day(1)),
+        "scheduled": scheduled.unwrap_or_else(|| date.day(1)),
     });
     let result = mcp.call("todo_transition", input).await;
     let mcp_result = if result["isError"] == false {
@@ -240,13 +243,15 @@ async fn same_store(cli: &Home, mcp: &Home) {
 
 #[tokio::test]
 async fn postpone_success_paths_agree() {
+    let date = TestDay::fix();
     for (scheduled, source, follow_up_date) in [
-        (None, "dentist", day(1)),
-        (Some(day(3)), "dentist", day(3)),
+        (None, "dentist", date.day(1)),
+        (Some(date.day(3)), "dentist", date.day(3)),
         // Overdue sources may move to today.
-        (Some(day(0)), "late", day(0)),
+        (Some(date.day(0)), "late", date.day(0)),
     ] {
-        let (cli, mcp, cli_result, mcp_result) = postpone_both(scheduled.clone(), source).await;
+        let (cli, mcp, cli_result, mcp_result) =
+            postpone_both(date, scheduled.clone(), source).await;
         let (cli_result, mcp_result) = (cli_result.unwrap(), mcp_result.unwrap());
         assert_eq!(
             normalize(&cli_result),
@@ -258,25 +263,28 @@ async fn postpone_success_paths_agree() {
         assert_eq!(cli_result["follow_up"]["scheduled"], follow_up_date);
         same_store(&cli, &mcp).await;
     }
+    date.assert_cli_clock();
 }
 
 #[tokio::test]
 async fn postpone_rejections_agree_and_are_atomic() {
+    let date = TestDay::fix();
     // Policy rejections keep the CLI's TodoError::api_code ("policy_error"); the HTTP/MCP
     // adapter folds every 400 class into "validation_error". Documented, not changed: both
     // codes are existing public contracts with the same meaning (exit 2 / HTTP 400, nothing
     // committed).
     for (scheduled, source, cli_code) in [
         // Not overdue: today is not a valid target.
-        (Some(day(0)), "dentist", "validation_error"),
-        (Some(day(-1)), "late", "validation_error"),
+        (Some(date.day(0)), "dentist", "validation_error"),
+        (Some(date.day(-1)), "late", "validation_error"),
         (Some("2026-13-40".to_owned()), "dentist", "validation_error"),
         // Terminal source.
-        (Some(day(1)), "done", "policy_error"),
+        (Some(date.day(1)), "done", "policy_error"),
         // Wrong type: areas cannot be postponed.
-        (Some(day(1)), "area", "policy_error"),
+        (Some(date.day(1)), "area", "policy_error"),
     ] {
-        let (cli, mcp, cli_result, mcp_result) = postpone_both(scheduled.clone(), source).await;
+        let (cli, mcp, cli_result, mcp_result) =
+            postpone_both(date, scheduled.clone(), source).await;
         let cli_error = cli_result.expect_err("CLI accepted invalid postpone");
         let mcp_error = mcp_result.expect_err("MCP accepted invalid postpone");
         assert_eq!(cli_error.0, 2, "{scheduled:?} {source}");
@@ -309,17 +317,19 @@ async fn postpone_rejections_agree_and_are_atomic() {
         let mcp_result = mcp
             .mcp_err(
                 "todo_transition",
-                json!({"id":"task_000000000000","action":"postpone","today":day(0),"scheduled":day(1)}),
+                json!({"id":"task_000000000000","action":"postpone","today":date.day(0),"scheduled":date.day(1)}),
             )
             .await;
         (cli, mcp, cli_result, mcp_result)
     };
     assert_eq!(cli_result.0, 4);
     same_error(&cli_result, &mcp_result, "not_found");
+    date.assert_cli_clock();
 }
 
 #[tokio::test]
 async fn routine_postpone_splits_follow_up_and_backfills_the_same_way() {
+    let date = TestDay::fix();
     let cli = Home::new().await;
     let mcp = Home::new().await;
     for home in [&cli, &mcp] {
@@ -361,7 +371,7 @@ async fn routine_postpone_splits_follow_up_and_backfills_the_same_way() {
     let from_mcp = mcp
         .mcp(
             "todo_transition",
-            json!({"id":mcp_task["id"],"action":"postpone","today":day(0),"scheduled":target}),
+            json!({"id":mcp_task["id"],"action":"postpone","today":date.day(0),"scheduled":target}),
         )
         .await;
     assert_eq!(normalize(&from_cli), normalize(&from_mcp));
@@ -401,6 +411,7 @@ async fn routine_postpone_splits_follow_up_and_backfills_the_same_way() {
     assert_eq!(normalize(&cli_one), normalize(&mcp_one["created"]));
     assert_eq!(mcp_one["routine"]["future_occurrences"], 4);
     same_store(&cli, &mcp).await;
+    date.assert_cli_clock();
 }
 
 #[tokio::test]

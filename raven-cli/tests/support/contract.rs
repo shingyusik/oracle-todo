@@ -148,17 +148,46 @@ fn raven_full(home: &Path, args: &[&str]) -> (i32, String, String) {
     )
 }
 
-/// Today's date as the CLI computes it under `TZ=UTC`.
-pub fn today() -> time::Date {
-    time::OffsetDateTime::now_utc().date()
+/// One UTC date fixed at test start. Every date in a test (CLI flags and MCP arguments)
+/// derives from it. The CLI reads its own clock under `TZ=UTC` for `todo today`, default
+/// postpone and materialize; `assert_cli_clock` proves that clock still agrees.
+#[derive(Clone, Copy)]
+pub struct TestDay(time::Date);
+
+impl TestDay {
+    pub fn fix() -> Self {
+        Self(time::OffsetDateTime::now_utc().date())
+    }
+
+    pub fn day(self, offset: i64) -> String {
+        (self.0 + time::Duration::days(offset)).to_string()
+    }
+
+    pub fn assert_cli_clock(self) {
+        assert_eq!(
+            time::OffsetDateTime::now_utc().date(),
+            self.0,
+            "UTC midnight passed during the test; the CLI clock no longer matches. Rerun."
+        );
+    }
 }
 
-pub fn day(offset: i64) -> String {
-    (today() + time::Duration::days(offset)).to_string()
-}
+/// Fields whose values the services generate at write time.
+const GENERATED_TIMES: &[&str] = &[
+    "created_at",
+    "updated_at",
+    "deleted_at",
+    "archived_at",
+    "completed_at",
+    "last_materialized_at",
+    "written_at",
+    // ToDo history events and routine occurrence metadata.
+    "at",
+];
 
-/// Replace generated IDs (by first appearance) and generated timestamps so that two homes
-/// that ran the same operations compare equal.
+/// Replace generated IDs (by first appearance) and the timestamps in `GENERATED_TIMES`
+/// (plus audit-event `occurred_at`) so that two homes that ran the same operations compare
+/// equal. Nulls stay null; fixture timestamps such as Health `occurred_at` are compared.
 pub fn normalize(value: &Value) -> Value {
     fn walk(value: &Value, ids: &mut HashMap<String, String>) -> Value {
         match value {
@@ -166,13 +195,24 @@ pub fn normalize(value: &Value) -> Value {
                 let next = format!("<id:{}>", ids.len());
                 Value::String(ids.entry(text.clone()).or_insert(next).clone())
             }
-            Value::String(text) if is_generated_timestamp(text) => json!("<ts>"),
             Value::Array(items) => Value::Array(items.iter().map(|v| walk(v, ids)).collect()),
-            Value::Object(map) => Value::Object(
-                map.iter()
-                    .map(|(key, value)| (key.clone(), walk(value, ids)))
-                    .collect(),
-            ),
+            Value::Object(map) => {
+                let audit_event = map.contains_key("action");
+                Value::Object(
+                    map.iter()
+                        .map(|(key, value)| {
+                            let generated = GENERATED_TIMES.contains(&key.as_str())
+                                || (audit_event && key == "occurred_at");
+                            let value = if generated && value.is_string() {
+                                json!("<ts>")
+                            } else {
+                                walk(value, ids)
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect(),
+                )
+            }
             other => other.clone(),
         }
     }
@@ -191,12 +231,6 @@ fn is_generated_id(text: &str) -> bool {
             && hex(tail)
     });
     uuid || prefixed
-}
-
-fn is_generated_timestamp(text: &str) -> bool {
-    // Fixture timestamps are whole seconds; generated ones carry fractional seconds.
-    text.contains('.')
-        && time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).is_ok()
 }
 
 /// Exact CLI error code equals the MCP structured error code.
