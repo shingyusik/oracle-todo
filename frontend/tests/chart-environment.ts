@@ -1,13 +1,17 @@
 import { afterAll, beforeEach, vi } from "vitest";
 
-// Recharts batches store notifications with RTK's animation-frame strategy, which also arms a
-// 100ms timer whose callback calls cancelAnimationFrame. The frame can be fake or never run, so
-// wait out that timer with the real clock before jsdom teardown removes the window globals.
+// As of RTK 2.12: autoBatchEnhancer({ type: "raf" }), used by Recharts 3.10's store, arms this
+// fallback timer next to each animation frame, and its callback calls cancelAnimationFrame.
+export const RTK_RAF_FALLBACK_MS = 100;
+
+// The frame can be fake or never run, so wait out that timer with the real clock before jsdom
+// teardown removes the window globals. Wait in every file: charts can render outside the document.
 const realSetTimeout = globalThis.setTimeout;
-export function settleChartNotifications() {
-  return new Promise<void>((resolve) => realSetTimeout(resolve, 100));
+export function settleBeforeTeardown() {
+  return new Promise<void>((resolve) => realSetTimeout(resolve, RTK_RAF_FALLBACK_MS));
 }
-afterAll(settleChartNotifications);
+// Always settle; do not make this conditional (see detached-container test).
+afterAll(settleBeforeTeardown);
 
 // JSDOM has no layout or ResizeObserver; keep actual Recharts SVG rendering in tests.
 const originalBounds = HTMLElement.prototype.getBoundingClientRect;
