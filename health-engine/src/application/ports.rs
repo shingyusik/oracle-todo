@@ -37,6 +37,22 @@ impl Page {
     }
 }
 
+/// Read `page` plus a one-record probe, so the returned next offset is `None` on the last
+/// page (no empty final page) while every read keeps the service's maximum page limit.
+pub fn exact_page<T>(
+    page: Page,
+    mut read: impl FnMut(Page) -> HealthResult<Vec<T>>,
+) -> HealthResult<(Vec<T>, Option<u32>)> {
+    let items = read(page)?;
+    let next = match page.offset.checked_add(items.len() as u32) {
+        Some(next) if items.len() == usize::from(page.limit) => {
+            (!read(Page::new(next, 1)?)?.is_empty()).then_some(next)
+        }
+        _ => None,
+    };
+    Ok((items, next))
+}
+
 impl Default for Page {
     fn default() -> Self {
         Self {
@@ -344,4 +360,33 @@ pub(crate) trait HealthReadRepository: HealthRepository {
 #[allow(dead_code)]
 pub(crate) trait HealthMutationRepository: HealthReadRepository {
     fn begin_transaction(&mut self) -> HealthResult<Box<dyn HealthTransaction + '_>>;
+}
+
+#[cfg(test)]
+mod exact_page_tests {
+    use super::*;
+
+    fn read(total: u32) -> impl FnMut(Page) -> HealthResult<Vec<u32>> {
+        move |page| {
+            Ok((page.offset()..total)
+                .take(usize::from(page.limit()))
+                .collect())
+        }
+    }
+
+    #[test]
+    fn next_offset_is_exact_and_null_on_the_last_page() {
+        let page = |offset, limit| Page::new(offset, limit).unwrap();
+        assert_eq!(
+            exact_page(page(0, 2), read(5)).unwrap(),
+            (vec![0, 1], Some(2))
+        );
+        assert_eq!(exact_page(page(2, 2), read(4)).unwrap(), (vec![2, 3], None));
+        assert_eq!(exact_page(page(3, 2), read(4)).unwrap(), (vec![3], None));
+        assert_eq!(exact_page(page(9, 2), read(4)).unwrap(), (vec![], None));
+        assert_eq!(
+            exact_page(page(u32::MAX, 1), |_| Ok(vec![0])).unwrap(),
+            (vec![0], None)
+        );
+    }
 }

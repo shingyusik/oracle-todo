@@ -8,7 +8,7 @@ use health_engine::application::commands::{
     CreateDietEntry, CreateHealthEvent, DailyMetricArchive, DailyMetricInput, DietMediaUpdate,
     MediaUpload, UpdateDietEntry, UpdateHealthEvent,
 };
-use health_engine::application::ports::{EventQuery, Page};
+use health_engine::application::ports::{EventQuery, Page, exact_page};
 use health_engine::application::reports::HealthReportRange;
 use health_engine::application::service::HealthService;
 use health_engine::application::table::{
@@ -883,22 +883,6 @@ async fn audit(
         })
         .collect::<Vec<_>>();
     Ok(Json(json!({"items": items, "next_offset": next_offset})))
-}
-
-/// Read one page plus a one-record probe so `next_offset` is null on the last page, the same
-/// cursor the CLI prints as `next`.
-fn exact_page<T>(
-    page: Page,
-    mut read: impl FnMut(Page) -> health_engine::application::error::HealthResult<Vec<T>>,
-) -> health_engine::application::error::HealthResult<(Vec<T>, Option<u32>)> {
-    let items = read(page)?;
-    let next = match page.offset().checked_add(items.len() as u32) {
-        Some(next) if items.len() == usize::from(page.limit()) => {
-            (!read(Page::new(next, 1)?)?.is_empty()).then_some(next)
-        }
-        _ => None,
-    };
-    Ok((items, next))
 }
 
 async fn create_diet_with_image(
