@@ -37,7 +37,10 @@ See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry work
 
 MCP requires `--public-origin`, `--access-issuer` and `--access-audience`, or their
 `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER` and `RAVEN_MCP_ACCESS_AUDIENCE` environment
-values. See [remote MCP](mcp-reference.md) for Tunnel, authentication and tool usage.
+values, plus a caller allowlist: `--gateway-client-id` with `--gateway-public-key`, and/or
+`--service-clients` (`RAVEN_MCP_GATEWAY_CLIENT_ID`, `RAVEN_MCP_GATEWAY_PUBLIC_KEY`,
+`RAVEN_MCP_SERVICE_CLIENTS`). Without callers it refuses to start. See
+[remote MCP](mcp-reference.md) for Tunnel, authentication, scopes and tool usage.
 
 `RAVEN_UI_PUBLIC_ORIGIN` enables the Cloudflare Access UI mode and must contain one canonical
 HTTPS origin. The host must be lowercase; an optional port must be decimal `1..=65535` without
