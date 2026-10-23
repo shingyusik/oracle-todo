@@ -8,7 +8,7 @@ use health_engine::application::commands::{
     CreateDietEntry, CreateHealthEvent, DailyMetricArchive, DailyMetricInput, DietMediaUpdate,
     MediaUpload, UpdateDietEntry, UpdateHealthEvent,
 };
-use health_engine::application::ports::{EventQuery, Page};
+use health_engine::application::ports::{EventQuery, Page, exact_page};
 use health_engine::application::reports::HealthReportRange;
 use health_engine::application::service::HealthService;
 use health_engine::application::table::{
@@ -809,8 +809,11 @@ async fn records(
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
     let page = page(query.offset, query.limit)?;
-    let items = health(&state, false, move |service| service.inspect_records(page)).await?;
-    Ok(Json(json!({"items": items})))
+    let (items, next_offset) = health(&state, false, move |service| {
+        exact_page(page, |page| service.inspect_records(page))
+    })
+    .await?;
+    Ok(Json(json!({"items": items, "next_offset": next_offset})))
 }
 
 async fn diet_image_read(
@@ -856,8 +859,10 @@ async fn audit(
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
     let page = page(query.offset, query.limit)?;
-    let items = health(&state, false, move |service| {
-        service.audit_for(&record_type, &record_id, page)
+    let (items, next_offset) = health(&state, false, move |service| {
+        exact_page(page, |page| {
+            service.audit_for(&record_type, &record_id, page)
+        })
     })
     .await?;
     let items = items
@@ -877,7 +882,7 @@ async fn audit(
             })
         })
         .collect::<Vec<_>>();
-    Ok(Json(json!({"items": items})))
+    Ok(Json(json!({"items": items, "next_offset": next_offset})))
 }
 
 async fn create_diet_with_image(

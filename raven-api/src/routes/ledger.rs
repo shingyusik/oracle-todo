@@ -966,7 +966,7 @@ macro_rules! purge_master {
             body: Result<Json<PurgeBody>, JsonRejection>,
         ) -> Result<StatusCode, ApiError> {
             let body = json_value(body)?;
-            ledger(&state, false, move |service| {
+            ledger(&state, true, move |service| {
                 service.$method(&id, &body.confirmation)
             })
             .await?;

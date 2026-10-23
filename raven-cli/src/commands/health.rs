@@ -6,7 +6,7 @@ use health_engine::application::commands::{
     UpdateDietEntry, UpdateHealthEvent,
 };
 use health_engine::application::error::{HealthError, HealthResult};
-use health_engine::application::ports::{EventClass, EventQuery, Page};
+use health_engine::application::ports::{EventClass, EventQuery, Page, exact_page};
 use health_engine::application::service::HealthService;
 use health_engine::application::table::{HealthTableRecord, HealthTableRow, HealthTableScope};
 use health_engine::domain::{
@@ -368,7 +368,7 @@ fn metric(service: &mut Service, command: MetricCommand) -> HealthResult<()> {
 }
 
 fn metric_list(service: &Service, args: MetricListArgs) -> HealthResult<()> {
-    let (records, next) = read_page(args.page.offset, args.page.limit, |page| {
+    let (records, next) = exact_page(page(args.page.offset, args.page.limit)?, |page| {
         let mut query = EventQuery::new(page).with_class(EventClass::Metric);
         if let Some(category) = args.category {
             query = query.with_category(category.into());
@@ -393,9 +393,10 @@ fn diet_list(service: &Service, args: DietListArgs) -> HealthResult<()> {
         filters.push(json!({"field":"meal_type","operator":"is","value":{"list":[MealType::from(meal).to_string()]}}));
     }
     if filters.is_empty() && args.list.from.is_none() && args.list.to.is_none() {
-        let (entries, next) = read_page(args.list.page.offset, args.list.page.limit, |page| {
-            service.list_diet(page)
-        })?;
+        let (entries, next) =
+            exact_page(page(args.list.page.offset, args.list.page.limit)?, |page| {
+                service.list_diet(page)
+            })?;
         return print_diet_list(&entries, next, args.list.page.format);
     }
     let (rows, next) = filtered_list_rows(service, HealthTableScope::Diet, filters, &args.list)?;
@@ -432,7 +433,7 @@ fn filtered_event_list(
             HealthTableScope::Bowel => HealthCategory::Bowel,
             _ => HealthCategory::Medication,
         };
-        let (records, next) = read_page(args.page.offset, args.page.limit, |page| {
+        let (records, next) = exact_page(page(args.page.offset, args.page.limit)?, |page| {
             service.list_events(EventQuery::new(page).with_category(category))
         })?;
         return print_event_list(&records, next, args.page.format);
@@ -596,7 +597,7 @@ fn optional_display<T: std::fmt::Display>(value: Option<T>) -> String {
 }
 
 fn audit(service: &Service, args: HealthAuditArgs) -> HealthResult<()> {
-    let (events, next) = read_page(args.offset, args.limit, |page| {
+    let (events, next) = exact_page(page(args.offset, args.limit)?, |page| {
         service.audit_for(&args.record_type, &args.record_id, page)
     })?;
     let rows: Vec<_> = events
@@ -859,26 +860,6 @@ fn print_record<T: Serialize>(
         OutputFormat::Json => print_json(record),
         OutputFormat::Table => table(record),
     }
-}
-
-// A one-row probe preserves the service's maximum page limit without loading all records.
-fn read_page<T>(
-    offset: u32,
-    limit: u16,
-    mut read: impl FnMut(Page) -> HealthResult<Vec<T>>,
-) -> HealthResult<(Vec<T>, Option<u32>)> {
-    let records = read(page(offset, limit)?)?;
-    let next_offset = offset.checked_add(records.len() as u32);
-    let next = if records.len() == usize::from(limit) {
-        if let Some(next_offset) = next_offset {
-            (!read(page(next_offset, 1)?)?.is_empty()).then_some(next_offset)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    Ok((records, next))
 }
 
 fn print_diet_list(

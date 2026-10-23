@@ -36,6 +36,10 @@ pub(super) fn id() -> Value {
 pub(super) fn date() -> Value {
     json!({"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","description":"Calendar date YYYY-MM-DD."})
 }
+/// Calendar date whose description also states when the tool needs it.
+pub(super) fn date_note(note: &str) -> Value {
+    json!({"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$","description":format!("Calendar date YYYY-MM-DD. {note}")})
+}
 pub(super) fn timestamp() -> Value {
     json!({"type":"string","description":"RFC 3339 timestamp with explicit offset. Health daily dates use UTC+09:00."})
 }

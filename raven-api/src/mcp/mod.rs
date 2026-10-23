@@ -1,5 +1,7 @@
 mod access;
 mod catalog;
+#[cfg(feature = "contract-test-support")]
+pub mod contract_support;
 mod policy;
 mod receipts;
 mod schema;

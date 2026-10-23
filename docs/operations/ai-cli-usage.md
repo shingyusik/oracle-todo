@@ -144,5 +144,9 @@ before the domain command to change it. Timeout stops the child and preserves th
 receipt. Process termination does not prove the mutation rolled back. Timeout settings
 do not affect payload identity. Preserve `retry.sqlite` in backups used for keyed requests.
 
+An agent that uses both the CLI and MCP keeps separate request keys per adapter: CLI and
+MCP receipts do not deduplicate each other. MCP requires explicit dates where the CLI uses the
+local clock. [Remote MCP](mcp-reference.md#cli-equivalence) lists the adapter differences.
+
 Read the [CLI reference](cli-reference.md) or run `raven <domain> <command> --help` for
 complete flags. JSON input uses existing command-line `--json` arguments.

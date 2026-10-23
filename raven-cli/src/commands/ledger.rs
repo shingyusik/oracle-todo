@@ -732,7 +732,11 @@ fn print_comparison_rows(label: &str, summary: &LedgerSummary) {
 }
 
 fn audit(service: &Service, args: AuditArgs) -> LedgerResult<()> {
-    let record_type = required_reference(&args.record_type, "record_type")?;
+    let record_type = match required_reference(&args.record_type, "record_type")? {
+        // Same alias as MCP ledger_audit; events keep record_type ledger_entry.
+        "entry" => "ledger_entry",
+        record_type => record_type,
+    };
     let record_id = required_reference(&args.record_id, "record_id")?;
     let page = service.audit_page(
         record_type,
