@@ -87,6 +87,8 @@ Service Auth token and a signed scope assertion. Clients use the gateway URL,
 - Grants: access tokens last 10 minutes; a grant expires 30 days after authorization, and
   refresh does not extend it. A grant not refreshed for 14 days or more also expires
   (gateway constant `GRANT_IDLE_DAYS`, owner-adjustable). Applies after the gateway deploy.
+  Grants issued before that deploy have no recorded refresh time, so their 14 days start at
+  their first refresh after the deploy; the 30-day limit still applies to them.
 
 | Client | CIMD client ID | Token endpoint authentication | Callback |
 | --- | --- | --- | --- |

@@ -1351,7 +1351,7 @@ impl tracing::Subscriber for Logs {
 
 #[tokio::test]
 async fn direct_read_only_caller_is_limited_and_denials_log_no_credentials() {
-    use access::tests::{GATEWAY, READER, access_token, scope_assertion};
+    use access::tests::{CURSOR_CLIENT, GATEWAY, READER, access_token, scope_assertion};
     let _serial = access::tests::DENIAL_LOGS.lock().await;
     let logs = Logs::default();
     let _guard = tracing::subscriber::set_default(logs.clone());
@@ -1405,11 +1405,40 @@ async fn direct_read_only_caller_is_limited_and_denials_log_no_credentials() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // Parallel tests also hit the "authorized" callsite, which may have cached interest
+    // before this subscriber existed; the callsite is registered by now, so refresh it.
+    tracing::callsite::rebuild_interest_cache();
+    let read_only = scope_assertion("raven.todo.read");
+    let gateway_headers = [
+        ("cf-access-jwt-assertion", gateway.as_str()),
+        ("raven-scope-assertion", read_only.as_str()),
+    ];
+    let denied = rpc_json(
+        &app,
+        &gateway_headers,
+        "tools/call",
+        json!({"name":"ledger_entry_create","arguments":{}}),
+    )
+    .await;
+    assert_eq!(denied["error"]["code"], -32602, "{denied}");
     let text = logs.0.lock().unwrap().clone();
     assert!(text.contains("todo_task_create"), "{text}");
     assert!(text.contains(READER), "{text}");
     assert!(text.contains(GATEWAY), "{text}");
-    for secret in [&reader, &gateway, &forged] {
+    let authorized = text
+        .lines()
+        .find(|line| line.contains("MCP request authorized") && line.contains(GATEWAY))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(authorized.contains(CURSOR_CLIENT), "{text}");
+    let denial = text
+        .lines()
+        .find(|line| line.contains("missing scope") && line.contains("ledger_entry_create"))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        denial.contains(GATEWAY) && denial.contains(CURSOR_CLIENT),
+        "{text}"
+    );
+    for secret in [&reader, &gateway, &forged, &read_only] {
         for part in secret.split('.') {
             assert!(!text.contains(part), "credential text logged: {text}");
         }

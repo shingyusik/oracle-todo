@@ -16,10 +16,14 @@ fn claims() -> Value {
 }
 
 fn sign(claims: Value) -> String {
+    sign_with_kid(claims, "test-key")
+}
+
+fn sign_with_kid(claims: Value, kid: &str) -> String {
     // Disposable test-only key, never an operational credential.
     let key = EncodingKey::from_rsa_der(include_bytes!("test-key.der"));
     let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some("test-key".into());
+    header.kid = Some(kid.into());
     encode(&header, &claims, &key).unwrap()
 }
 
@@ -208,9 +212,11 @@ pub(in crate::mcp) fn access_token(common_name: Option<&str>) -> String {
     sign(claims)
 }
 
+pub(in crate::mcp) const CURSOR_CLIENT: &str = "https://cursor.com/oauth/mcp-client.json";
+
 pub(in crate::mcp) fn assertion_claims(scope: &str) -> Value {
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    json!({"aud":"https://mcp.example.com/mcp","client_id":"https://cursor.com/oauth/mcp-client.json","scope":scope,"iat":now,"exp":now+60})
+    json!({"aud":"https://mcp.example.com/mcp","client_id":CURSOR_CLIENT,"scope":scope,"iat":now,"exp":now+60})
 }
 
 pub(in crate::mcp) fn sign_assertion(claims: &Value, key: &EncodingKey) -> String {
@@ -311,7 +317,10 @@ fn scope_assertion_signature_audience_and_lifetime_are_enforced() {
     let valid = |token: &str| valid_assertion(token, &key, audience);
     assert_eq!(
         valid(&scope_assertion("raven.todo.read raven.ledger.write")),
-        Some(vec!["raven.todo.read".into(), "raven.ledger.write".into()])
+        Some((
+            CURSOR_CLIENT.into(),
+            vec!["raven.todo.read".into(), "raven.ledger.write".into()]
+        ))
     );
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     for (field, value) in [
@@ -322,11 +331,22 @@ fn scope_assertion_signature_audience_and_lifetime_are_enforced() {
         ("iat", json!(now + 300)),
         ("scope", json!(["raven.todo.read"])),
         ("client_id", json!("")),
+        ("exp", json!(now - 10)),
+        ("exp", json!(now)),
+        ("exp", json!(i64::MAX)),
+        ("iat", json!(i64::MIN)),
+        ("iat", json!(i64::MAX)),
+        ("iat", json!(u64::MAX)),
     ] {
         let mut claims = assertion_claims("raven.todo.read");
         claims[field] = value;
         assert_eq!(valid(&scope_assertion_with(&claims)), None, "{field}");
     }
+    // iat after exp, both inside the leeway window, must not pass as a negative lifetime.
+    let mut reversed = assertion_claims("raven.todo.read");
+    reversed["iat"] = json!(now + 20);
+    reversed["exp"] = json!(now + 10);
+    assert_eq!(valid(&scope_assertion_with(&reversed)), None, "iat > exp");
     for field in ["exp", "iat", "aud", "scope", "client_id"] {
         let mut claims = assertion_claims("raven.todo.read");
         claims.as_object_mut().unwrap().remove(field);
@@ -375,7 +395,8 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             post(
                 |headers: HeaderMap, Extension(grant): Extension<Grant>| async move {
                     assert!(!headers.contains_key(SCOPE_ASSERTION));
-                    format!("{} {}", grant.caller, grant.scopes.join(","))
+                    let client_id = grant.client_id.as_deref().unwrap_or("none");
+                    format!("{} {client_id} {}", grant.caller, grant.scopes.join(","))
                 },
             ),
         )
@@ -399,7 +420,10 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             &gateway,
             vec![&valid],
             StatusCode::OK,
-            Some(format!("{GATEWAY} {}", SIX_SCOPES.replace(' ', ","))),
+            Some(format!(
+                "{GATEWAY} {CURSOR_CLIENT} {}",
+                SIX_SCOPES.replace(' ', ",")
+            )),
         ),
         (&gateway, vec![], StatusCode::FORBIDDEN, None),
         (&gateway, vec![&valid, &valid], StatusCode::FORBIDDEN, None),
@@ -413,13 +437,13 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             &direct,
             vec![],
             StatusCode::OK,
-            Some(format!("{DIRECT} {}", SIX_SCOPES.replace(' ', ","))),
+            Some(format!("{DIRECT} none {}", SIX_SCOPES.replace(' ', ","))),
         ),
         (
             &reader,
             vec![],
             StatusCode::OK,
-            Some(format!("{READER} raven.todo.read")),
+            Some(format!("{READER} none raven.todo.read")),
         ),
         (&unknown, vec![], StatusCode::FORBIDDEN, None),
         (&unknown, vec![&valid], StatusCode::FORBIDDEN, None),
@@ -447,6 +471,137 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
                 String::from_utf8(bytes.to_vec()).unwrap(),
                 body,
                 "case {index}"
+            );
+        }
+    }
+}
+
+/// Runs `check` with the current Unix second, retrying if the second changed meanwhile, so
+/// exact one-second boundaries are not flaky.
+fn at_fixed_second<T>(check: impl Fn(i64) -> T) -> T {
+    loop {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let result = check(now);
+        if time::OffsetDateTime::now_utc().unix_timestamp() == now {
+            return result;
+        }
+    }
+}
+
+#[test]
+fn scope_assertion_lifetime_skew_and_expiry_boundaries() {
+    let key = DecodingKey::from_ed_components(&GATEWAY_KEY.1).unwrap();
+    let accepted = |iat: i64, exp: i64| {
+        let mut claims = assertion_claims("raven.todo.read");
+        claims["iat"] = json!(iat);
+        claims["exp"] = json!(exp);
+        valid_assertion(
+            &scope_assertion_with(&claims),
+            &key,
+            "https://mcp.example.com/mcp",
+        )
+        .is_some()
+    };
+    // Lifetime exp - iat must be 1..=MAX_ASSERTION_LIFETIME (120) seconds.
+    assert!(at_fixed_second(|now| accepted(now, now + 1)), "1 s");
+    assert!(at_fixed_second(|now| accepted(now, now + 120)), "120 s");
+    assert!(!at_fixed_second(|now| accepted(now, now + 121)), "121 s");
+    // Clock skew: iat may be at most ASSERTION_LEEWAY (30) seconds in the future.
+    assert!(
+        at_fixed_second(|now| accepted(now + 30, now + 90)),
+        "iat +30"
+    );
+    assert!(
+        !at_fixed_second(|now| accepted(now + 31, now + 91)),
+        "iat +31"
+    );
+    // jsonwebtoken (Validation.leeway = ASSERTION_LEEWAY = 30) expires a token only
+    // when exp < now - 30, so exp = now - 30 still passes and now - 31 does not.
+    assert!(
+        at_fixed_second(|now| accepted(now - 90, now - 30)),
+        "exp -30"
+    );
+    assert!(
+        !at_fixed_second(|now| accepted(now - 91, now - 31)),
+        "exp -31"
+    );
+}
+
+/// Local JWKS endpoint that fails every request in `mode` and counts the fetches.
+async fn failing_issuer(mode: &'static str) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let issuer = format!("http://{}", listener.local_addr().unwrap());
+    let fetches = Arc::new(AtomicUsize::new(0));
+    if mode == "closed" {
+        // Nothing listens on this port once the listener is dropped.
+        return (issuer, fetches);
+    }
+    let counter = fetches.clone();
+    let app = axum::Router::new().route(
+        "/cdn-cgi/access/certs",
+        axum::routing::get(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            async move {
+                match mode {
+                    "500" => (StatusCode::INTERNAL_SERVER_ERROR, "unavailable").into_response(),
+                    _ => (StatusCode::OK, "{not a key set").into_response(),
+                }
+            }
+        }),
+    );
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (issuer, fetches)
+}
+
+#[tokio::test]
+async fn jwks_refresh_failure_rejects_and_respects_the_cooldown() {
+    use std::sync::atomic::Ordering;
+    let long_ago = |age: Duration| Instant::now().checked_sub(age).unwrap();
+    for mode in ["500", "garbage", "closed"] {
+        let (issuer, fetches) = failing_issuer(mode).await;
+        let mut token = claims();
+        token["iss"] = json!(issuer);
+        let known = sign(token.clone());
+        let rotated = sign_with_kid(token, "rotated-key");
+        let (mut auth, _) = auth_and_token();
+        // Local http issuer for the test only; production config requires Cloudflare HTTPS.
+        auth.config.issuer = issuer;
+        auth.client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let count = || fetches.load(Ordering::SeqCst);
+        assert!(auth.verify(&known).await.is_some(), "{mode}: fresh cache");
+        assert_eq!(count(), 0, "{mode}: fresh known key needs no fetch");
+
+        // (a) Unknown kid, refresh allowed but failing: rejected.
+        auth.keys.lock().await.attempted = long_ago(REFRESH_COOLDOWN);
+        assert!(auth.verify(&rotated).await.is_none(), "{mode}: unknown kid");
+        let after_unknown = count();
+        // (c) Within the cooldown, more unknown kids trigger no further fetch.
+        for _ in 0..5 {
+            assert!(auth.verify(&rotated).await.is_none(), "{mode}: unknown kid");
+        }
+        assert_eq!(count(), after_unknown, "{mode}: cooldown");
+        // The fresh cached key still works after a failed refresh.
+        assert!(auth.verify(&known).await.is_some(), "{mode}: cached key");
+
+        // (b) Cache past KEY_TTL, refresh failing: rejected, not served stale.
+        {
+            let mut keys = auth.keys.lock().await;
+            keys.loaded = long_ago(KEY_TTL + Duration::from_secs(1));
+            keys.attempted = long_ago(REFRESH_COOLDOWN);
+        }
+        assert!(auth.verify(&known).await.is_none(), "{mode}: stale keys");
+        let after_stale = count();
+        // (c) Stale cache within the cooldown: still rejected, no new fetch per request.
+        for _ in 0..5 {
+            assert!(auth.verify(&known).await.is_none(), "{mode}: stale keys");
+        }
+        assert_eq!(count(), after_stale, "{mode}: cooldown");
+        if mode != "closed" {
+            assert_eq!(
+                (after_unknown, after_stale),
+                (1, 2),
+                "{mode}: one fetch each"
             );
         }
     }

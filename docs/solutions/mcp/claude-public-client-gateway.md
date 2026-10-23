@@ -124,13 +124,15 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
 
 ## Residual risks
 
-- Public-client tokens are bearer tokens: a stolen current refresh token works until the
-  grant expires (30 days after authorization, or 14 days without refresh). After both the
-  thief and the legitimate client have refreshed, only one of them still holds a valid refresh
-  token; the grant is revoked the next time the other presents a rotated token. Until then,
-  whoever holds the current token keeps access. Detection relies on the authority Durable
-  Object serialising token requests. Refresh tokens rotated before SHI-451 are not recorded and
-  are only rejected. New authorizations still require the owner's One-time PIN.
+- Public-client refresh tokens are bearer tokens. A stolen refresh token keeps working until
+  the grant expires (30 days after authorization, or after 14 days or more without a refresh)
+  as long as the legitimate client does not refresh. After both the thief and the legitimate
+  client have refreshed, only one of them still holds a valid refresh token. The grant, with
+  all its tokens, is revoked the next time the other one presents a rotated token; for an
+  active client this is its next refresh, at most about 10 minutes later. Until then, whoever
+  holds the current token keeps access. Detection relies on the authority Durable Object
+  serialising token requests. Refresh tokens rotated before SHI-451 are not recorded and are
+  only rejected. New authorizations still require the owner's One-time PIN.
 - Claude and Cursor client IDs are shared by all users of those products. An authorization
   started by someone else and approved by the owner would issue tokens to that person.
 - No pre-bundle gateway source exists. The deployed bundle, this patch, its tests and the
