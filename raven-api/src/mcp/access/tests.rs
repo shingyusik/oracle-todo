@@ -235,6 +235,7 @@ pub(in crate::mcp) fn auth_and_token() -> (AccessAuth, String) {
                 loaded: now,
                 attempted: now,
             })),
+            fixed: false,
         },
         access_token(Some(DIRECT)),
     )
@@ -450,4 +451,27 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             );
         }
     }
+}
+
+#[cfg(feature = "contract-test-support")]
+#[tokio::test]
+async fn fixed_keys_never_refresh_or_expire() {
+    let key = EncodingKey::from_rsa_der(include_bytes!("test-key.der"));
+    let mut jwk = Jwk::from_encoding_key(&key, Algorithm::RS256).unwrap();
+    jwk.common.key_id = Some("test-key".into());
+    let auth = AccessAuth::with_keys(config(), JwkSet { keys: vec![jwk] });
+    // Past TTL and cooldown: production would mark an attempt and fetch from the issuer.
+    let past = Instant::now() - KEY_TTL - REFRESH_COOLDOWN;
+    {
+        let mut keys = auth.keys.lock().await;
+        keys.loaded = past;
+        keys.attempted = past;
+    }
+    assert!(auth.verify(&sign(claims())).await.is_some());
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some("unknown-key".into());
+    let unknown = encode(&header, &claims(), &key).unwrap();
+    assert!(auth.verify(&unknown).await.is_none());
+    // No refresh was attempted: `attempted` is set before every fetch.
+    assert_eq!(auth.keys.lock().await.attempted, past);
 }

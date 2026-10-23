@@ -208,6 +208,8 @@ pub(super) struct AccessAuth {
     config: McpAccessConfig,
     client: reqwest::Client,
     keys: Arc<Mutex<Keys>>,
+    /// Fixed key set: never refreshed from the issuer and never stale.
+    fixed: bool,
 }
 
 impl AccessAuth {
@@ -234,10 +236,12 @@ impl AccessAuth {
                 loaded: now,
                 attempted: now,
             })),
+            fixed: false,
         })
     }
 
-    /// Contract tests only: trust a fixed key set and never contact the issuer.
+    /// Contract tests only: trust a fixed key set and never contact the issuer. Unknown kids
+    /// are rejected and the keys never expire.
     #[cfg(feature = "contract-test-support")]
     pub(super) fn with_keys(config: McpAccessConfig, set: JwkSet) -> Self {
         let now = Instant::now();
@@ -249,6 +253,7 @@ impl AccessAuth {
                 loaded: now,
                 attempted: now,
             })),
+            fixed: true,
         }
     }
 
@@ -262,7 +267,7 @@ impl AccessAuth {
         }
         let kid = header.kid?;
         let mut keys = self.keys.lock().await;
-        if keys.loaded.elapsed() >= KEY_TTL || keys.set.find(&kid).is_none() {
+        if !self.fixed && (keys.loaded.elapsed() >= KEY_TTL || keys.set.find(&kid).is_none()) {
             if keys.attempted.elapsed() >= REFRESH_COOLDOWN {
                 keys.attempted = Instant::now();
                 if let Ok(set) = fetch(&self.client, &self.config.issuer).await {
