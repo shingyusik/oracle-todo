@@ -106,22 +106,31 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   token, and the grant stayed usable.
 - Change: every refresh token that leaves the current/previous pair is remembered by hash
   until the grant expires. Presenting one revokes the whole grant (all access and refresh
-  tokens; MCP calls fail with `401` at once), logs `RAVEN_SECURITY_EVENT` with the client ID
-  and the SHA-256 of the grant ID, and stores the same record under
-  `security-event:<time>:<grant id hash>` for 30 days. Tokens never seen are only rejected.
-- Idle expiry: a refresh more than `GRANT_IDLE_DAYS` (14, gateway `src/oauth-options.js`)
+  tokens; MCP calls fail with `401` at once). The revocation deletes the grant row and stores
+  the security event first; without the grant row no token of the grant is accepted. It then
+  deletes at most 1000 access-token rows and leaves the rest to expire (10 minutes), so a
+  grant with many live tokens cannot exceed the authority's 2048-write limit and roll the
+  revocation back. The record, kept under `security-event:<time>:<grant id hash>` for 30
+  days, holds the client ID, the SHA-256 of the grant ID and the outcome (`revoked`,
+  access-token rows deleted and left); `RAVEN_SECURITY_EVENT` logs it after the revocation.
+  Tokens never seen are only rejected.
+- Idle expiry: a refresh 14 days or more (`GRANT_IDLE_DAYS`, gateway `src/oauth-options.js`)
   after the last refresh or authorization fails with `invalid_grant`. The 30-day absolute
   expiry from authorization is unchanged and never extended.
 - Existing grants have no last-refresh time; their idle time starts at their next refresh, so
   the upgrade neither expires nor revokes them. The one-time grace keeps working across it.
-- Patch: `patches/refresh-reuse-idle-expiry.py` in `raven-mcp-gateway`; not yet deployed.
+- Patches: `patches/refresh-reuse-idle-expiry.py` and `patches/reuse-revocation-bounded.py` in
+  `raven-mcp-gateway`; not yet deployed.
 
 ## Residual risks
 
 - Public-client tokens are bearer tokens: a stolen current refresh token works until the
-  grant expires (30 days after authorization, or 14 days without refresh). Once the thief
-  and the legitimate client both refresh, the next rotated token presented revokes the grant.
-  New authorizations still require the owner's One-time PIN.
+  grant expires (30 days after authorization, or 14 days without refresh). After both the
+  thief and the legitimate client have refreshed, only one of them still holds a valid refresh
+  token; the grant is revoked the next time the other presents a rotated token. Until then,
+  whoever holds the current token keeps access. Detection relies on the authority Durable
+  Object serialising token requests. Refresh tokens rotated before SHI-451 are not recorded and
+  are only rejected. New authorizations still require the owner's One-time PIN.
 - Claude and Cursor client IDs are shared by all users of those products. An authorization
   started by someone else and approved by the owner would issue tokens to that person.
 - No pre-bundle gateway source exists. The deployed bundle, this patch, its tests and the
