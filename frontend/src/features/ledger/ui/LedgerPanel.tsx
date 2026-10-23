@@ -179,6 +179,7 @@ function TransactionsPanel({
 }) {
   const [editing, setEditing] = useState<TransactionRow | null>(null);
   const detailDirty = useRef(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -192,6 +193,7 @@ function TransactionsPanel({
   useEffect(() => {
     void controller.ensureTable?.("ledger.transactions");
   }, [controller]);
+  useEffect(() => setNotice(null), [page.generation]);
   const occurrences = page.items
     .filter(isTransactionOccurrence)
     .filter(({ record }) => !tombstonedIds.has(record.id));
@@ -301,6 +303,7 @@ function TransactionsPanel({
   }
 
   function openTransaction(row: TransactionRow) {
+    setNotice(null);
     setEditing(row);
   }
 
@@ -318,8 +321,9 @@ function TransactionsPanel({
         notice={latestCheckResult === "unverified" ? "Could not check for the latest version." : null}
         onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
         onBack={closeTransaction}
-        onArchived={() => {
+        onArchived={(deletedElsewhere) => {
           setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
+          if (deletedElsewhere) setNotice("This transaction was deleted elsewhere.");
           closeTransaction();
         }}
       />
@@ -330,6 +334,7 @@ function TransactionsPanel({
   return (
     <section aria-labelledby="ledger-transactions-heading">
       <LedgerRecovery controller={controller} kind="entries" />
+      {notice ? <p role="status" className="items-message">{notice}</p> : null}
       <LedgerTableViewHeader
         controller={controller}
         scope="ledger.transactions"
