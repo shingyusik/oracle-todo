@@ -94,7 +94,7 @@ pub(super) fn build() -> Vec<Spec> {
         tools.push(Spec::new(&format!("todo_{kind}_create"),"Create an active UI item. Read todo_options and todo_choices first. Goal scheduled must be the canonical start of its horizon; parent horizon must be coarser. Use request_key for durable create retries; without it, search before retrying an uncertain result.","POST",&path,object(&todo_fields(kind,false),&required)));
         tools.push(Spec::new(&format!("todo_{kind}_update"),"Edit an existing item of this type. Read todo_options(id) for editable fields. Supply expected_updated_at from todo_get; priority:null clears priority. Terminal items reject edits.","PATCH","/api/v1/todo/items/{id}",object(&todo_fields(kind,true),&["id","expected_updated_at"])));
     }
-    tools.push(Spec::new("todo_transition","Run a UI lifecycle action selected from todo_options(id). Postpone also needs caller-local today and scheduled. It creates a follow-up, so check current state before retrying an uncertain result.","POST","/api/v1/todo/items/{id}/{action}",object(&[("id",id()),("action",choices(&["pause","miss","postpone","resume","complete","reopen","archive"])),("reason",text()),("today",date()),("scheduled",date())],&["id","action"])));
+    tools.push(Spec::new("todo_transition","Run a UI lifecycle action selected from todo_options(id). Postpone also needs caller-local today and scheduled. It creates a follow-up, so check current state before retrying an uncertain result.","POST","/api/v1/todo/items/{id}/{action}",object(&[("id",id()),("action",choices(&["pause","miss","postpone","resume","complete","reopen","archive"])),("reason",text()),("today",date_note("Required when action is postpone: caller-local today.")),("scheduled",date_note("Required when action is postpone: follow-up date, later than today; today is allowed only for an overdue source."))],&["id","action"])));
     let mut history = page();
     history.push(("id", id()));
     tools.push(Spec::new(
@@ -464,7 +464,10 @@ pub(super) fn build() -> Vec<Spec> {
         ("query", text()),
         ("include_archived", boolean()),
         ("scope", choices(&["list", "archive", "today"])),
-        ("today", date()),
+        (
+            "today",
+            date_note("Required when scope is today: caller-local today."),
+        ),
     ]);
     tools.push(Spec::new("todo_list", "Read CLI-compatible bounded items. scope=archive includes terminal records; status=active gives pending work; scope=today requires caller-local today and never materializes routines.", "GET", "/api/v1/todo/items/page", object(&items,&[])));
     tools

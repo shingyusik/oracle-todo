@@ -402,3 +402,40 @@ async fn routine_postpone_splits_follow_up_and_backfills_the_same_way() {
     assert_eq!(mcp_one["routine"]["future_occurrences"], 4);
     same_store(&cli, &mcp).await;
 }
+
+#[tokio::test]
+async fn transition_discovery_states_conditional_postpone_inputs() {
+    let home = Home::new().await;
+    let tool = home.tool("todo_transition").await;
+    let schema = &tool["inputSchema"];
+    assert_eq!(
+        schema["required"],
+        json!(["id", "action"]),
+        "backward-compatible shape"
+    );
+    for field in ["today", "scheduled"] {
+        let description = schema["properties"][field]["description"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{field} has no description: {schema}"));
+        assert!(
+            description.contains("Required when action is postpone"),
+            "{description}"
+        );
+    }
+    // Omitting them is still rejected with the same validation meaning as a bad date.
+    let created = home.mcp("todo_task_create", json!({"title":"Probe"})).await;
+    let missing = home
+        .mcp_err(
+            "todo_transition",
+            json!({"id":created["id"],"action":"postpone"}),
+        )
+        .await;
+    assert_eq!(missing["code"], "validation_error", "{missing}");
+    let list = home.tool("todo_list").await;
+    let today = list["inputSchema"]["properties"]["today"]["description"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(today.contains("Required when scope is today"), "{list}");
+    let missing = home.mcp_err("todo_list", json!({"scope":"today"})).await;
+    assert_eq!(missing["code"], "validation_error");
+}
