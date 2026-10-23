@@ -127,20 +127,35 @@ AI 봇 정책이 클라이언트 업체의 서버 요청을 차단하면 discove
 사용합니다. 게이트웨이 저장소의 `scripts/grants.mjs`가 소유자 전용 관리 경로로 grant를 조회하고
 폐기합니다. Node.js 22가 필요하고 Cloudflare API 토큰은 필요하지 않습니다.
 
+관리 토큰을 명령줄에 직접 쓰지 않습니다(`export NAME=<토큰>`, `--token`). 셸 히스토리, 스크롤백,
+화면 공유에 남습니다. AI 에이전트에게 넘기지 말고 소유자가 직접 실행합니다.
+
 ```bash
 export RAVEN_GATEWAY_URL=https://<gateway-host>
-export RAVEN_GRANT_ADMIN_TOKEN=...      # 비밀번호 관리자에서 가져오며 인자로 넘기지 않음
+# 관리 토큰을 입력하거나 붙여 넣습니다. 화면에 보이지 않고 셸 히스토리에 남지 않습니다(bash, zsh).
+printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo; export RAVEN_GRANT_ADMIN_TOKEN
 node scripts/grants.mjs list            # 클라이언트, grant ID, scope, 발급, 마지막 사용, 만료
 node scripts/grants.mjs events          # refresh_token_reuse, admin_revoke 기록
+unset RAVEN_GRANT_ADMIN_TOKEN           # 작업이 끝나면 지웁니다
+```
+
+```powershell
+$env:RAVEN_GATEWAY_URL = 'https://<gateway-host>'
+$env:RAVEN_GRANT_ADMIN_TOKEN = Read-Host -MaskInput 'Admin token'   # PowerShell 7.1 이상
+node scripts/grants.mjs list
+Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # 작업이 끝나면 지웁니다
 ```
 
 1. 확인: `list`는 grant마다 한 줄을 보여 줍니다. `CLIENT`는 제품 이름이고, Cursor grant는
    콜백에 따라 `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)`으로 나뉩니다(클라이언트
-   표 참고, 지금까지 Grok Bot 연결은 bot 콜백을 사용). `LAST USED`는 마지막 갱신 시각이며,
-   14일 유휴 규칙 이전에 발급된 grant는 다음 갱신 전까지 `unknown`입니다. 직접 만든 연결과
-   대응되지 않는 grant는 의심 대상입니다.
+   표 참고, 지금까지 Grok Bot 연결은 bot 콜백을 사용). `LAST USED`는 마지막 갱신 시각입니다.
+   14일 이상 갱신하지 않은 grant는 이미 거부됩니다(유휴 만료, 위 유효 기간 항목 참고). 이 규칙
+   이전에 발급된 grant는 다음 갱신 전까지 `unknown`입니다. 직접 만든 연결과 대응되지 않는
+   grant는 의심 대상입니다. grant ID는 자격 증명이 아니지만 `list` 출력을 공유 채널에 붙여
+   넣지 않습니다.
 2. 가장 좁은 범위로 폐기: 모든 명령은 먼저 폐기 대상을 출력하며 `--dry-run`이면 거기서
    멈춥니다. 확인 문구는 대화형 터미널에서 직접 입력해야 하고, 파이프로 실행하면 거부합니다.
+   `-`로 시작하는 grant ID는 `revoke -- <grant-id>`로 씁니다.
 
    | 명령 | 폐기 대상 | 확인 입력 |
    | --- | --- | --- |
@@ -151,21 +166,51 @@ node scripts/grants.mjs events          # refresh_token_reuse, admin_revoke 기�
 3. 검증: `list`에 해당 grant가 없고 `events`에 폐기한 grant마다 `admin_revoke` 기록이 하나씩
    있는지 확인합니다. 폐기한 정상 클라이언트는 다시 연결합니다. 새 인가에는 소유자의
    One-time PIN 로그인이 필요하므로 유출된 토큰으로 새 grant를 받을 수 없습니다.
+4. 정리: `unset RAVEN_GRANT_ADMIN_TOKEN`(PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
 
-폐기는 게이트웨이 authority Durable Object에서 grant와 그 접근·갱신 토큰을 모두 삭제합니다.
-모든 `/mcp` 요청은 같은 직렬화된 저장소에서 접근 토큰을 grant와 대조하므로, 명령 직후 다음
-요청은 `401`, 다음 갱신은 `invalid_grant`를 받습니다. 10분 유예는 없습니다. 게이트웨이 테스트는
-폐기 직전에 발급된 접근 토큰으로 이를 확인하고, 다른 grant는 계속 동작함을 확인합니다. 이미
-원본으로 전달된 요청은 끝까지 처리됩니다. 응답과 출력에는 grant ID, 클라이언트 ID, 콜백,
-scope, 시각만 있으며 토큰 원문은 없습니다.
+폐기는 게이트웨이 authority Durable Object에서 실행됩니다. grant 행을 삭제하고 `admin_revoke`
+기록을 먼저 남긴 뒤 그 grant의 접근 토큰 행을 삭제합니다. 모든 `/mcp` 요청은 같은 직렬화된
+저장소에서 접근 토큰을 grant 행과 대조하므로, 명령 직후 다음 요청은 `401`, 다음 갱신은
+`invalid_grant`를 받습니다. 접근 토큰이 만료될 때까지(수명 10분) 기다릴 필요가 없습니다.
+게이트웨이 테스트는 폐기 직전에 발급된 접근 토큰으로 이를 확인하고, 다른 grant는 계속 동작함을
+확인합니다. 이미 원본으로 전달된 요청은 끝까지 처리됩니다. 응답과 출력에는 grant ID, 클라이언트
+ID, 콜백, scope, 시각만 있으며 토큰 원문은 없습니다.
 
-소유자 최초 설정: 긴 무작위 관리 토큰을 로컬에서 생성하고(예:
-`node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))'`) 비밀번호
-관리자에만 보관합니다. 그 SHA-256 hex(`printf %s "$RAVEN_GRANT_ADMIN_TOKEN" | shasum -a 256`)만
-게이트웨이 secret `GRANT_ADMIN_TOKEN_SHA256`으로 새 버전에 저장하고 승격합니다. secret이 없으면
-관리 경로는 `404`를 반환하며 클라이언트에는 변화가 없습니다. 새 토큰의 해시를 저장하면 교체되고,
-secret을 삭제하면 비활성화됩니다. 관리 경로가 포함된 게이트웨이 버전 배포와 secret 설정은
-소유자 승인이 필요합니다.
+요청 하나는 저장소 행을 최대 2048개까지만 바꿀 수 있으므로 큰 폐기는 나누어 처리됩니다. 이 한도를
+넘는 접근 토큰 행(살아 있는 토큰이 수천 개인 grant)은 남겨 두며 10분 안에 만료됩니다. grant 행이
+없으므로 이미 거부되고, CLI가 남은 개수를 알려 줍니다. 요청 하나는 grant를 최대 1000개까지
+폐기합니다. 더 많이 해당되면 CLI가 아직 살아 있는 개수를 알리고 `1`로 종료하므로, 같은 명령을
+다시 실행해 나머지를 폐기합니다. 다시 실행해도 안전합니다. 폐기된 grant는 목록에 나오지 않습니다.
+
+소유자 최초 설정: 비밀번호 관리자의 생성기로 긴 무작위 관리 토큰(32바이트 이상, 예: hex 64자)을
+만들어 그곳에만 보관하고, 터미널에 출력하지 않습니다. 위와 같이 셸에 읽어 들인 뒤 SHA-256 hex만
+게이트웨이 secret `GRANT_ADMIN_TOKEN_SHA256`으로 새 버전에 저장하고(해시는 stdin으로 전달)
+승격합니다:
+
+    printf %s "$RAVEN_GRANT_ADMIN_TOKEN" | shasum -a 256 | cut -d' ' -f1 \
+      | npx wrangler versions secret put GRANT_ADMIN_TOKEN_SHA256 --name raven-mcp-gateway
+
+로컬에서 생성해야 하면 화면 대신 클립보드로 바로 보냅니다
+(`node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))' | pbcopy`).
+비밀번호 관리자에 붙여 넣은 뒤 클립보드를 비웁니다. secret이 없으면 관리 경로는 `404`를 반환하며
+클라이언트에는 변화가 없습니다. 설정 후에도 `404`이면 저장된 값이 정확히 소문자 hex 64자가 아닌
+것입니다. secret을 삭제하면 비활성화됩니다. 관리 경로가 포함된 게이트웨이 버전 배포와 secret
+설정은 소유자 승인이 필요합니다.
+
+### 관리 토큰이 유출되면
+
+관리 토큰 자체가 유출되었을 수 있을 때(기기 분실·공유, 명령줄에 입력, 다른 곳에 붙여 넣음)
+사용합니다. 관리 토큰으로는 grant 조회와 폐기만 할 수 있고 grant나 토큰을 만들 수는 없으므로,
+먼저 폐기하고 곧바로 교체합니다.
+
+1. 위 절차로 의심 grant를 폐기합니다.
+2. 해시 secret을 즉시 교체합니다. 새 토큰을 만들어 그 해시를 `GRANT_ADMIN_TOKEN_SHA256`으로 새
+   버전에 저장하고 승격합니다. 바로 할 수 없으면 secret을 삭제해 관리 경로를 끕니다.
+3. 이전 토큰으로 `node scripts/grants.mjs list`가 `401`로 실패하고 새 토큰으로는 동작하는지
+   확인합니다.
+4. `events`에 직접 하지 않은 `admin_revoke` 기록이 있는지, Workers 로그에
+   `RAVEN_ADMIN_AUTH_FAILED`(관리 인증 실패, 경로와 사유만 기록)가 있는지 확인합니다.
+5. `unset RAVEN_GRANT_ADMIN_TOKEN`(PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
 
 ## 호출자와 scope
 
