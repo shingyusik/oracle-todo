@@ -85,6 +85,9 @@ URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합�
 - 신원 확인: 새 인가마다 소유자 전용 Cloudflare Access One-time PIN 로그인을 거칩니다.
 - 인가: PKCE `S256`, 등록된 콜백과의 정확한 일치, 도메인별 읽기·쓰기 scope를 요구합니다.
 - 유효 기간: 접근 토큰은 10분, 인가 grant는 인가 후 30일이며 토큰을 갱신해도 연장되지 않습니다.
+  14일 이상 갱신하지 않은 grant도 만료됩니다(게이트웨이 상수 `GRANT_IDLE_DAYS`, 소유자가 변경
+  가능). 게이트웨이 배포 후에 적용됩니다. 배포 전에 발급된 grant는 마지막 갱신 시각이 기록되어
+  있지 않으므로, 배포 후 첫 갱신 시점부터 14일을 셉니다. 30일 만료는 그대로 적용됩니다.
 
 | 클라이언트 | CIMD 클라이언트 ID | 토큰 엔드포인트 인증 | 콜백 |
 | --- | --- | --- | --- |
@@ -94,8 +97,12 @@ URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합�
 | Grok Bot·Grok 웹 커넥터·Cursor 에이전트 | `https://cursor.com/oauth/mcp-client.json` | `none`(공개 클라이언트, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback`, `https://grok.com/connectors-oauth-exchange-code/` |
 
 게이트웨이는 다른 클라이언트 ID, 일치하지 않는 콜백, 인증 방식을 섞은 요청을 거부합니다.
-공개 클라이언트는 갱신 토큰이 회전된 뒤 직전 토큰을 한 번만 더 사용할 수 있습니다. 루프백
-콜백이면 동의 화면에 경고를 추가로 표시합니다. Claude와 Cursor 클라이언트 ID는 해당 제품의
+공개 클라이언트는 갱신 토큰이 회전된 뒤 직전 토큰을 한 번만 더 사용할 수 있습니다. 그 밖의
+회전된 갱신 토큰을 제시하면 grant 전체가 폐기되어 해당 접근·갱신 토큰이 즉시 무효가 되고,
+클라이언트를 다시 연결해야 합니다. 게이트웨이는 `RAVEN_SECURITY_EVENT` 로그를 남기고
+`security-event:` 기록(시각, 사유, 클라이언트 ID, grant ID의 SHA-256, 처리 결과, 토큰 원문
+제외)을 30일간 보관합니다. 게이트웨이 배포 후에 적용됩니다. 루프백 콜백이면 동의 화면에
+경고를 추가로 표시합니다. Claude와 Cursor 클라이언트 ID는 해당 제품의
 모든 사용자가 함께 쓰므로, 직접 시작한 연결의 동의만 승인합니다. VS Code·Gemini CLI처럼 표에
 없는 클라이언트는 사용자 지정 헤더를 지원하는 경우 앞의 Service Auth 헤더 방식을 사용합니다.
 
