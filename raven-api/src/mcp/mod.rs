@@ -496,6 +496,9 @@ impl ServerHandler for McpAdapter {
             tracing::warn!(
                 tool = %request.name,
                 caller = grant.map_or("none", |grant| grant.caller.as_str()),
+                client_id = grant
+                    .and_then(|grant| grant.client_id.as_deref())
+                    .unwrap_or("none"),
                 "MCP tool call denied: missing scope"
             );
             return Err(ErrorData::invalid_params(

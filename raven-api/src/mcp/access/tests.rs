@@ -208,9 +208,11 @@ pub(in crate::mcp) fn access_token(common_name: Option<&str>) -> String {
     sign(claims)
 }
 
+pub(in crate::mcp) const CURSOR_CLIENT: &str = "https://cursor.com/oauth/mcp-client.json";
+
 pub(in crate::mcp) fn assertion_claims(scope: &str) -> Value {
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    json!({"aud":"https://mcp.example.com/mcp","client_id":"https://cursor.com/oauth/mcp-client.json","scope":scope,"iat":now,"exp":now+60})
+    json!({"aud":"https://mcp.example.com/mcp","client_id":CURSOR_CLIENT,"scope":scope,"iat":now,"exp":now+60})
 }
 
 pub(in crate::mcp) fn sign_assertion(claims: &Value, key: &EncodingKey) -> String {
@@ -311,7 +313,10 @@ fn scope_assertion_signature_audience_and_lifetime_are_enforced() {
     let valid = |token: &str| valid_assertion(token, &key, audience);
     assert_eq!(
         valid(&scope_assertion("raven.todo.read raven.ledger.write")),
-        Some(vec!["raven.todo.read".into(), "raven.ledger.write".into()])
+        Some((
+            CURSOR_CLIENT.into(),
+            vec!["raven.todo.read".into(), "raven.ledger.write".into()]
+        ))
     );
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     for (field, value) in [
@@ -322,11 +327,22 @@ fn scope_assertion_signature_audience_and_lifetime_are_enforced() {
         ("iat", json!(now + 300)),
         ("scope", json!(["raven.todo.read"])),
         ("client_id", json!("")),
+        ("exp", json!(now - 10)),
+        ("exp", json!(now)),
+        ("exp", json!(i64::MAX)),
+        ("iat", json!(i64::MIN)),
+        ("iat", json!(i64::MAX)),
+        ("iat", json!(u64::MAX)),
     ] {
         let mut claims = assertion_claims("raven.todo.read");
         claims[field] = value;
         assert_eq!(valid(&scope_assertion_with(&claims)), None, "{field}");
     }
+    // iat after exp, both inside the leeway window, must not pass as a negative lifetime.
+    let mut reversed = assertion_claims("raven.todo.read");
+    reversed["iat"] = json!(now + 20);
+    reversed["exp"] = json!(now + 10);
+    assert_eq!(valid(&scope_assertion_with(&reversed)), None, "iat > exp");
     for field in ["exp", "iat", "aud", "scope", "client_id"] {
         let mut claims = assertion_claims("raven.todo.read");
         claims.as_object_mut().unwrap().remove(field);
@@ -375,7 +391,8 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             post(
                 |headers: HeaderMap, Extension(grant): Extension<Grant>| async move {
                     assert!(!headers.contains_key(SCOPE_ASSERTION));
-                    format!("{} {}", grant.caller, grant.scopes.join(","))
+                    let client_id = grant.client_id.as_deref().unwrap_or("none");
+                    format!("{} {client_id} {}", grant.caller, grant.scopes.join(","))
                 },
             ),
         )
@@ -399,7 +416,10 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             &gateway,
             vec![&valid],
             StatusCode::OK,
-            Some(format!("{GATEWAY} {}", SIX_SCOPES.replace(' ', ","))),
+            Some(format!(
+                "{GATEWAY} {CURSOR_CLIENT} {}",
+                SIX_SCOPES.replace(' ', ",")
+            )),
         ),
         (&gateway, vec![], StatusCode::FORBIDDEN, None),
         (&gateway, vec![&valid, &valid], StatusCode::FORBIDDEN, None),
@@ -413,13 +433,13 @@ async fn caller_allowlist_and_scope_assertion_decide_the_grant() {
             &direct,
             vec![],
             StatusCode::OK,
-            Some(format!("{DIRECT} {}", SIX_SCOPES.replace(' ', ","))),
+            Some(format!("{DIRECT} none {}", SIX_SCOPES.replace(' ', ","))),
         ),
         (
             &reader,
             vec![],
             StatusCode::OK,
-            Some(format!("{READER} raven.todo.read")),
+            Some(format!("{READER} none raven.todo.read")),
         ),
         (&unknown, vec![], StatusCode::FORBIDDEN, None),
         (&unknown, vec![&valid], StatusCode::FORBIDDEN, None),
