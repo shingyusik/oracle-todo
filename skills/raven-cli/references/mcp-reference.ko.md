@@ -129,23 +129,34 @@ AI 봇 정책이 클라이언트 업체의 서버 요청을 차단하면 discove
 폐기합니다. Node.js 22가 필요하고 Cloudflare API 토큰은 필요하지 않습니다.
 
 관리 토큰을 명령줄에 직접 쓰지 않습니다(`export NAME=<토큰>`, `--token`). 셸 히스토리, 스크롤백,
-화면 공유에 남습니다. AI 에이전트에게 넘기지 말고 소유자가 직접 실행합니다.
+화면 공유에 남습니다. `export`도 하지 않습니다. 내보낸 변수는 그 뒤 셸이 실행하는 모든 자식
+프로세스가 물려받습니다. 일반 셸 변수에 두고 `grants.mjs` 명령마다 그 명령에만 넘깁니다. AI
+에이전트에게 넘기지 말고 소유자가 직접 실행합니다.
 
 ```bash
 export RAVEN_GATEWAY_URL=https://<gateway-host>
-# 관리 토큰을 입력하거나 붙여 넣습니다. 화면에 보이지 않고 셸 히스토리에 남지 않습니다(bash, zsh).
-printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo; export RAVEN_GRANT_ADMIN_TOKEN
-node scripts/grants.mjs list            # 클라이언트, grant ID, scope, 발급, 마지막 사용, 만료
-node scripts/grants.mjs events          # refresh_token_reuse, admin_revoke 기록
+# 관리 토큰을 셸 변수에 입력하거나 붙여 넣습니다.
+# 화면에 보이지 않고, 내보내지 않으며, 셸 히스토리에 남지 않습니다(bash, zsh).
+printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
+# 클라이언트, grant ID, scope, 발급, 마지막 사용, 만료:
+RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
+# refresh_token_reuse, admin_revoke 기록과 삭제·잔여 접근 토큰 수:
+RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # 작업이 끝나면 지웁니다
 ```
+
+PowerShell에는 명령 하나에만 넘기는 방법이 없어 `$env:`가 세션 전체에 변수를 설정합니다. 설정된
+동안에는 `grants.mjs` 명령만 실행하고 바로 지웁니다.
 
 ```powershell
 $env:RAVEN_GATEWAY_URL = 'https://<gateway-host>'
 $env:RAVEN_GRANT_ADMIN_TOKEN = Read-Host -MaskInput 'Admin token'   # PowerShell 7.1 이상
 node scripts/grants.mjs list
-Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # 작업이 끝나면 지웁니다
+Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # 바로 지웁니다
 ```
+
+아래 단계의 `grants.mjs <명령>`은
+`RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs <명령>`을 뜻합니다.
 
 1. 확인: `list`는 grant마다 한 줄을 보여 줍니다. `CLIENT`는 제품 이름이고, Cursor grant는
    콜백에 따라 `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)`으로 나뉩니다(클라이언트
@@ -166,8 +177,9 @@ Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # 작업이 끝나면 지웁니다
    | `revoke --all` | 모든 grant(유출 범위를 모를 때) | `revoke all` |
 
 3. 검증: `list`에 해당 grant가 없고 `events`에 폐기한 grant마다 `admin_revoke` 기록이 하나씩
-   있는지 확인합니다. 폐기한 정상 클라이언트는 다시 연결합니다. 새 인가에는 소유자의
-   One-time PIN 로그인이 필요하므로 유출된 토큰으로 새 grant를 받을 수 없습니다.
+   있는지 확인합니다. 기록에는 삭제한 접근 토큰 수와 만료를 기다리는 접근 토큰 수가 나옵니다.
+   폐기한 정상 클라이언트는 다시 연결합니다. 새 인가에는 소유자의 One-time PIN 로그인이
+   필요하므로 유출된 토큰으로 새 grant를 받을 수 없습니다.
 4. 정리: `unset RAVEN_GRANT_ADMIN_TOKEN`(PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
 
 폐기는 게이트웨이 authority Durable Object에서 실행됩니다. grant 행을 삭제하고 `admin_revoke`
@@ -176,7 +188,9 @@ Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # 작업이 끝나면 지웁니다
 `invalid_grant`를 받습니다. 접근 토큰이 만료될 때까지(수명 10분) 기다릴 필요가 없습니다.
 게이트웨이 테스트는 폐기 직전에 발급된 접근 토큰으로 이를 확인하고, 다른 grant는 계속 동작함을
 확인합니다. 이미 원본으로 전달된 요청은 끝까지 처리됩니다. 응답과 출력에는 grant ID, 클라이언트
-ID, 콜백, scope, 시각만 있으며 토큰 원문은 없습니다.
+ID, 콜백, scope, 시각, 토큰 수만 있으며 토큰 원문은 없습니다. 게이트웨이는 재사용 폐기와 같이
+`RAVEN_SECURITY_EVENT` `revoke_attempt`를 남기고, 이어서 `revoke_committed` 또는
+`revoke_rolled_back`을 남깁니다.
 
 요청 하나는 저장소 행을 최대 2048개까지만 바꿀 수 있으므로 큰 폐기는 나누어 처리됩니다. 이 한도를
 넘는 접근 토큰 행(살아 있는 토큰이 수천 개인 grant)은 남겨 두며 10분 안에 만료됩니다. grant 행이
@@ -192,7 +206,7 @@ ID, 콜백, scope, 시각만 있으며 토큰 원문은 없습니다.
     printf %s "$RAVEN_GRANT_ADMIN_TOKEN" | shasum -a 256 | cut -d' ' -f1 \
       | npx wrangler versions secret put GRANT_ADMIN_TOKEN_SHA256 --name raven-mcp-gateway
 
-로컬에서 생성해야 하면 화면 대신 클립보드로 바로 보냅니다
+로컬에서 생성해야 하면 화면 대신 클립보드로 바로 보냅니다(macOS)
 (`node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))' | pbcopy`).
 비밀번호 관리자에 붙여 넣은 뒤 클립보드를 비웁니다. secret이 없으면 관리 경로는 `404`를 반환하며
 클라이언트에는 변화가 없습니다. 설정 후에도 `404`이면 저장된 값이 정확히 소문자 hex 64자가 아닌
@@ -208,11 +222,14 @@ ID, 콜백, scope, 시각만 있으며 토큰 원문은 없습니다.
 1. 위 절차로 의심 grant를 폐기합니다.
 2. 해시 secret을 즉시 교체합니다. 새 토큰을 만들어 그 해시를 `GRANT_ADMIN_TOKEN_SHA256`으로 새
    버전에 저장하고 승격합니다. 바로 할 수 없으면 secret을 삭제해 관리 경로를 끕니다.
-3. 이전 토큰으로 `node scripts/grants.mjs list`가 `401`로 실패하고 새 토큰으로는 동작하는지
-   확인합니다.
+3. 이전 토큰으로 `grants.mjs list`가 `401`로 실패하고 새 토큰으로는 동작하는지 확인합니다.
 4. `events`에 직접 하지 않은 `admin_revoke` 기록이 있는지, Workers 로그에
    `RAVEN_ADMIN_AUTH_FAILED`(관리 인증 실패, 경로와 사유만 기록)가 있는지 확인합니다.
-5. `unset RAVEN_GRANT_ADMIN_TOKEN`(PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
+5. 토큰을 명령줄에 입력한 적이 있으면 셸 히스토리에서 지웁니다. bash는 `history -d <번호>` 후
+   `history -w`, zsh는 다른 zsh 세션을 닫고(종료할 때 파일을 다시 씀) `~/.zsh_history`에서 그
+   줄을 지운 뒤 새 셸을 엽니다. PowerShell은 `Clear-History`를 실행하고 PSReadLine 히스토리
+   파일(`(Get-PSReadLineOption).HistorySavePath`)에서 그 줄을 지웁니다.
+6. `unset RAVEN_GRANT_ADMIN_TOKEN`(PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
 
 ## 호출자와 scope
 

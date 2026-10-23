@@ -132,24 +132,34 @@ revokes grants through owner-only admin routes; it needs Node.js 22 and no Cloud
 token.
 
 Never write the admin token on a command line (`export NAME=<token>`, `--token`): shell
-history, scrollback and screen sharing keep it. Do not hand it to an AI agent; run these
-commands yourself.
+history, scrollback and screen sharing keep it. Do not export it either: an exported variable
+is inherited by every child process the shell starts afterwards. Keep it in a plain shell
+variable and pass it only to each `grants.mjs` command. Do not hand it to an AI agent; run
+these commands yourself.
 
 ```bash
 export RAVEN_GATEWAY_URL=https://<gateway-host>
-# Type or paste the admin token; it is not echoed and not saved in shell history (bash and zsh).
-printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo; export RAVEN_GRANT_ADMIN_TOKEN
-node scripts/grants.mjs list            # client, grant ID, scope, issued, last used, expiry
-node scripts/grants.mjs events          # refresh_token_reuse and admin_revoke records
+# Type or paste the admin token into a shell variable; not echoed, not exported, not in history.
+printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
+# Client, grant ID, scope, issued, last used, expiry:
+RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
+# refresh_token_reuse and admin_revoke records, with access tokens deleted and left:
+RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # when you are done
 ```
+
+PowerShell has no per-command form, so `$env:` sets the variable for the session: run only the
+`grants.mjs` commands while it is set and remove it right after.
 
 ```powershell
 $env:RAVEN_GATEWAY_URL = 'https://<gateway-host>'
 $env:RAVEN_GRANT_ADMIN_TOKEN = Read-Host -MaskInput 'Admin token'   # PowerShell 7.1+
 node scripts/grants.mjs list
-Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # when you are done
+Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # right after
 ```
+
+The steps below write `grants.mjs <command>` for
+`RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs <command>`.
 
 1. Identify. `list` shows one row per grant. `CLIENT` names the product; Cursor grants are
    split by callback: `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)` (see the client
@@ -170,8 +180,9 @@ Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # when you are done
    | `revoke --all` | Every grant (unknown leak) | `revoke all` |
 
 3. Verify. `list` no longer shows the grant and `events` has one `admin_revoke` record per
-   revoked grant. Reconnect the legitimate clients you revoked; a new authorization needs
-   the owner's One-time PIN login, so a leaked token cannot be used to obtain a new grant.
+   revoked grant, with the access tokens deleted and left to expire. Reconnect the legitimate
+   clients you revoked; a new authorization needs the owner's One-time PIN login, so a leaked
+   token cannot be used to obtain a new grant.
 4. Clean up: `unset RAVEN_GRANT_ADMIN_TOKEN` (PowerShell:
    `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
 
@@ -182,7 +193,9 @@ next request after the command returns `401` and the next refresh returns `inval
 You do not wait for access tokens to expire (they live 10 minutes). Tests in the gateway prove
 this for an access token issued just before the revocation, and that other grants keep
 working. A request already forwarded to the origin finishes. Responses and output contain
-grant IDs, client IDs, callbacks, scopes and times only, never token text.
+grant IDs, client IDs, callbacks, scopes, times and token counts only, never token text. The
+gateway logs `RAVEN_SECURITY_EVENT` `revoke_attempt`, then `revoke_committed` or
+`revoke_rolled_back`, as for reuse revocation.
 
 One request may change at most 2048 storage rows, so large revocations are bounded. Access-token
 rows beyond that budget (a grant with thousands of live tokens) are left to expire within 10
@@ -199,7 +212,7 @@ terminal. Load it into the shell as above, then store only its SHA-256 hex as ga
     printf %s "$RAVEN_GRANT_ADMIN_TOKEN" | shasum -a 256 | cut -d' ' -f1 \
       | npx wrangler versions secret put GRANT_ADMIN_TOKEN_SHA256 --name raven-mcp-gateway
 
-If you generate the token locally instead, send it straight to the clipboard
+If you generate the token locally instead, send it straight to the clipboard (macOS)
 (`node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))' | pbcopy`),
 paste it into the password manager and clear the clipboard. Without the secret the admin routes
 return `404` and clients see no change; `404` after setup means the stored value is not exactly
@@ -216,11 +229,16 @@ tokens, so revoke first and rotate right after.
 2. Rotate the hash secret at once: create a new token, store its hash as
    `GRANT_ADMIN_TOKEN_SHA256` in a new version and promote it. If you cannot do that right
    away, delete the secret to turn the admin routes off.
-3. Confirm that `node scripts/grants.mjs list` with the old token fails with `401`, and works
-   with the new one.
+3. Confirm that `grants.mjs list` with the old token fails with `401`, and works with the new
+   one.
 4. Review `events` for `admin_revoke` records you did not make, and the Workers logs for
    `RAVEN_ADMIN_AUTH_FAILED` (failed admin logins; path and reason only).
-5. `unset RAVEN_GRANT_ADMIN_TOKEN` (PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
+5. If the token was ever typed on a command line, remove it from shell history: bash
+   `history -d <n>` then `history -w`; zsh: close the other zsh sessions (they rewrite the file
+   on exit), delete the line from `~/.zsh_history` and start a new shell; PowerShell:
+   `Clear-History`, and delete the line from the PSReadLine history file
+   (`(Get-PSReadLineOption).HistorySavePath`).
+6. `unset RAVEN_GRANT_ADMIN_TOKEN` (PowerShell: `Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN`).
 
 ## Callers and scopes
 
