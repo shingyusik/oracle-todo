@@ -150,7 +150,8 @@ Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # 작업이 끝나면 지웁니다
    콜백에 따라 `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)`으로 나뉩니다(클라이언트
    표 참고, 지금까지 Grok Bot 연결은 bot 콜백을 사용). `LAST USED`는 마지막 갱신 시각입니다.
    14일 이상 갱신하지 않은 grant는 이미 거부됩니다(유휴 만료, 위 유효 기간 항목 참고). 이 규칙
-   이전에 발급된 grant는 다음 갱신 전까지 `unknown`입니다. 직접 만든 연결과 대응되지 않는
+   이전에 발급된 grant는 다음 갱신 전까지 `unknown`이며, 14일은 그 갱신 시점부터 셉니다(30일
+   만료는 그대로 적용). 직접 만든 연결과 대응되지 않는
    grant는 의심 대상입니다. grant ID는 자격 증명이 아니지만 `list` 출력을 공유 채널에 붙여
    넣지 않습니다.
 2. 가장 좁은 범위로 폐기: 모든 명령은 먼저 폐기 대상을 출력하며 `--dry-run`이면 거기서

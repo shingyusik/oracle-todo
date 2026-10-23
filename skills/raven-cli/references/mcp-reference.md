@@ -151,11 +151,12 @@ Remove-Item Env:RAVEN_GRANT_ADMIN_TOKEN   # when you are done
 
 1. Identify. `list` shows one row per grant. `CLIENT` names the product; Cursor grants are
    split by callback: `Cursor (bot)`, `Cursor (agents)`, `Cursor (grok.com)` (see the client
-   table; Grok Bot connections so far used the bot callback). `LAST USED` is the last
-   refresh. A grant not refreshed for 14 days or more is already refused (idle expiry, see
-   Grants above); grants issued before that rule show `unknown` until their next refresh. A
-   grant you cannot match to a connection you made is suspect. Grant IDs are not credentials,
-   but do not paste `list` output into shared channels.
+   table; Grok Bot connections so far used the bot callback). `LAST USED` is the last refresh.
+   A grant not refreshed for 14 days or more is already refused (idle expiry, see Grants
+   above); grants issued before that rule show `unknown` until their next refresh, and their 14
+   days start at that refresh (the 30-day limit still applies). A grant you cannot match to a
+   connection you made is suspect. Grant IDs are not credentials, but do not paste `list`
+   output into shared channels.
 2. Revoke the narrowest set. Each command first prints what it will revoke; `--dry-run`
    stops there. Confirmation is typed in an interactive terminal; piped runs are refused.
    For a grant ID that starts with `-`, write `revoke -- <grant-id>`.
