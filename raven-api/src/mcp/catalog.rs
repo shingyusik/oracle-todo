@@ -343,7 +343,7 @@ pub(super) fn build() -> Vec<Spec> {
     tools.push(Spec::new("health_daily_upsert","Save the same daily metric row as the UI: weight, sleep, CRP, fecal calprotectin and condition only. Read existing rows first and provide expected_updated_at for changes. Atomic metrics/archives batch, 1..366 operations, UTC+09:00 day. No generic metric-add operation.","POST","/api/v1/health/metrics/daily",object(&[("metrics",array(daily)),("archives",array(archives))],&["metrics"])));
     tools.push(Spec::new(
         "health_records",
-        "Read bounded UI record-recovery pages including archived records.",
+        "Read bounded UI record-recovery pages including archived records. Follow next_offset until null; null marks the last page.",
         "GET",
         "/api/v1/health/records",
         object(&page(), &[]),
@@ -373,7 +373,7 @@ pub(super) fn build() -> Vec<Spec> {
         fields.extend([("record_type", choices(types)), ("id", id())]);
         tools.push(Spec::new(
             &format!("{domain}_audit"),
-            "Read a bounded page of immutable UI record audit history.",
+            "Read a bounded page of immutable UI record audit history. Follow next_offset until null; null marks the last page.",
             "GET",
             &format!("/api/v1/{domain}/audit/{{record_type}}/{{id}}"),
             object(&fields, &["record_type", "id"]),

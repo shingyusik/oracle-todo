@@ -809,8 +809,11 @@ async fn records(
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
     let page = page(query.offset, query.limit)?;
-    let items = health(&state, false, move |service| service.inspect_records(page)).await?;
-    Ok(Json(json!({"items": items})))
+    let (items, next_offset) = health(&state, false, move |service| {
+        exact_page(page, |page| service.inspect_records(page))
+    })
+    .await?;
+    Ok(Json(json!({"items": items, "next_offset": next_offset})))
 }
 
 async fn diet_image_read(
@@ -856,8 +859,10 @@ async fn audit(
 ) -> Result<Json<Value>, ApiError> {
     let query = query_value(query)?;
     let page = page(query.offset, query.limit)?;
-    let items = health(&state, false, move |service| {
-        service.audit_for(&record_type, &record_id, page)
+    let (items, next_offset) = health(&state, false, move |service| {
+        exact_page(page, |page| {
+            service.audit_for(&record_type, &record_id, page)
+        })
     })
     .await?;
     let items = items
@@ -877,7 +882,23 @@ async fn audit(
             })
         })
         .collect::<Vec<_>>();
-    Ok(Json(json!({"items": items})))
+    Ok(Json(json!({"items": items, "next_offset": next_offset})))
+}
+
+/// Read one page plus a one-record probe so `next_offset` is null on the last page, the same
+/// cursor the CLI prints as `next`.
+fn exact_page<T>(
+    page: Page,
+    mut read: impl FnMut(Page) -> health_engine::application::error::HealthResult<Vec<T>>,
+) -> health_engine::application::error::HealthResult<(Vec<T>, Option<u32>)> {
+    let items = read(page)?;
+    let next = match page.offset().checked_add(items.len() as u32) {
+        Some(next) if items.len() == usize::from(page.limit()) => {
+            (!read(Page::new(next, 1)?)?.is_empty()).then_some(next)
+        }
+        _ => None,
+    };
+    Ok((items, next))
 }
 
 async fn create_diet_with_image(
