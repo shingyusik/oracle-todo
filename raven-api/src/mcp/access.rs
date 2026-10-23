@@ -39,6 +39,8 @@ struct Callers {
 #[derive(Clone)]
 pub(super) struct Grant {
     pub(super) caller: String,
+    /// OAuth client ID from the gateway assertion; `None` for direct service tokens.
+    pub(super) client_id: Option<String>,
     pub(super) scopes: Vec<String>,
 }
 
@@ -112,15 +114,17 @@ impl McpAccessConfig {
         let mut callers = Callers::default();
         match (gateway_client_id, gateway_public_key) {
             (Some(id), Some(public)) if valid_id(&id) => {
-                let key = base64::Engine::decode(
+                let raw = base64::Engine::decode(
                     &base64::engine::general_purpose::URL_SAFE_NO_PAD,
                     &public,
                 )
                 .map_err(|_| McpAccessConfigError)?;
-                if key.len() != 32 {
+                if raw.len() != 32 {
                     return Err(McpAccessConfigError);
                 }
-                callers.gateway = Some((id, DecodingKey::from_ed_der(&key)));
+                let key =
+                    DecodingKey::from_ed_components(&public).map_err(|_| McpAccessConfigError)?;
+                callers.gateway = Some((id, key));
             }
             (None, None) => {}
             _ => return Err(McpAccessConfigError),
@@ -141,6 +145,8 @@ impl McpAccessConfig {
                 return Err(McpAccessConfigError);
             }
         }
+        // `raven mcp` reports this as a clean exit-2 validation error before startup;
+        // `AccessAuth::load` repeats the check as the fail-closed backstop.
         if callers.gateway.is_none() && callers.direct.is_empty() {
             return Err(McpAccessConfigError);
         }
@@ -155,17 +161,20 @@ impl Callers {
         caller: &str,
         headers: &axum::http::HeaderMap,
         audience: &str,
-    ) -> Result<Vec<String>, &'static str> {
+    ) -> Result<(Option<String>, Vec<String>), &'static str> {
         if let Some((gateway, key)) = &self.gateway
             && gateway == caller
         {
             let token = single(headers, SCOPE_ASSERTION).ok_or("scope assertion missing")?;
-            return valid_assertion(token, key, audience).ok_or("scope assertion invalid");
+            let (client_id, scopes) =
+                valid_assertion(token, key, audience).ok_or("scope assertion invalid")?;
+            return Ok((Some(client_id), scopes));
         }
         if headers.contains_key(SCOPE_ASSERTION) {
             return Err("scope assertion from non-gateway caller");
         }
-        self.direct.get(caller).cloned().ok_or("unknown caller")
+        let scopes = self.direct.get(caller).cloned().ok_or("unknown caller")?;
+        Ok((None, scopes))
     }
 }
 
@@ -177,8 +186,13 @@ struct ScopeClaims {
     exp: i64,
 }
 
-/// Returns the scopes of a gateway assertion: EdDSA, exact audience, short lifetime.
-fn valid_assertion(token: &str, key: &DecodingKey, audience: &str) -> Option<Vec<String>> {
+/// Returns the client ID and scopes of a gateway assertion: EdDSA, exact audience,
+/// short positive lifetime.
+fn valid_assertion(
+    token: &str,
+    key: &DecodingKey,
+    audience: &str,
+) -> Option<(String, Vec<String>)> {
     if token.len() > MAX_JWT_BYTES {
         return None;
     }
@@ -188,13 +202,15 @@ fn valid_assertion(token: &str, key: &DecodingKey, audience: &str) -> Option<Vec
     validation.set_audience(&[audience]);
     let claims = decode::<ScopeClaims>(token, key, &validation).ok()?.claims;
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let lifetime = claims.exp.saturating_sub(claims.iat);
     if claims.client_id.is_empty()
-        || claims.iat > now + ASSERTION_LEEWAY
-        || claims.exp - claims.iat > MAX_ASSERTION_LIFETIME
+        || claims.iat > now.saturating_add(ASSERTION_LEEWAY)
+        || !(1..=MAX_ASSERTION_LIFETIME).contains(&lifetime)
     {
         return None;
     }
-    Some(claims.scope.split_whitespace().map(str::to_owned).collect())
+    let scopes = claims.scope.split_whitespace().map(str::to_owned).collect();
+    Some((claims.client_id, scopes))
 }
 
 struct Keys {
@@ -217,6 +233,8 @@ impl AccessAuth {
         &self.config.origin
     }
     pub(super) async fn load(config: McpAccessConfig) -> anyhow::Result<Self> {
+        // Backstop for library callers that skip `with_callers`: never serve without an
+        // allowlist. `with_callers` gives the CLI its own exit-2 validation error.
         if config.callers.gateway.is_none() && config.callers.direct.is_empty() {
             anyhow::bail!("MCP caller allowlist required");
         }
@@ -369,14 +387,24 @@ pub(super) async fn authenticate(
         tracing::warn!(caller = "none", "MCP request denied: unknown caller");
         return StatusCode::FORBIDDEN.into_response();
     }
-    let scopes = match auth.config.callers.grant(&caller, headers, &audience) {
-        Ok(scopes) => scopes,
+    let (client_id, scopes) = match auth.config.callers.grant(&caller, headers, &audience) {
+        Ok(grant) => grant,
         Err(reason) => {
+            // A rejected assertion is unverified, so its client_id is not trusted or logged.
             tracing::warn!(caller = %caller, "MCP request denied: {reason}");
             return StatusCode::FORBIDDEN.into_response();
         }
     };
-    request.extensions_mut().insert(Grant { caller, scopes });
+    tracing::debug!(
+        caller = %caller,
+        client_id = client_id.as_deref().unwrap_or("none"),
+        "MCP request authorized"
+    );
+    request.extensions_mut().insert(Grant {
+        caller,
+        client_id,
+        scopes,
+    });
     // Credentials must not enter SDK request metadata or tool handlers.
     for name in [
         ASSERTION,
