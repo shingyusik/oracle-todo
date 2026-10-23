@@ -320,6 +320,10 @@ async fn entry_lifecycle_reads_and_audit_agree() {
             .await;
         assert_eq!(provenance(&a["items"], CLI), provenance(&b["items"], MCP));
         assert_eq!(a["next"], b["next_offset"], "{offset}/{limit}");
+        if offset + limit >= 4 {
+            // Four events: the last page has a null cursor, no final empty page.
+            assert!(b["next_offset"].is_null(), "{offset}/{limit}: {b}");
+        }
         // Same home through both readers.
         let same = page(&mcp, b_id);
         assert_eq!(same["items"], b["items"]);
