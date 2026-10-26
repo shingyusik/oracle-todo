@@ -156,6 +156,11 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   for an expired grant, revokes nothing. The retired-token check (SHI-451) still runs first: a
   retired token revokes its grant with `refresh_token_reuse` whichever client ID presents it
   (fail closed).
+- RFC 7009 revocation by the grant's own client applies the same window: the previous token at
+  or after the window end revokes the grant through the bounded revocation with reason
+  `refresh_token_grace_expired` (security event, `RAVEN_SECURITY_EVENT` lines); the response
+  stays `200` with an empty body. Inside the window it revokes the grant without an event, as
+  before. A retired token still records `retired_refresh_token_revoked` (SHI-461).
 - Existing grants have no `previousRefreshTokenRetiredAt`; the window counts from
   `lastRefreshAt`, or starts at the next previous-token use when that is missing too, so the
   upgrade revokes no grant by itself.

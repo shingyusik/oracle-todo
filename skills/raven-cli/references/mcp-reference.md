@@ -109,8 +109,10 @@ and refresh tokens stop working at once, and the client must reconnect. Another 
 presenting the current or previous token is only refused. Sending a rotated refresh token in a
 token revocation request (RFC 7009) from the grant's own client also revokes the whole grant
 (reason `retired_refresh_token_revoked`); the response is still `200` with an empty body.
-Revocation with the current or previous refresh token revokes the grant without a security
-event; another client's or an unknown token revokes nothing. For each revocation with a reason
+Revocation with the previous refresh token after its 10 minutes also revokes the grant (reason
+`refresh_token_grace_expired`, as for refresh); with the current token, or the previous token
+within its 10 minutes, it revokes the grant without a security event; another client's or an
+unknown token revokes nothing. For each revocation with a reason
 the gateway logs `RAVEN_SECURITY_EVENT` and keeps a `security-event:` record (time, reason,
 client ID, SHA-256 of the grant ID, outcome; never token text) for 30 days. Applies after the
 gateway deploy. Consent shows an
