@@ -98,16 +98,24 @@ Service Auth token and a signed scope assertion. Clients use the gateway URL,
 | Grok Bot, Grok web connectors, Cursor agents | `https://cursor.com/oauth/mcp-client.json` | `none` (public client, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback` or `https://grok.com/connectors-oauth-exchange-code/` |
 
 The gateway rejects other client IDs, mismatched callbacks and mixed authentication methods.
-Public clients may present the previous refresh token once after rotation. Presenting any
-other rotated refresh token revokes the whole grant: its access and refresh tokens stop
-working at once, and the client must reconnect. Sending such a rotated refresh token in a
-token revocation request (RFC 7009) from the grant's own client also revokes the whole grant;
-the response is still `200` with an empty body. Revocation with the current or previous
-refresh token revokes the grant without a security event; another client's or an unknown token
-revokes nothing. For both revocations of a rotated token the gateway logs `RAVEN_SECURITY_EVENT` and
-keeps a `security-event:` record (time, reason `refresh_token_reuse` or
-`retired_refresh_token_revoked`, client ID, SHA-256 of the grant ID, outcome; never token text)
-for 30 days. Applies after the gateway deploy. Consent shows an
+After a rotation the previous refresh token stays usable for 10 minutes from that rotation
+(gateway constant `PREVIOUS_REFRESH_GRACE_SECONDS`, owner-adjustable): public clients may
+present it once, ChatGPT until it presents the current token. Using it does not extend the 10
+minutes. Grants rotated before the gateway deploy count them from their last recorded refresh,
+or from their next use of the previous token if none is recorded. Presenting the previous token
+after the 10 minutes (reason `refresh_token_grace_expired`) or any other rotated refresh token
+(reason `refresh_token_reuse`, whichever client presents it) revokes the whole grant: its access
+and refresh tokens stop working at once, and the client must reconnect. Another client
+presenting the current or previous token is only refused. Sending a rotated refresh token in a
+token revocation request (RFC 7009) from the grant's own client also revokes the whole grant
+(reason `retired_refresh_token_revoked`); the response is still `200` with an empty body.
+Revocation with the previous refresh token after its 10 minutes also revokes the grant (reason
+`refresh_token_grace_expired`, as for refresh); with the current token, or the previous token
+within its 10 minutes, it revokes the grant without a security event; another client's or an
+unknown token revokes nothing. For each revocation with a reason
+the gateway logs `RAVEN_SECURITY_EVENT` and keeps a `security-event:` record (time, reason,
+client ID, SHA-256 of the grant ID, outcome; never token text) for 30 days. Applies after the
+gateway deploy. Consent shows an
 extra warning for loopback callbacks. Claude and Cursor client IDs are shared by every user of
 those products; approve consent only for connections you started. Clients outside this table,
 such as VS Code or Gemini CLI, can use the Service Auth header route above when they support
@@ -149,8 +157,8 @@ export RAVEN_GATEWAY_URL=https://<gateway-host>
 printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
 # Client, grant ID, scope, issued, last used, expiry:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
-# refresh_token_reuse, retired_refresh_token_revoked and admin_revoke records,
-# with access tokens deleted and left:
+# refresh_token_reuse, refresh_token_grace_expired, retired_refresh_token_revoked and
+# admin_revoke records, with access tokens deleted and left:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # when you are done
 ```
