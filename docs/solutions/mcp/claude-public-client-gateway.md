@@ -125,6 +125,19 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
 - Patches: `patches/refresh-reuse-idle-expiry.py` and `patches/reuse-revocation-bounded.py` in
   `raven-mcp-gateway`; not yet deployed.
 
+## Follow-up: revocation with a retired refresh token (SHI-461)
+
+- Previous behavior: RFC 7009 revocation (`revokeRefreshIfOwned` in the vendored provider)
+  acted only on the grant's current or previous refresh token. A rotated (retired) token was
+  ignored: `200`, nothing revoked, no event.
+- Change: a retired token of a live grant, sent by the grant's own client, revokes the whole
+  grant through the same bounded revocation as reuse, with reason
+  `retired_refresh_token_revoked` in the `security-event:` record and the
+  `RAVEN_SECURITY_EVENT` lines. The response stays `200` with an empty body, with or without
+  `token_type_hint`. Another client's retired token and a never-issued token revoke nothing and
+  record nothing; revocation with the current or previous token is unchanged (no event).
+- Patch: `patches/retired-refresh-revoke.py` in `raven-mcp-gateway`; not yet deployed.
+
 ## Follow-up: previous refresh token window (SHI-460)
 
 - Previous behavior: a public client could present the previous refresh token once at any time

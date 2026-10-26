@@ -106,9 +106,14 @@ or from their next use of the previous token if none is recorded. Presenting the
 after the 10 minutes (reason `refresh_token_grace_expired`) or any other rotated refresh token
 (reason `refresh_token_reuse`, whichever client presents it) revokes the whole grant: its access
 and refresh tokens stop working at once, and the client must reconnect. Another client
-presenting the current or previous token is only refused. The gateway logs `RAVEN_SECURITY_EVENT` and
-keeps a `security-event:` record (time, reason, client ID, SHA-256 of the grant ID, outcome;
-never token text) for 30 days. Applies after the gateway deploy. Consent shows an
+presenting the current or previous token is only refused. Sending a rotated refresh token in a
+token revocation request (RFC 7009) from the grant's own client also revokes the whole grant
+(reason `retired_refresh_token_revoked`); the response is still `200` with an empty body.
+Revocation with the current or previous refresh token revokes the grant without a security
+event; another client's or an unknown token revokes nothing. For each revocation with a reason
+the gateway logs `RAVEN_SECURITY_EVENT` and keeps a `security-event:` record (time, reason,
+client ID, SHA-256 of the grant ID, outcome; never token text) for 30 days. Applies after the
+gateway deploy. Consent shows an
 extra warning for loopback callbacks. Claude and Cursor client IDs are shared by every user of
 those products; approve consent only for connections you started. Clients outside this table,
 such as VS Code or Gemini CLI, can use the Service Auth header route above when they support
@@ -132,7 +137,8 @@ AI bot policies that block vendor backends prevent discovery or token exchange.
 ### Revoking grants after a token leak
 
 Use this when a gateway access or refresh token may have leaked (pasted into a log, chat,
-screenshot or shared file; a lost device), when `events` shows `refresh_token_reuse`, or when
+screenshot or shared file; a lost device), when `events` shows `refresh_token_reuse` or
+`retired_refresh_token_revoked`, or when
 the list contains a grant you did not create. The gateway's `scripts/grants.mjs` lists and
 revokes grants through owner-only admin routes; it needs Node.js 22 and no Cloudflare API
 token.
@@ -149,7 +155,8 @@ export RAVEN_GATEWAY_URL=https://<gateway-host>
 printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
 # Client, grant ID, scope, issued, last used, expiry:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
-# refresh_token_reuse, refresh_token_grace_expired and admin_revoke records, with access tokens deleted and left:
+# refresh_token_reuse, refresh_token_grace_expired, retired_refresh_token_revoked and
+# admin_revoke records, with access tokens deleted and left:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # when you are done
 ```

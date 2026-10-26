@@ -104,9 +104,14 @@ URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합�
 시점부터 10분을 셉니다. 10분이 지난 뒤 직전 토큰을 제시하거나(사유
 `refresh_token_grace_expired`) 그 밖의 회전된 갱신 토큰을 제시하면(사유 `refresh_token_reuse`,
 어느 클라이언트가 제시하든) grant 전체가 폐기되어 해당 접근·갱신 토큰이 즉시 무효가 되고,
-클라이언트를 다시 연결해야 합니다. 다른 클라이언트가 현재 또는 직전 토큰을 제시하면 거부만 됩니다. 게이트웨이는 `RAVEN_SECURITY_EVENT` 로그를 남기고
-`security-event:` 기록(시각, 사유, 클라이언트 ID, grant ID의 SHA-256, 처리 결과, 토큰 원문
-제외)을 30일간 보관합니다. 게이트웨이 배포 후에 적용됩니다. 루프백 콜백이면 동의 화면에
+클라이언트를 다시 연결해야 합니다. 다른 클라이언트가 현재 또는 직전 토큰을 제시하면 거부만
+됩니다. grant를 발급받은 클라이언트가 회전된 갱신 토큰을 토큰 폐기 요청(RFC 7009)으로 보내도
+grant 전체가 폐기되며(사유 `retired_refresh_token_revoked`), 응답은 그대로 빈 본문의 `200`입니다.
+현재 또는 직전 갱신 토큰으로 폐기하면 보안 이벤트 없이 grant가 폐기되고, 다른 클라이언트의
+토큰이나 알 수 없는 토큰은 아무것도 폐기하지 않습니다. 사유가 있는 폐기마다 게이트웨이는
+`RAVEN_SECURITY_EVENT` 로그를 남기고 `security-event:` 기록(시각, 사유, 클라이언트 ID, grant ID의
+SHA-256, 처리 결과, 토큰 원문 제외)을 30일간 보관합니다. 게이트웨이 배포 후에 적용됩니다. 루프백
+콜백이면 동의 화면에
 경고를 추가로 표시합니다. Claude와 Cursor 클라이언트 ID는 해당 제품의
 모든 사용자가 함께 쓰므로, 직접 시작한 연결의 동의만 승인합니다. VS Code·Gemini CLI처럼 표에
 없는 클라이언트는 사용자 지정 헤더를 지원하는 경우 앞의 Service Auth 헤더 방식을 사용합니다.
@@ -129,7 +134,8 @@ AI 봇 정책이 클라이언트 업체의 서버 요청을 차단하면 discove
 ### 토큰 유출 시 grant 폐기
 
 게이트웨이 접근·갱신 토큰이 유출되었을 수 있을 때(로그·채팅·스크린샷·공유 파일에 붙여 넣음, 기기
-분실), `events`에 `refresh_token_reuse`가 보일 때, 목록에 직접 만들지 않은 grant가 있을 때
+분실), `events`에 `refresh_token_reuse`나 `retired_refresh_token_revoked`가 보일 때, 목록에 직접
+만들지 않은 grant가 있을 때
 사용합니다. 게이트웨이 저장소의 `scripts/grants.mjs`가 소유자 전용 관리 경로로 grant를 조회하고
 폐기합니다. Node.js 22가 필요하고 Cloudflare API 토큰은 필요하지 않습니다.
 
@@ -145,7 +151,8 @@ export RAVEN_GATEWAY_URL=https://<gateway-host>
 printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
 # 클라이언트, grant ID, scope, 발급, 마지막 사용, 만료:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
-# refresh_token_reuse, refresh_token_grace_expired, admin_revoke 기록과 삭제·잔여 접근 토큰 수:
+# refresh_token_reuse, refresh_token_grace_expired, retired_refresh_token_revoked, admin_revoke
+# 기록과 삭제·잔여 접근 토큰 수:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # 작업이 끝나면 지웁니다
 ```
