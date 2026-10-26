@@ -37,7 +37,7 @@ Client allowlist with per-client authentication. Changes by gateway source modul
 | `src/policy.js` | `authorizedIdentity` accepts tokens of allowlisted clients |
 | `src/authority.js` | `validateToken` accepts grants of allowlisted clients |
 | `src/worker.js` | Discovery advertises `["private_key_jwt", "none"]` |
-| `vendor/oauth-provider.js` | Server methods `["private_key_jwt", "none"]`; a CIMD with ChatGPT's approved JWKS always negotiates `private_key_jwt`; public CIMD documents must carry no `jwks`/`jwks_uri`; public clients may use the previous refresh token once (reuse after that revokes the grant since SHI-451) |
+| `vendor/oauth-provider.js` | Server methods `["private_key_jwt", "none"]`; a CIMD with ChatGPT's approved JWKS always negotiates `private_key_jwt`; public CIMD documents must carry no `jwks`/`jwks_uri`; public clients may use the previous refresh token once (reuse after that revokes the grant since SHI-451; only within 10 minutes of the rotation since SHI-460) |
 
 Unchanged: owner-only Access One-time PIN, identity contract, PKCE `S256`, resource and scope
 checks, ChatGPT assertion verification, rate limits and token lifetimes.
@@ -125,6 +125,26 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
 - Patches: `patches/refresh-reuse-idle-expiry.py` and `patches/reuse-revocation-bounded.py` in
   `raven-mcp-gateway`; not yet deployed.
 
+## Follow-up: previous refresh token window (SHI-460)
+
+- Previous behavior: a public client could present the previous refresh token once at any time
+  before the grant expired; ChatGPT (`private_key_jwt`) could present it any number of times
+  until it used the current token, with no time limit.
+- Change: for every client the previous token is accepted only within
+  `PREVIOUS_REFRESH_GRACE_SECONDS` (10 minutes, gateway `src/oauth-options.js`, option
+  `previousRefreshGraceTTL`; owner-adjustable) after the rotation that made it previous. Inside
+  the window nothing changes: one retry for public clients, repeated reuse for ChatGPT. Reuse
+  never extends the window: the grant field `previousRefreshTokenRetiredAt` is set only by a
+  refresh with the current token.
+- Presenting the previous token at or after the window end revokes the grant with the same
+  bounded revocation, reason `refresh_token_grace_expired`, `invalid_grant` and diagnostic
+  stage `token.provider.refresh_grace_expired`. The check runs after the client ID and expiry
+  checks, so a request from another client or for an expired grant revokes nothing.
+- Existing grants have no `previousRefreshTokenRetiredAt`; the window counts from
+  `lastRefreshAt`, or starts at the next previous-token use when that is missing too, so the
+  upgrade revokes no grant by itself.
+- Patch: `patches/refresh-grace-window.py` in `raven-mcp-gateway`; not yet deployed.
+
 ## Residual risks
 
 - Public-client refresh tokens are bearer tokens. A stolen refresh token keeps working until
@@ -133,7 +153,8 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   client have refreshed, only one of them still holds a valid refresh token. The grant, with
   all its tokens, is revoked the next time the other one presents a rotated token; for an
   active client this is its next refresh, at most about 10 minutes later. Until then, whoever
-  holds the current token keeps access. Detection relies on the authority Durable Object
+  holds the current token keeps access. A previous token, from either client, is accepted only
+  within 10 minutes of the rotation. Detection relies on the authority Durable Object
   serialising token requests. Refresh tokens rotated before SHI-451 are not recorded and are
   only rejected. New authorizations still require the owner's One-time PIN.
 - Claude and Cursor client IDs are shared by all users of those products. An authorization

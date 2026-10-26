@@ -97,8 +97,13 @@ URL이 아니라 게이트웨이 URL `https://<gateway-host>/mcp`를 입력합�
 | Grok Bot·Grok 웹 커넥터·Cursor 에이전트 | `https://cursor.com/oauth/mcp-client.json` | `none`(공개 클라이언트, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback`, `https://grok.com/connectors-oauth-exchange-code/` |
 
 게이트웨이는 다른 클라이언트 ID, 일치하지 않는 콜백, 인증 방식을 섞은 요청을 거부합니다.
-공개 클라이언트는 갱신 토큰이 회전된 뒤 직전 토큰을 한 번만 더 사용할 수 있습니다. 그 밖의
-회전된 갱신 토큰을 제시하면 grant 전체가 폐기되어 해당 접근·갱신 토큰이 즉시 무효가 되고,
+갱신 토큰이 회전되면 직전 토큰은 그 회전 시점부터 10분 동안만 쓸 수 있습니다(게이트웨이 상수
+`PREVIOUS_REFRESH_GRACE_SECONDS`, 소유자가 변경 가능). 공개 클라이언트는 한 번, ChatGPT는 현재
+토큰을 제시하기 전까지 사용할 수 있습니다. 직전 토큰을 써도 10분은 연장되지 않습니다. 게이트웨이
+배포 전에 회전된 grant는 기록된 마지막 갱신 시점부터, 기록이 없으면 직전 토큰을 다음에 쓰는
+시점부터 10분을 셉니다. 10분이 지난 뒤 직전 토큰을 제시하거나(사유
+`refresh_token_grace_expired`) 그 밖의 회전된 갱신 토큰을 제시하면(사유 `refresh_token_reuse`)
+grant 전체가 폐기되어 해당 접근·갱신 토큰이 즉시 무효가 되고,
 클라이언트를 다시 연결해야 합니다. 게이트웨이는 `RAVEN_SECURITY_EVENT` 로그를 남기고
 `security-event:` 기록(시각, 사유, 클라이언트 ID, grant ID의 SHA-256, 처리 결과, 토큰 원문
 제외)을 30일간 보관합니다. 게이트웨이 배포 후에 적용됩니다. 루프백 콜백이면 동의 화면에
@@ -140,7 +145,7 @@ export RAVEN_GATEWAY_URL=https://<gateway-host>
 printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
 # 클라이언트, grant ID, scope, 발급, 마지막 사용, 만료:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
-# refresh_token_reuse, admin_revoke 기록과 삭제·잔여 접근 토큰 수:
+# refresh_token_reuse, refresh_token_grace_expired, admin_revoke 기록과 삭제·잔여 접근 토큰 수:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # 작업이 끝나면 지웁니다
 ```

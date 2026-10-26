@@ -98,8 +98,13 @@ Service Auth token and a signed scope assertion. Clients use the gateway URL,
 | Grok Bot, Grok web connectors, Cursor agents | `https://cursor.com/oauth/mcp-client.json` | `none` (public client, PKCE) | `https://www.cursor.com/agents/mcp/oauth/callback`, `https://www.cursor.com/bot/mcp/oauth/callback` or `https://grok.com/connectors-oauth-exchange-code/` |
 
 The gateway rejects other client IDs, mismatched callbacks and mixed authentication methods.
-Public clients may present the previous refresh token once after rotation. Presenting any
-other rotated refresh token revokes the whole grant: its access and refresh tokens stop
+After a rotation the previous refresh token stays usable for 10 minutes from that rotation
+(gateway constant `PREVIOUS_REFRESH_GRACE_SECONDS`, owner-adjustable): public clients may
+present it once, ChatGPT until it presents the current token. Using it does not extend the 10
+minutes. Grants rotated before the gateway deploy count them from their last recorded refresh,
+or from their next use of the previous token if none is recorded. Presenting the previous token
+after the 10 minutes (reason `refresh_token_grace_expired`) or any other rotated refresh token
+(reason `refresh_token_reuse`) revokes the whole grant: its access and refresh tokens stop
 working at once, and the client must reconnect. The gateway logs `RAVEN_SECURITY_EVENT` and
 keeps a `security-event:` record (time, reason, client ID, SHA-256 of the grant ID, outcome;
 never token text) for 30 days. Applies after the gateway deploy. Consent shows an
@@ -143,7 +148,7 @@ export RAVEN_GATEWAY_URL=https://<gateway-host>
 printf 'Admin token: '; IFS= read -rs RAVEN_GRANT_ADMIN_TOKEN; echo
 # Client, grant ID, scope, issued, last used, expiry:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs list
-# refresh_token_reuse and admin_revoke records, with access tokens deleted and left:
+# refresh_token_reuse, refresh_token_grace_expired and admin_revoke records, with access tokens deleted and left:
 RAVEN_GRANT_ADMIN_TOKEN="$RAVEN_GRANT_ADMIN_TOKEN" node scripts/grants.mjs events
 unset RAVEN_GRANT_ADMIN_TOKEN           # when you are done
 ```
