@@ -138,8 +138,11 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
   refresh with the current token.
 - Presenting the previous token at or after the window end revokes the grant with the same
   bounded revocation, reason `refresh_token_grace_expired`, `invalid_grant` and diagnostic
-  stage `token.provider.refresh_grace_expired`. The check runs after the client ID and expiry
-  checks, so a request from another client or for an expired grant revokes nothing.
+  stage `token.provider.refresh_grace_expired`. This window check runs after the client ID and
+  expiry checks, so a different client presenting the current or previous token, or a request
+  for an expired grant, revokes nothing. The retired-token check (SHI-451) still runs first: a
+  retired token revokes its grant with `refresh_token_reuse` whichever client ID presents it
+  (fail closed).
 - Existing grants have no `previousRefreshTokenRetiredAt`; the window counts from
   `lastRefreshAt`, or starts at the next previous-token use when that is missing too, so the
   upgrade revokes no grant by itself.

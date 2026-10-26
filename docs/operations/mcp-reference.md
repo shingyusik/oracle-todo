@@ -104,8 +104,9 @@ present it once, ChatGPT until it presents the current token. Using it does not 
 minutes. Grants rotated before the gateway deploy count them from their last recorded refresh,
 or from their next use of the previous token if none is recorded. Presenting the previous token
 after the 10 minutes (reason `refresh_token_grace_expired`) or any other rotated refresh token
-(reason `refresh_token_reuse`) revokes the whole grant: its access and refresh tokens stop
-working at once, and the client must reconnect. The gateway logs `RAVEN_SECURITY_EVENT` and
+(reason `refresh_token_reuse`, whichever client presents it) revokes the whole grant: its access
+and refresh tokens stop working at once, and the client must reconnect. Another client
+presenting the current or previous token is only refused. The gateway logs `RAVEN_SECURITY_EVENT` and
 keeps a `security-event:` record (time, reason, client ID, SHA-256 of the grant ID, outcome;
 never token text) for 30 days. Applies after the gateway deploy. Consent shows an
 extra warning for loopback callbacks. Claude and Cursor client IDs are shared by every user of
