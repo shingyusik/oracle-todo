@@ -153,3 +153,14 @@ gh api -X DELETE repos/shingyusik/oracle-todo/rulesets/<id>
 ```
 
 `rules/branches/main` lists the effective rules on `main` from all active rulesets.
+
+## Archived Linear records (2026-10-27)
+
+Korean transcription of records from Linear issues archived on 2026-10-27. Each entry names its
+source issue. Times are KST.
+
+### CI와 main 브랜치 보호 (출처: Linear SHI-159·SHI-188, 2026-10-27 보관)
+
+- 요약: main push·PR CI와 브랜치 보호를 추가하라는 권고. 이후 기록과 어긋나는 점이 있음.
+- 권고(10/16 DevOps): main push·PR 때 프런트 테스트, 타입 검사, 빌드, `cargo test`를 돌리는 CI와 main 브랜치 보호 + PR 필수 체크. 당시 워크플로는 태그 push 때만 돌았음. SHI-159는 이 이슈의 중복.
+- 알려진 불일치: SHI-188은 10/22 Done이지만, 10/23 SHI-455·SHI-456 구현 기록에 "oracle-todo에는 PR에서 도는 워크플로가 없다(release와 npm-publish뿐). gateway에는 워크플로가 없다"고 적혀 있음. (확인 필요: SHI-188은 Done인데 10/23 기록은 PR CI가 없다고 적음. 이 문서는 `ci.yml`과 "Recommended `main` protection: Not applied"를 적고 있으므로 실제 GitHub 워크플로 실행과 브랜치 보호 적용 상태 확인 필요)
