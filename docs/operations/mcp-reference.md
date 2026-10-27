@@ -467,7 +467,7 @@ names its source issue. Times are KST.
 
 ### 원격 MCP 운영 정보: Origin 서비스 토큰 만료 (출처: Linear SHI-137, 2026-10-27 보관)
 
-- Origin 서비스 토큰 `<access-token-name>`(ID `<access-token-id>`)은 유효기간 2년, 만료 표시 `2028-10-05 04:56 AM`(시간대 미확인). 전용 Origin Service Auth 정책 `<access-policy-id>`이 이 토큰만 포함. 배포 때는 `--keep-vars`로 인증 binding을 보존.
+- Origin 서비스 토큰 `<access-token-name>`(ID `<access-token-id>`)은 유효기간 2년. 전용 Origin Service Auth 정책 `<access-policy-id>`이 이 토큰만 포함. 배포 때는 `--keep-vars`로 인증 binding을 보존.
 - 구조·사고 기록 전체: [원격 Raven MCP 구조와 OAuth 연결 사고 기록](../solutions/mcp/remote-mcp-oauth-incidents.md).
 
 ### MCP 권한(scope) 결정과 CLI 동등성 경계 (출처: Linear SHI-138, 2026-10-27 보관)
@@ -511,7 +511,7 @@ names its source issue. Times are KST.
 - grant는 gateway Durable Object에 있어 Cloudflare API로 직접 다룰 수 없음 → 관리 API 추가: `GET /admin/grants`, `GET /admin/security-events`, `POST /admin/grants/revoke`.
 - Worker secret `GRANT_ADMIN_TOKEN_SHA256`가 없으면 404(기본 꺼짐). Bearer 관리 토큰을 해시로 비교. OAuth 토큰은 받지 않고 CORS도 열지 않음. 관리 토큰은 로컬에만 보관.
 - CLI `scripts/grants.mjs`: `list [--json]`, `events`, `revoke <grant-id>`, `revoke --client <id>`, `revoke --all`, `--dry-run`. 폐기 전 대상 표시 후 grant ID·개수·`revoke all`을 직접 입력해야 진행. TTY가 아니면 거부. 확인 생략 옵션 없음.
-- 미검증: 문서의 wrangler secret 명령. Rogi의 grant는 'Cursor (bot)' 라벨로 보일 것으로 예상(폐기 전 발급 시각으로 확인).
+- 미검증: 문서의 wrangler secret 명령. 운영 봇의 grant는 'Cursor (bot)' 라벨로 보일 것으로 예상(폐기 전 발급 시각으로 확인).
 - PR: raven-mcp-gateway#3(`6dd0623`), oracle-todo#23(`487c080`). 10/26 배포 5단계(`<version-id-2>`)에서 secret 추가.
 - 절차 본문: 위 [Revoking grants after a token leak](#revoking-grants-after-a-token-leak).
 

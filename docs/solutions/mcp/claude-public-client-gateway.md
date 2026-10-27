@@ -214,7 +214,7 @@ source issue. Times are KST.
 ### refresh token grace 시간 제한(F8)과 retired token revoke (출처: Linear SHI-460·SHI-461, 2026-10-27 보관)
 
 - 요약: 10/23 결정과 10/26 배포·롤백 기록.
-- 결정(10/23 19:29 KST, Rogi 경유): ChatGPT(기밀 클라이언트)의 직전 refresh token 재사용은 당시 횟수·시간 제한 없음 → 회전 후 일정 시간 안에만 허용하도록 후속 진행. grace 값은 10분(SHI-464 원문 기준).
+- 결정(10/23 19:29 KST, 운영 봇 경유): ChatGPT(기밀 클라이언트)의 직전 refresh token 재사용은 당시 횟수·시간 제한 없음 → 회전 후 일정 시간 안에만 허용하도록 후속 진행. grace 값은 10분(SHI-464 원문 기준).
 - 결정(같은 시각): retired refresh token으로 RFC 7009 revoke가 오면 재사용으로 보고 `revokeGrantBounded`로 grant 폐기, 이벤트 reason은 재사용 감지와 구분.
 - 배포(10/26 KST): 머지 10:35(gateway main `d154dac`, oracle-todo `f443e0e`) → 배포 10:42 버전 `<version-id-1>`(배포 `<deployment-id-1>`) → 5단계 12:17 버전 `<version-id-2>`(배포 `<deployment-id-2>`, 코드 같음, `GRANT_ADMIN_TOKEN_SHA256`만 추가).
 - 롤백 순서: `<version-id-1>`, 그다음 `<version-id-0>`.
