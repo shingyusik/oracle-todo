@@ -186,3 +186,37 @@ checks, ChatGPT assertion verification, rate limits and token lifetimes.
 - Zone-level Browser Integrity Check or AI bot policies can still block vendor backends.
 
 Client setup and the supported-client table: [Remote MCP](../../operations/mcp-reference.md).
+
+## Archived Linear records (2026-10-27)
+
+Korean transcription of records from Linear issues archived on 2026-10-27. Each entry names its
+source issue. Times are KST.
+
+### ChatGPT 외 MCP 클라이언트 OAuth 연결 (출처: Linear SHI-195, 2026-10-27 보관)
+
+- 요약: 다른 클라이언트가 거부된 원인과 완료 결정.
+- 원인(10/18): authorization server 메타데이터에 `token_endpoint_auth_methods_supported: ["private_key_jwt"]`만 있고 `registration_endpoint`(DCR)가 없어, 서명 키가 있는 ChatGPT만 통과하고 Grok Bot·Cursor 같은 public client는 authorize 단계에서 거부됨.
+- 검토한 해결 방향: DCR(RFC 7591) + public client(`none` + PKCE S256), CIMD에서 public client 허용 + redirect_uri 허용 목록, 허용 클라이언트 목록 추가.
+- 결정(10/23 14:53 KST): Grok Bot 연결이 실제로 동작함(작업 생성 성공)을 확인하고 완료. Cursor 연결은 필요할 때 확인. 남은 보안 보강은 SHI-451·SHI-455.
+- 10/20 보안 설계 리뷰의 보강점 1~5가 SHI-451(1·2), SHI-452(3), SHI-453(4), SHI-455(5)로 나뉨.
+
+### refresh token 재사용 감지와 idle 만료 (출처: Linear SHI-451, 2026-10-27 보관)
+
+- 요약: 재사용 시 grant 폐기 규칙, idle 14일, 주의점.
+- 기존 동작(코드 확인): public client는 회전 직전 refresh token을 1회 더 쓸 수 있었음. 더 오래된 토큰은 `invalid_grant`로 거부만 되고 grant는 살아 있어 재사용 감지가 불가능했음. OAuth 상태는 Workers KV가 아니라 Durable Object(SQLite)에 직렬 처리.
+- 변경: 회전된 토큰을 해시로 `retired-refresh:` 키에 기록. 1회 허용이 끝난 토큰이 다시 오면 grant와 그 토큰 전부를 폐기(access token도 즉시 401).
+- 설계 이유: 모르는 토큰은 거부만 하고 폐기하지 않음. 위조 토큰으로 남의 grant를 끊는 공격을 막기 위해서.
+- 감지 기록: `RAVEN_SECURITY_EVENT` 로그(client_id, grant_id 해시), `security-event:` 기록 30일 보관. 토큰 원문은 남기지 않음.
+- idle 만료: 마지막 refresh 뒤 14일(`GRANT_IDLE_DAYS`), 30일 절대 상한 유지. `lastRefreshAt`이 없는 기존 grant는 다음 refresh부터 셈.
+- 주의: 같은 토큰으로 refresh를 3회 이상 동시에 보내면 grant가 폐기될 수 있음. 14일 넘게 안 쓰면 재연결 필요. idle 14일 값은 사용자 결정 항목이었음. (확인 필요: 결정 기록은 이슈에 없음)
+- PR: raven-mcp-gateway#2(`14ba005`), oracle-todo#22(`b35992b`).
+
+### refresh token grace 시간 제한(F8)과 retired token revoke (출처: Linear SHI-460·SHI-461, 2026-10-27 보관)
+
+- 요약: 10/23 결정과 10/26 배포·롤백 기록.
+- 결정(10/23 19:29 KST, 운영 봇 경유): ChatGPT(기밀 클라이언트)의 직전 refresh token 재사용은 당시 횟수·시간 제한 없음 → 회전 후 일정 시간 안에만 허용하도록 후속 진행. grace 값은 10분(SHI-464 원문 기준).
+- 결정(같은 시각): retired refresh token으로 RFC 7009 revoke가 오면 재사용으로 보고 `revokeGrantBounded`로 grant 폐기, 이벤트 reason은 재사용 감지와 구분.
+- 배포(10/26 KST): 머지 10:35(gateway main `d154dac`, oracle-todo `f443e0e`) → 배포 10:42 버전 `<version-id-1>`(배포 `<deployment-id-1>`) → 5단계 12:17 버전 `<version-id-2>`(배포 `<deployment-id-2>`, 코드 같음, `GRANT_ADMIN_TOKEN_SHA256`만 추가).
+- 롤백 순서: `<version-id-1>`, 그다음 `<version-id-0>`.
+- 점검: discovery 200, PRM 200, 인증 없는 /mcp 401, origin 직접 접근 403, raven-mcp 읽기 호출 성공, Cursor·ChatGPT grant active, 보안 이벤트 0건.
+- (확인 필요: 위 SHI-451, SHI-461, SHI-460 절은 각 patch를 "not yet deployed"로 적지만 이 기록은 10/26 배포를 적는다. 배포된 버전에 어느 patch가 들어갔는지 확인 필요)

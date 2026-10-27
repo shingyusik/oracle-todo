@@ -48,3 +48,16 @@ concurrent refreshes, and clearing errors after a full Ledger remount.
 
 Related code: `frontend/src/features/ledger/ui/{LedgerPanel,TransactionCreateDialog,TransactionForm}.tsx`.
 Documentation uses source and test validation rather than TDD because it changes no runtime behavior.
+
+## Archived Linear records (2026-10-27)
+
+Korean transcription of records from Linear issues archived on 2026-10-27. Each entry names its
+source issue.
+
+### 가계부 화면 결정과 불변 조건 (출처: Linear SHI-161·SHI-190·SHI-189·SHI-148, 2026-10-27 보관)
+
+- 요약: 화면 오류 상태 정책 결정 1건과 확인해야 할 불변 조건.
+- 사용자 결정(10/15, SHI-161): 화면 전체가 오류 상태일 때 + 버튼을 숨기는 방식은 유지한다. 이유: "서버가 안 되면 입력도 안 되는 게 맞음." 대신 '다시 시도' 안내를 잘 보이게 함.
+- 불변 조건(SHI-190): 이체는 `transferGroupId` 단위로 한꺼번에 archive해야 함. 한쪽만 archive되면 잔액이 틀어짐.
+- 알려진 경계(SHI-189): 재조회가 네트워크 오류로 실패하면 삭제된 행이 상세에 남을 수 있었음. 저장하면 404로 닫히므로 데이터 손상은 없음.
+- 코드 기준(SHI-148, 소유자 KISS·DRY): 레코드 종류는 필드 유무로 추측하지 말고 호출하는 쪽에서 명시적으로 넘김. entries 병합 중복은 헬퍼 하나로.

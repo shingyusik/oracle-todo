@@ -458,3 +458,81 @@ and `image_base64`; update also requires `id` and `metadata.expected_updated_at`
 and WebP are limited to 10 MiB decoded. ASCII-escaped metadata is limited to 8 KiB by the
 existing API. `health_diet_image_get` returns MCP image content. Remove a photo with
 `health_diet_update` and `remove_image: true`. Database and Health media must be backed up together.
+
+## Archived Linear records (2026-10-27)
+
+Korean transcription of records from Linear issues archived on 2026-10-27, kept here so they
+survive the archive. Not mirrored in [mcp-reference.ko.md](mcp-reference.ko.md). Each entry
+names its source issue. Times are KST.
+
+### 원격 MCP 운영 정보: Origin 서비스 토큰 만료 (출처: Linear SHI-137, 2026-10-27 보관)
+
+- Origin 서비스 토큰 `<access-token-name>`(ID `<access-token-id>`)은 유효기간 2년. 전용 Origin Service Auth 정책 `<access-policy-id>`이 이 토큰만 포함. 배포 때는 `--keep-vars`로 인증 binding을 보존.
+- 구조·사고 기록 전체: [원격 Raven MCP 구조와 OAuth 연결 사고 기록](../solutions/mcp/remote-mcp-oauth-incidents.md).
+
+### MCP 권한(scope) 결정과 CLI 동등성 경계 (출처: Linear SHI-138, 2026-10-27 보관)
+
+- 요약: 6개 scope와 별도 opt-in 기능, MCP로 노출하지 않는 의도적 경계.
+- 사용자 범위 확인(10/09): 읽기 전용은 최종 목표가 아니고 ToDo·Ledger·Health 추가·수정까지 포함한다.
+- 결정(10/09): `ENABLE_CLI_DATA_OPERATIONS=true`는 read 3개와 todo/ledger/health.write 3개, 정확히 6개 scope만 제공(73 tools, 40 mutation). `ENABLE_LEDGER_EXPORT`, `ENABLE_LEDGER_PURGE`, `ENABLE_HEALTH_MEDIA`는 별도로 정확히 `true`를 줘야 켜지며 기본은 꺼짐. 기존 read grant는 write 권한을 자동으로 얻지 않음. 영구 삭제·별도 cancel 도구·사진·export는 일반 권한에 없음. 건강 `diet_update`의 `remove_image:true`는 media 권한이 없으면 거부.
+- 의도적 경계: 운영 명령(init/health-check/import, 서버·인증·Cloudflare 설정), 임의 셸/SQL, data home, 로컬 이미지 경로, CLI 출력 형식은 원격 도구로 내지 않음. 이미지는 base64. 응답 8 MiB·페이지 100건 제한. 그보다 큰 export는 CLI 작업.
+- 재시도 규칙: CLI와 MCP receipt 테이블은 분리돼 있어 인터페이스를 넘나드는 같은 키 중복 방지로 해석하면 안 됨. `committed=false && retryable=true`인 오류만 receipt를 지워 같은 키로 재시도 가능. pending·결과 불확실·이미 committed 요청은 다시 실행하지 않음.
+- 도메인 규칙: `overall_condition`은 category가 아니라 `category=symptom` + `metric_key=overall_condition` 조합.
+- 완료 범위(10/22): 구현분(`fce0d8f`, `f3dc889`, `9eeac76`, v0.4.32)만 Done. PR 없이 main에 들어감. 미체크 항목은 SHI-456으로 이관.
+- 위치 메모: 제안 위치였던 gateway 저장소 `CLI-DATA-MAPPING.md`는 raven-mcp-gateway main에 없어 이 절에만 적는다.
+
+### 봇 연결 기본 권한을 읽기 전용으로 제한: 하지 않기로 결정 (출처: Linear SHI-452, 2026-10-27 보관)
+
+- 요약: 버린 대안과 남는 위험.
+- 사용자 결정(10/23): 하지 않음.
+- 남는 위험(Medium): 봇 연결이 기본으로 가계부·건강 쓰기 scope까지 받을 수 있어, 토큰 유출이나 봇 오동작이 데이터 변경으로 이어질 수 있음. 새 인가에는 소유자 One-time PIN이 필요해 무단 발급은 막혀 있음.
+- 관찰: 미인증 `/mcp` 401의 `WWW-Authenticate`가 read·write 6개 scope를 모두 알림.
+- 제약: 같은 클라이언트와 callback으로 다시 인가하면 scope가 달라도 기존 grant가 교체됨. 그래서 읽기 grant와 쓰기 grant를 함께 두기 어려움(`docs/solutions/mcp/cloudflare-otp-email-proof.md:693-699`).
+
+### origin의 scope·호출자 검증 설계 (출처: Linear SHI-455, 2026-10-27 보관)
+
+- 요약: 게이트웨이를 거치지 않는 직접 접근을 막는 방어 심층화 설계와 배포 순서.
+- 호출자는 Access JWT의 `common_name`(서비스 토큰 Client ID)으로 구분. 허용 목록에 없는 호출자와 이메일 신원 로그인은 403.
+- 게이트웨이는 `Raven-Scope-Assertion` 헤더(Ed25519 서명 JWT, aud·scope·client_id·iat, exp 60초)를 붙임. origin은 서명·aud·수명(120초 이하)을 검증. 게이트웨이가 아닌 호출자가 이 헤더를 보내면 거부. 서명 없는 헤더는 믿지 않음.
+- Service Auth 직접 호출자는 `RAVEN_MCP_SERVICE_CLIENTS`에 정한 scope만 받음. 도구별 필요 scope는 `policy.rs`에 정의하고 게이트웨이 `allowedTool`과 1:1로 맞춤. 매핑 없는 도구는 거부(fail-closed). tools/list에서 숨기고 tools/call은 `-32602`.
+- 새 설정이 없으면 `raven mcp`가 시작을 거부(exit 2, `caller_allowlist`).
+- 배포 순서(어기면 MCP 중단): ① gateway secret `ORIGIN_SCOPE_ASSERTION_KEY` 추가 후 gateway 배포 → ② origin에 `RAVEN_MCP_GATEWAY_CLIENT_ID`, `RAVEN_MCP_GATEWAY_PUBLIC_KEY`(필요하면 `RAVEN_MCP_SERVICE_CLIENTS`) 설정 후 재시작.
+- 미확인: 실제 Access JWT의 `common_name` 값, workerd에서 Ed25519 동작.
+- 알려진 flaky 테스트: `same_length_mutation_after_open_is_rejected`(main에도 있음).
+- PR: oracle-todo#21, raven-mcp-gateway#1. 병합 순서 SHI-455 → SHI-451 → SHI-453.
+
+### refresh token 재사용 감지와 idle 만료 (출처: Linear SHI-451, 2026-10-27 보관)
+
+- 전체 기록: [claude-public-client-gateway.md의 "Archived Linear records (2026-10-27)" 절](../solutions/mcp/claude-public-client-gateway.md#archived-linear-records-2026-10-27). 재사용 시 grant 폐기, idle 14일, 주의점. (확인 필요: idle 14일 값의 사용자 결정 기록은 이슈에 없음)
+
+### 소유자용 grant 관리 도구 (출처: Linear SHI-453, 2026-10-27 보관)
+
+- 요약: grant 목록·폐기 관리 API와 CLI, 안전장치.
+- grant는 gateway Durable Object에 있어 Cloudflare API로 직접 다룰 수 없음 → 관리 API 추가: `GET /admin/grants`, `GET /admin/security-events`, `POST /admin/grants/revoke`.
+- Worker secret `GRANT_ADMIN_TOKEN_SHA256`가 없으면 404(기본 꺼짐). Bearer 관리 토큰을 해시로 비교. OAuth 토큰은 받지 않고 CORS도 열지 않음. 관리 토큰은 로컬에만 보관.
+- CLI `scripts/grants.mjs`: `list [--json]`, `events`, `revoke <grant-id>`, `revoke --client <id>`, `revoke --all`, `--dry-run`. 폐기 전 대상 표시 후 grant ID·개수·`revoke all`을 직접 입력해야 진행. TTY가 아니면 거부. 확인 생략 옵션 없음.
+- 미검증: 문서의 wrangler secret 명령. 운영 봇의 grant는 'Cursor (bot)' 라벨로 보일 것으로 예상(폐기 전 발급 시각으로 확인).
+- PR: raven-mcp-gateway#3(`6dd0623`), oracle-todo#23(`487c080`). 10/26 배포 5단계(`<version-id-2>`)에서 secret 추가.
+- 절차 본문: 위 [Revoking grants after a token leak](#revoking-grants-after-a-token-leak).
+
+### MCP·CLI 계약 테스트: 남은 결정과 후속 작업 (출처: Linear SHI-456, 2026-10-27 보관)
+
+- 요약: 계약 테스트 결과와, 보관하면 잊힐 수 있는 미결 결정 3건·후속 작업 3건.
+- 같은 fixture를 CLI와 실제 MCP(HTTP JSON-RPC)로 실행해 결과·감사 기록을 비교하는 contract 테스트 17개(todo 6, ledger 5, health 5, retry 1). 테스트용 인증은 cargo feature `contract-test-support`(배포 바이너리 제외).
+- 고친 버그: MCP 계정·카테고리 purge가 항상 internal_error, CLI `ledger audit --record-type entry`, `ledger_audit` record_type에 `transfer` 추가, `health_records`·`health_audit` 정확한 `next_offset`.
+- 미결 결정:
+  1. `health_audit.occurred_at`과 report range의 time tuple 직렬화를 유지할지 ISO로 바꿀지
+  2. `policy_error`와 `validation_error` 구분
+  3. `confirmation_mismatch` 유지 여부
+- 후속 작업(TODO, 새 이슈 대신 문서로 남김):
+  - [ ] ledger export/doctor와 photo의 contract 테스트
+  - [ ] `entry show --include-archived`
+  - [ ] `health_event_list`의 정확한 cursor
+- PR: oracle-todo#24(`238befd`까지 9개 커밋).
+
+### 남은 테스트 빈틈과 문서 정정 (출처: Linear SHI-463·SHI-464(취소), 2026-10-27 보관)
+
+- 요약: 취소됐지만 알려진 한계와 배포 이력으로 남길 내용.
+- 테스트 빈틈(SHI-463): `/oauth/revoke`에 2048자 넘는 토큰을 보낼 때 grant 조회·폐기 없이 규격 응답을 주는지, 형식은 맞지만 소유하지 않은 위조 토큰이 아무 grant도 폐기하지 않고 보안 이벤트도 남기지 않는지 테스트가 없음.
+- 문서 정정(SHI-464): '교체 후 10분 이상' 문구를 정확하게 고칠 것(직전 refresh token grace는 10분). 교체 후 10분 안에 들어온 retired token revoke는 보안 이벤트가 남지 않는다는 점을 명시할 것. (확인 필요: SHI-464는 취소됨. 이 문서와 gateway README의 해당 문구가 정정됐는지 확인 필요. 이 기록은 문구를 고치지 않았다)
+- `DEPLOYMENTS.md`에 남길 두 버전: `<version-id-1>`(배포 `<deployment-id-1>`, 10/26 10:42 KST, main `d154dac`, 롤백 대상 `<version-id-0>`), `<version-id-2>`(배포 `<deployment-id-2>`, 10/26 12:17 KST, 코드 같음, `GRANT_ADMIN_TOKEN_SHA256`만 추가, 롤백 대상 `<version-id-1>`). raven-mcp-gateway `DEPLOYMENTS.md`에도 같은 기록을 남겼다.

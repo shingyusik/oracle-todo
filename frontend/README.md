@@ -90,3 +90,14 @@ authenticated browser integration through the Raven UI session.
 - `src/features/ledger` — entries, master data, and reports
 - `src/features/health` — diet, events, metrics, and reports
 - `tests` — architecture, model, controller, and presentation checks
+
+## Archived Linear records (2026-10-27)
+
+Korean transcription of records from Linear issues archived on 2026-10-27. Each entry names its
+source issue.
+
+### 할 일 표 날짜칸 blur 저장 (출처: Linear SHI-168, 2026-10-27 보관)
+
+- 요약: 날짜칸은 Enter, Tab(blur)으로 저장, Esc는 취소.
+- v0.4.35(`7cc1706`)에서 수정.
+- 알려진 한계: 실제 브라우저에서 직접 누르지 않았고(jsdom 테스트), 저장 실패 시 오류 표시는 테스트로만 확인함.
