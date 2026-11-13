@@ -7,10 +7,8 @@ import { deriveBowelGroups, type BowelRow } from "@/features/health/model/bowel-
 import type { HealthTableOccurrence } from "@/features/health/model/health-model";
 import { defaultHealthTableSettings, healthBowelFilterSelectOptions } from "@/features/health/model/health-table-views";
 import { BowelCreateDialog } from "@/features/health/ui/BowelCreateDialog";
-import { BowelDetail } from "@/features/health/ui/BowelDetail";
 import { BowelTable } from "@/features/health/ui/BowelTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
-import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type BowelPanelProps = {
@@ -26,7 +24,7 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   refreshWarning, refreshPending, onRetryRefresh }: BowelPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detailRow, setDetailRow] = useState<BowelRow | null>(null);
+  const [editRow, setEditRow] = useState<BowelRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -48,23 +46,6 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   const selectedVisibleIds = useMemo(() => visibleRows
     .filter(({ id }) => selectedIds.includes(id)).map(({ id }) => id), [selectedIds, visibleRows]);
 
-  const currentDetailRow = detailRow ? resolveDetail(detailRow, entries) : null;
-  const detailHistory = useBrowserDetailHistory({
-    stateKey: "__ravenHealthBowelDetailId",
-    currentId: currentDetailRow?.id ?? null,
-    resolve: (id) => activeRows.find((row) => row.id === id) ?? null,
-    open: (row) => {
-      if (detailOriginRef.current?.rowId !== row.id) {
-        detailOriginRef.current = { occurrence: "", rowId: row.id };
-      }
-      setDetailRow(row);
-    },
-    close: () => {
-      setDetailRow(null);
-      restoreDetailFocus();
-    },
-    clearOnUnmount: true,
-  });
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -72,11 +53,7 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (detailRow && !activeIds.has(detailRow.id) && !detailHistory.dirty) {
-      setDetailRow(null);
-      restoreDetailFocus();
-    }
-  }, [activeRows, detailRow]);
+  }, [activeRows]);
 
   function restoreDetailFocus() {
     requestAnimationFrame(() => {
@@ -132,23 +109,14 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
   }
 
   function openCreate() {
-    setDetailRow(null);
+    setEditRow(null);
     setCreateOpen(true);
   }
 
   function openDetail(row: BowelRow, occurrence: string) {
     setCreateOpen(false);
     detailOriginRef.current = { occurrence, rowId: row.id };
-    setDetailRow(row);
-  }
-
-  if (currentDetailRow) {
-    return <BowelDetail key={currentDetailRow.id} controller={controller} row={currentDetailRow}
-      detailHistory={detailHistory} onArchived={(warning) => {
-        detailHistory.setDirty(false);
-        detailHistory.requestBack();
-        markArchived(currentDetailRow.id, warning);
-      }} />;
+    setEditRow(resolveDetail(row, entries));
   }
 
   return <section ref={tableRef} aria-labelledby="health-bowel-heading">
@@ -171,6 +139,8 @@ export function BowelPanel({ controller, tombstonedIds, onArchiveCommitted,
         {controller.state.bowelError}</p> : null}
     {archiveError && archiveTargets === null
       ? <p role="alert" className="items-message">{archiveError}</p> : null}
+    {editRow ? <BowelCreateDialog key={editRow.id} controller={controller} row={editRow}
+      onClose={() => { setEditRow(null); restoreDetailFocus(); }} /> : null}
     {createOpen ? <BowelCreateDialog controller={controller} onClose={() => setCreateOpen(false)}
       returnFocusRef={addButtonRef} /> : null}
     {archiveTargets ? <DestructiveConfirmationDialog title="Archive selected bowel entries?"

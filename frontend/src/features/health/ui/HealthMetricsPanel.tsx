@@ -7,10 +7,8 @@ import { deriveHealthMetricsGroups, type HealthMetricsRow } from "@/features/hea
 import type { HealthTableOccurrence } from "@/features/health/model/health-model";
 import { defaultHealthTableSettings } from "@/features/health/model/health-table-views";
 import { HealthMetricsCreateDialog } from "@/features/health/ui/HealthMetricsCreateDialog";
-import { HealthMetricsDetail } from "@/features/health/ui/HealthMetricsDetail";
 import { HealthMetricsTable } from "@/features/health/ui/HealthMetricsTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
-import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type HealthMetricsPanelProps = {
@@ -28,7 +26,7 @@ export function HealthMetricsPanel({
 }: HealthMetricsPanelProps) {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detailRow, setDetailRow] = useState<HealthMetricsRow | null>(null);
+  const [editRow, setEditRow] = useState<HealthMetricsRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<HealthMetricsRow[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -48,20 +46,6 @@ export function HealthMetricsPanel({
   const visibleRows = useMemo(() => uniqueRows(groups.flatMap(({ rows }) => rows)), [groups]);
   const selectedVisibleRows = visibleRows.filter(({ date }) => selectedDates.includes(date));
 
-  const currentDetailRow = detailRow ? resolveDetail(detailRow, entries) : null;
-  const detailHistory = useBrowserDetailHistory({
-    stateKey: "__ravenHealthMetricsDetailDate",
-    currentId: currentDetailRow?.date ?? null,
-    resolve: (date) => activeRows.find((row) => row.date === date) ?? null,
-    open: (row) => {
-      if (detailOriginRef.current?.date !== row.date) {
-        detailOriginRef.current = { occurrence: "", date: row.date };
-      }
-      setDetailRow(row);
-    },
-    close: () => { setDetailRow(null); restoreDetailFocus(); },
-    clearOnUnmount: true,
-  });
 
   useEffect(() => {
     const activeDates = new Set(activeRows.map(({ date }) => date));
@@ -69,10 +53,6 @@ export function HealthMetricsPanel({
       const next = current.filter((date) => activeDates.has(date));
       return next.length === current.length ? current : next;
     });
-    if (detailRow && !activeDates.has(detailRow.date) && !detailHistory.dirty) {
-      setDetailRow(null);
-      restoreDetailFocus();
-    }
   }, [activeRows]);
 
   function restoreDetailFocus() {
@@ -134,25 +114,14 @@ export function HealthMetricsPanel({
   }
 
   function openCreate() {
-    setDetailRow(null);
+    setEditRow(null);
     setCreateOpen(true);
   }
 
   function openDetail(row: HealthMetricsRow, occurrence: string) {
     setCreateOpen(false);
     detailOriginRef.current = { occurrence, date: row.date };
-    setDetailRow(row);
-  }
-
-  if (currentDetailRow) {
-    return <HealthMetricsDetail key={currentDetailRow.date} controller={controller}
-      row={currentDetailRow} detailHistory={detailHistory}
-      onSaved={(date) => { detailOriginRef.current = { occurrence: "", date }; }}
-      onArchived={(warning) => {
-        detailHistory.setDirty(false);
-        detailHistory.requestBack();
-        markArchived(currentDetailRow, warning);
-      }} />;
+    setEditRow(resolveDetail(row, entries));
   }
 
   return <section ref={tableRef} aria-labelledby="health-metrics-heading">
@@ -175,6 +144,9 @@ export function HealthMetricsPanel({
         {controller.state.metricsError}</p> : null}
     {archiveError && archiveTargets === null
       ? <p role="alert" className="items-message">{archiveError}</p> : null}
+    {editRow ? <HealthMetricsCreateDialog key={editRow.date} controller={controller}
+      metricsEntries={entries} row={editRow}
+      onClose={() => { setEditRow(null); restoreDetailFocus(); }} /> : null}
     {createOpen ? <HealthMetricsCreateDialog controller={controller} metricsEntries={entries}
       onClose={() => setCreateOpen(false)} returnFocusRef={addButtonRef} /> : null}
     {archiveTargets ? <DestructiveConfirmationDialog title="Archive selected health metrics?"

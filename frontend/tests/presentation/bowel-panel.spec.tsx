@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render,  screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,11 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { healthApi } from "@/features/health/api/health-api";
 import {
   HealthMutationRefreshError,
-  useHealthController,
 } from "@/features/health/hooks/useHealthController";
 import type {
-  EventInput,
-  EventUpdate,
   HealthEvent,
 } from "@/features/health/model/health-model";
 import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
@@ -36,12 +33,6 @@ const event: HealthEvent = {
   updatedAt: "2026-08-19T01:00:00Z",
   deletedAt: null,
 };
-const input: EventInput = {
-  occurredAt: event.occurredAt,
-  details: { kind: "bowel", bristolScale: 4, bloodVisible: false },
-};
-const update: EventUpdate = { note: "updated" };
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -50,64 +41,6 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
-}
-
-function controlHistoryForward() {
-  const forward = window.history.forward.bind(window.history);
-  const pending: Array<() => void> = [];
-  const spy = vi.spyOn(window.history, "forward").mockImplementation(() => {
-    pending.push(forward);
-  });
-  return {
-    spy,
-    async releaseNext() {
-      const next = pending.shift();
-      if (!next) throw new Error("No pending history.forward() call");
-      const popped = new Promise<void>((resolve) => {
-        window.addEventListener("popstate", () => resolve(), { once: true });
-      });
-      await act(async () => {
-        next();
-        await popped;
-      });
-    },
-  };
-}
-
-function mockBaseReads() {
-  vi.spyOn(healthApi, "listDiet").mockResolvedValue([]);
-  vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
-  vi.spyOn(healthApi, "reports").mockResolvedValue({} as never);
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
-}
-
-type Reads = {
-  bowel: ReturnType<typeof deferred<HealthEvent[]>>;
-};
-
-function reads(): Reads {
-  return {
-    bowel: deferred<HealthEvent[]>(),
-  };
-}
-
-function resolveReads(set: Reads, entries: HealthEvent[] = []) {
-  set.bowel.resolve(entries);
-}
-
-function mockOverlappingReads() {
-  const older = reads();
-  const newer = reads();
-  vi.mocked(healthApi.listEvents).mockReset()
-    .mockImplementationOnce(() => older.bowel.promise)
-    .mockImplementationOnce(() => newer.bowel.promise);
-  return { older, newer };
-}
-
-async function mountedController() {
-  const hook = renderHook(() => useHealthController());
-  await waitFor(() => expect(hook.result.current.state.bowelStatus).toBe("loaded"));
-  return hook;
 }
 
 describe("Health Bowel paging", () => {
@@ -199,15 +132,65 @@ function BowelPanelHarness({ controller }: { controller: HealthController }) {
 describe("Bowel table workflow", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("opens Bowel detail and Add immediately without history preload", async () => {
+  const rowName = /Open details for Type 4/;
+  async function openEdit(user: ReturnType<typeof userEvent.setup>, health = panelController()) {
+    const view = render(<BowelPanelHarness controller={health} />);
+    await user.click(screen.getByRole("row", { name: rowName }));
+    return { health, view, dialog: screen.getByRole("dialog", { name: "Edit bowel entry" }) };
+  }
+
+  it("opens the Add popup in edit mode, pre-filled, from click, Enter, and Space", async () => {
     const user = userEvent.setup();
-    const health = panelController();
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    expect(screen.getByRole("heading", { name: "Bowel · Type 4" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await screen.findByRole("button", { name: "Add bowel entry" });
-    await user.click(screen.getByRole("button", { name: "Add bowel entry" }));
+    const { dialog, health } = await openEdit(user);
+    expect(within(dialog).getByRole("heading", { name: "Edit bowel entry" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Bristol Scale")).toHaveValue("4");
+    expect(within(dialog).getByLabelText("Blood Visible")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("Note")).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "Close Edit bowel entry" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(within(dialog).queryByRole("button", { name: /Undo|Redo|Delete/ })).toBeNull();
+    expect(health.ensureReferenceData).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const row = screen.getByRole("row", { name: rowName });
+    await waitFor(() => expect(row).toHaveFocus());
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("dialog", { name: "Edit bowel entry" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(row).toHaveFocus());
+    await user.keyboard(" ");
+    expect(screen.getByRole("dialog", { name: "Edit bowel entry" })).toBeInTheDocument();
+  });
+
+  it("closes a clean popup with the Close button and returns focus to the row", async () => {
+    const user = userEvent.setup();
+    await openEdit(user);
+    await user.click(screen.getByRole("button", { name: "Close Edit bowel entry" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("row", { name: rowName })).toHaveFocus());
+  });
+
+  it("asks before Escape discards a dirty popup", async () => {
+    const user = userEvent.setup();
+    await openEdit(user);
+    await user.type(screen.getByLabelText("Note"), "changed");
+    await user.keyboard("{Escape}");
+    const confirm = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Note")).toHaveValue("changed");
+    await user.keyboard("{Escape}");
+    await user.click(within(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
+      .getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("row", { name: rowName })).toHaveFocus());
+  });
+
+  it("opens Add immediately after closing the edit popup", async () => {
+    const user = userEvent.setup();
+    const { health } = await openEdit(user);
+    await user.click(screen.getByRole("button", { name: "Close Edit bowel entry" }));
+    await user.click(await screen.findByRole("button", { name: "Add bowel entry" }));
     expect(screen.getByRole("dialog", { name: "Add bowel entry" })).toBeInTheDocument();
     expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
@@ -286,208 +269,18 @@ describe("Bowel table workflow", () => {
     expect(toggle).toHaveBeenCalledWith(event.id);
   });
 
-  it("edits a Bowel entry with canonical dirty state and a minimal optimistic patch", async () => {
+  it("edits a Bowel entry and sends a minimal patch with the current version", async () => {
     const user = userEvent.setup();
-    const health = panelController();
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
-    expect([...screen.getByRole("region", { name: "Edit bowel properties" }).children]
-      .map((node) => node.firstChild?.textContent?.trim()))
-      .toEqual(["Time", "Bristol Scale", "Blood Visible", "Note"]);
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(save).toBeDisabled();
+    const { health } = await openEdit(user);
     await user.selectOptions(screen.getByLabelText("Bristol Scale"), "7");
     await user.click(screen.getByLabelText("Blood Visible"));
-    await user.click(save);
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(health.updateBowel).toHaveBeenCalledWith("bowel-1", {
       details: { kind: "bowel", bristolScale: 7, bloodVisible: true },
       expectedUpdatedAt: event.updatedAt,
     }));
-  });
-
-  it("keeps the detail draft and returns focus to Delete after archive failure", async () => {
-    const user = userEvent.setup();
-    const health = panelController();
-    health.archiveBowel = vi.fn().mockRejectedValue(new Error("Archive failed"));
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    await user.type(screen.getByLabelText("Note"), "draft");
-    const remove = screen.getByRole("button", { name: "Delete" });
-    await user.click(remove);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByLabelText("Note")).toHaveValue("draft");
-    expect(screen.getByRole("alert")).toHaveTextContent("Archive failed");
-    await waitFor(() => expect(remove).toHaveFocus());
-    expect(health.archiveBowel).toHaveBeenCalledOnce();
-  });
-
-  it("renders the exact Bowel detail contract and supports row, button, and checkbox interaction", async () => {
-    const user = userEvent.setup();
-    const distinct = { ...event, createdAt: "2026-08-18T01:00:00Z" };
-    render(<BowelPanelHarness controller={panelController({ ...loadedState, bowelEntries: [distinct] })} />);
-    const checkbox = screen.getByRole("checkbox", { name: /Select Type 4/ });
-    await user.click(checkbox);
-    checkbox.focus();
-    await user.keyboard("{Enter} ");
-    expect(screen.queryByText("Bowel entry details")).toBeNull();
-    await user.click(screen.getByText("Type 4"));
-    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Bowel · Type 4" })).toBeInTheDocument();
-    expect(screen.getByText(`Created ${new Date(distinct.createdAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`)).toBeInTheDocument();
-    expect(screen.getByText(`Updated ${new Date(distinct.updatedAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`)).toBeInTheDocument();
-    const header = screen.getByRole("region", { name: "Edit bowel properties" })
-      .closest(".detail-view")!.querySelector("header")!;
-    expect(within(header).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
-      .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
-    expect(within(header).getByRole("button", { name: "Undo" })).toHaveAttribute("title", "Undo (Ctrl/Cmd+Z)");
-    expect(within(header).getByRole("button", { name: "Redo" })).toHaveAttribute("title", "Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    const open = await screen.findByRole("row", { name: /Open details for Type 4/ });
-    await waitFor(() => expect(open).toHaveFocus());
-    open.focus();
-    await user.keyboard("{Enter}");
-    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
-  });
-
-  it("uses one browser entry for clean Back/Forward without a push loop", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({ preserved: "bowel" }, "");
-    const pushState = vi.spyOn(window.history, "pushState");
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    expect(pushState).toHaveBeenCalledOnce();
-    expect(window.history.state).toMatchObject({ preserved: "bowel", __ravenHealthBowelDetailId: event.id });
-    act(() => window.history.back());
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-    act(() => window.history.forward());
-    await screen.findByText("Bowel entry details");
-    expect(pushState).toHaveBeenCalledOnce();
-  });
-
-  it("repairs dirty browser Back on cancel and discards without a loop", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({}, "");
-    const pushState = vi.spyOn(window.history, "pushState");
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    await user.type(screen.getByLabelText("Note"), "draft");
-    act(() => window.history.back());
-    const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
-    expect(screen.getByLabelText("Note")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save", hidden: true })).toBeDisabled();
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "< Back" })).toHaveFocus());
-    expect(screen.getByLabelText("Note")).toHaveValue("draft");
-    act(() => window.history.back());
-    await user.click(within(await screen.findByRole("dialog", { name: "Discard unsaved changes?" }))
-      .getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-    expect(pushState).toHaveBeenCalledOnce();
-  });
-
-  it("repairs dirty browser Forward on cancel and confirm with Back focus", async () => {
-    const user = userEvent.setup();
-    window.history.pushState({ historySide: "back" }, "");
-    const back = vi.spyOn(window.history, "back");
-    const forward = vi.spyOn(window.history, "forward");
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    window.history.pushState({
-      ...window.history.state,
-      __ravenHealthBowelDetailId: null,
-      __ravenHealthBowelDetailId__index:
-        (window.history.state.__ravenHealthBowelDetailId__index as number) + 1,
-      historySide: "forward",
-    }, "");
-    act(() => window.history.back());
-    await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBe(event.id));
-    await user.type(screen.getByLabelText("Note"), "forward draft");
-
-    act(() => window.history.forward());
-    let dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "< Back" })).toHaveFocus());
-    expect(screen.getByLabelText("Note")).toHaveValue("forward draft");
-
-    act(() => window.history.forward());
-    dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
-    await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-    await waitFor(() => expect(window.history.state).toMatchObject({
-      __ravenHealthBowelDetailId: null,
-      historySide: "forward",
-    }));
-    expect(forward).toHaveBeenCalledTimes(3);
-    expect(back).toHaveBeenCalledTimes(3);
-  });
-
-  it("normalizes a stale Forward ID independently of tombstones", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({ preserved: "stale-id" }, "");
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    act(() => window.history.back());
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-    act(() => window.history.forward());
-    await screen.findByText("Bowel entry details");
-    window.history.replaceState({ ...window.history.state,
-      __ravenHealthBowelDetailId: "missing-bowel" }, "");
-    act(() => window.history.back());
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.history.state).toMatchObject({
-      preserved: "stale-id", __ravenHealthBowelDetailId: null,
-    }));
-    expect(screen.queryByText("Bowel entry details")).toBeNull();
-  });
-
-  it("normalizes stale or tombstoned Forward history without reopening", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({ preserved: "stale" }, "");
-    const health = panelController();
-    const view = render(<BowelPanel controller={health} tombstonedIds={new Set()}
-      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
-      onRetryRefresh={vi.fn()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    act(() => window.history.back());
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-    view.rerender(<BowelPanel controller={health} tombstonedIds={new Set([event.id])}
-      onArchiveCommitted={vi.fn()} refreshWarning={null} refreshPending={false}
-      onRetryRefresh={vi.fn()} />);
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBeNull());
-    expect(screen.queryByText("Bowel entry details")).toBeNull();
-  });
-
-  it("closes save through one history entry and restores focus by row ID when occurrence changes", async () => {
-    const user = userEvent.setup();
-    window.history.pushState({}, "");
-    const pushState = vi.spyOn(window.history, "pushState");
-    const saved = deferred<void>();
-    const grouped = defaultHealthTableSettings("health.bowel");
-    grouped.groupSettings = { ...grouped.groupSettings, groupBy: "day" };
-    const health = panelController(loadedState, grouped);
-    health.updateBowel = vi.fn(() => saved.promise);
-    const view = render(<BowelPanelHarness controller={health} />);
-    const origin = screen.getByRole("row", { name: /Open details for Type 4/ });
-    const oldOccurrence = origin.dataset.bowelOccurrence;
-    await user.click(origin);
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-20T10:00" } });
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    const refreshed = { ...event, occurredAt: "2026-08-20T01:00:00Z",
-      updatedAt: "2026-08-20T01:01:00Z" };
-    view.rerender(<BowelPanelHarness controller={{ ...health,
-      state: { ...health.state, bowelEntries: [refreshed] } }} />);
-    await act(async () => saved.resolve());
-    const row = await screen.findByRole("row", { name: /Open details for Type 4/ });
-    expect(row.dataset.bowelOccurrence).not.toBe(oldOccurrence);
-    await waitFor(() => expect(row).toHaveFocus());
-    expect(pushState).toHaveBeenCalledOnce();
-    act(() => window.history.forward());
-    await screen.findByText("Bowel entry details");
-    expect(pushState).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.getByRole("row", { name: rowName })).toHaveFocus());
   });
 
   it.each([
@@ -497,9 +290,7 @@ describe("Bowel table workflow", () => {
     ["note", "note", "  changed  ", () => ({ note: "changed" })],
   ] as const)("sends one minimal %s-only patch", async (_name, field, value, expected) => {
     const user = userEvent.setup();
-    const health = panelController();
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    const { health } = await openEdit(user);
     const input = screen.getByLabelText(field === "bristolScale" ? "Bristol Scale"
       : field === "bloodVisible" ? "Blood Visible" : field === "occurredAt" ? "Time" : "Note");
     if (field === "bristolScale") await user.selectOptions(input, value as string);
@@ -510,16 +301,16 @@ describe("Bowel table workflow", () => {
       ...expected(value as string), expectedUpdatedAt: event.updatedAt,
     }));
     expect(health.updateBowel).toHaveBeenCalledOnce();
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("row", { name: rowName })).toHaveFocus());
   });
 
-  it("freezes the opened draft and optimistic version across a same-ID refresh", async () => {
+  it("freezes the opened values and version across a same-ID refresh", async () => {
     const user = userEvent.setup();
     const saved = deferred<void>();
     const health = panelController();
     health.updateBowel = vi.fn(() => saved.promise);
-    const view = render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    const { view } = await openEdit(user, health);
     await user.type(screen.getByLabelText("Note"), "user edit");
     const refreshed = { ...event, occurredAt: "2026-08-20T03:00:00Z", updatedAt: "2026-08-20T03:01:00Z",
       attributes: { kind: "bowel" as const, bristolScale: 7, bloodVisible: true } };
@@ -534,136 +325,66 @@ describe("Bowel table workflow", () => {
     await act(async () => saved.resolve());
   });
 
-  it("treats whitespace and equivalent local time as canonical no-ops and offers Type 1 through 7", async () => {
+  it("treats whitespace and equivalent local time as no-ops: Save closes without a request", async () => {
     const user = userEvent.setup();
-    const health = panelController();
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    const { health } = await openEdit(user);
     const time = screen.getByLabelText("Time") as HTMLInputElement;
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "   " } });
     fireEvent.change(time, { target: { value: time.value.length === 16 ? `${time.value}:00` : time.value.slice(0, 16) } });
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(within(screen.getByLabelText("Bristol Scale")).getAllByRole("option")
       .map((option) => option.textContent)).toEqual([
         "Type 1", "Type 2", "Type 3", "Type 4", "Type 5", "Type 6", "Type 7",
       ]);
-    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "1");
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "7");
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(health.updateBowel).not.toHaveBeenCalled();
+    expect(health.createBowel).not.toHaveBeenCalled();
   });
 
-  it("coalesces Time and Note, keeps Bristol and blood distinct, and invalidates Redo", async () => {
+  it("rejects a missing Health time without sending or losing the draft", async () => {
     const user = userEvent.setup();
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    const time = screen.getByLabelText("Time");
-    const originalTime = (time as HTMLInputElement).value;
-    fireEvent.change(time, { target: { value: "2026-08-20T09:00" } });
-    fireEvent.change(time, { target: { value: "2026-08-20T10:00" } });
-    fireEvent.blur(time);
-    const note = screen.getByLabelText("Note");
-    await user.type(note, "abc");
-    fireEvent.blur(note);
-    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "5");
-    await user.click(screen.getByLabelText("Blood Visible"));
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Blood Visible")).not.toBeChecked();
-    await user.click(screen.getByRole("button", { name: "Redo" }));
-    expect(screen.getByLabelText("Blood Visible")).toBeChecked();
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("4");
-    fireEvent.keyDown(window, { key: "z", metaKey: true });
-    expect(note).toHaveValue("");
-    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
-    expect(note).toHaveValue("abc");
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    expect(time).toHaveValue(originalTime);
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
-    expect(note).toHaveValue("abc");
-    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
-    expect(screen.getByLabelText("Bristol Scale")).toHaveValue("5");
-    await user.selectOptions(screen.getByLabelText("Bristol Scale"), "6");
-    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
-  });
-
-  it("caps all distinct draft history pushes at 50 and retains the newest states", async () => {
-    const user = userEvent.setup();
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    const blood = screen.getByLabelText("Blood Visible");
-    for (let index = 0; index < 52; index += 1) fireEvent.click(blood);
-    for (let index = 0; index < 50; index += 1) {
-      await user.click(screen.getByRole("button", { name: "Undo" }));
-    }
-    expect(blood).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
-  });
-
-  it("rejects a missing Health time without losing the draft", async () => {
-    vi.stubEnv("TZ", "America/New_York");
-    const user = userEvent.setup();
-    const health = panelController();
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    const { health } = await openEdit(user);
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "keep" } });
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "" } });
-    expect(screen.getByRole("alert")).toHaveTextContent("Time must be a valid local date and time");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(health.updateBowel).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Edit bowel entry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Note")).toHaveValue("keep");
     expect(screen.getByLabelText("Time")).toHaveValue("");
-    vi.unstubAllEnvs();
   });
 
-  it("keeps draft/history after one ordinary update failure and saves exactly once per action", async () => {
+  it("keeps the draft after an ordinary update failure and allows a retry", async () => {
     const user = userEvent.setup();
     const health = panelController();
     health.updateBowel = vi.fn().mockRejectedValueOnce(new Error("Save failed"));
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    await openEdit(user, health);
     await user.type(screen.getByLabelText("Note"), "draft");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Save failed");
+    expect(screen.getByRole("dialog", { name: "Edit bowel entry" })).toBeInTheDocument();
     expect(screen.getByLabelText("Note")).toHaveValue("draft");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Note")).toHaveValue("");
     expect(health.updateBowel).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(health.updateBowel).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("blocks invalid, IME, pending, and confirmation shortcuts and duplicate actions", async () => {
+  it("locks fields and Close while a save is pending and ignores Escape", async () => {
     const user = userEvent.setup();
     const saved = deferred<void>();
     const health = panelController();
     health.updateBowel = vi.fn(() => saved.promise);
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "" } });
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-    expect(health.updateBowel).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-20T10:00" } });
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true, isComposing: true });
-    expect(health.updateBowel).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    expect(health.updateBowel).not.toHaveBeenCalled();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
-    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    await openEdit(user, health);
+    await user.type(screen.getByLabelText("Note"), "x");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(health.updateBowel).toHaveBeenCalledOnce());
-    for (const name of ["< Back", "Undo", "Redo", "Save", "Delete"]) {
-      expect(screen.getByRole("button", { name })).toBeDisabled();
-    }
     expect(screen.getByLabelText("Time")).toBeDisabled();
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
-    expect(health.updateBowel).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Close Edit bowel entry" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Edit bowel entry" })).toBeInTheDocument();
     await act(async () => saved.resolve());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(health.updateBowel).toHaveBeenCalledOnce();
   });
 
   it("freezes committed-update recovery, retries Bowel reads false then true, and never resubmits", async () => {
@@ -671,288 +392,32 @@ describe("Bowel table workflow", () => {
     const health = panelController();
     health.updateBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
     health.refreshBowel = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
+    await openEdit(user, health);
     await user.type(screen.getByLabelText("Note"), "saved");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
     for (const label of ["Time", "Bristol Scale", "Blood Visible", "Note"]) {
       expect(screen.getByLabelText(label)).toBeDisabled();
     }
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
     expect(screen.getByLabelText("Note")).toHaveValue("saved");
     expect(health.updateBowel).toHaveBeenCalledOnce();
-    await user.click(screen.getByRole("button", { name: "Retry" }));
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(health.refreshBowel).toHaveBeenCalledTimes(2);
     expect(health.updateBowel).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.getByRole("row", { name: rowName })).toHaveFocus());
   });
 
-  it("defers pending save completion until browser Back restoration settles", async () => {
+  it("keeps an open edit popup while authoritative truth changes", async () => {
     const user = userEvent.setup();
-    window.history.pushState({}, "");
-    const controlledForward = controlHistoryForward();
-    const saved = deferred<void>();
     const health = panelController();
-    health.updateBowel = vi.fn(() => saved.promise);
-    render(<BowelPanelHarness controller={health} />);
-    const origin = screen.getByRole("row", { name: /Open details for Type 4/ });
-    await user.click(origin);
-    await user.type(screen.getByLabelText("Note"), "saved during restoration");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    act(() => window.history.back());
-    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
-    await act(async () => saved.resolve());
-    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-
-    await controlledForward.releaseNext();
-    const restoredOrigin = await screen.findByRole("row", { name: /Open details for Type 4/ });
-    await waitFor(() => expect(restoredOrigin).toHaveFocus());
-    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-    expect(health.updateBowel).toHaveBeenCalledOnce();
-  });
-
-  it.each(["ordinary", "committed"] as const)(
-    "defers %s save failure state until browser Back restoration settles",
-    async (outcome) => {
-      const user = userEvent.setup();
-      window.history.pushState({}, "");
-      const controlledForward = controlHistoryForward();
-      const saved = deferred<void>();
-      const health = panelController();
-      health.updateBowel = vi.fn(() => saved.promise);
-      render(<BowelPanelHarness controller={health} />);
-      await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-      await user.type(screen.getByLabelText("Note"), "failure draft");
-      await user.click(screen.getByRole("button", { name: "Save" }));
-
-      act(() => window.history.back());
-      await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
-      await act(async () => outcome === "ordinary"
-        ? saved.reject(new Error("Save unavailable"))
-        : saved.reject(new HealthMutationRefreshError()));
-      expect(screen.queryByRole("alert")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-      expect(screen.getByLabelText("Note")).toBeDisabled();
-      fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-      expect(screen.getByRole("button", { name: "< Back" })).toBeDisabled();
-      fireEvent.click(screen.getByRole("button", { name: "< Back" }));
-      expect(health.updateBowel).toHaveBeenCalledOnce();
-
-      await controlledForward.releaseNext();
-      const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(outcome === "ordinary"
-        ? "Save unavailable" : "Changes were saved, but Health could not refresh.");
-      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-      if (outcome === "ordinary") {
-        expect(screen.getByLabelText("Note")).toBeEnabled();
-        expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-      } else {
-        expect(screen.getByLabelText("Note")).toBeDisabled();
-        expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
-      }
-    },
-  );
-
-  it("defers refresh recovery Retry=false unlock until browser Back restoration settles", async () => {
-    const user = userEvent.setup();
-    window.history.pushState({}, "");
-    const controlledForward = controlHistoryForward();
-    const refreshed = deferred<boolean>();
-    const health = panelController();
-    health.updateBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
-    health.refreshBowel = vi.fn(() => refreshed.promise);
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    await user.type(screen.getByLabelText("Note"), "committed draft");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
-
-    act(() => window.history.back());
-    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
-    await act(async () => refreshed.resolve(false));
-    expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
-    expect(screen.getByLabelText("Note")).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(screen.getByRole("button", { name: "< Back" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "< Back" }));
-    expect(health.refreshBowel).toHaveBeenCalledOnce();
-
-    await controlledForward.releaseNext();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled());
-    expect(screen.getByLabelText("Note")).toBeDisabled();
-    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-    expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
-  });
-
-  it("defers archive cancellation until browser Back restoration settles", async () => {
-    const user = userEvent.setup();
-    window.history.pushState({}, "");
-    const controlledForward = controlHistoryForward();
-    render(<BowelPanelHarness controller={panelController()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    const dialog = screen.getByRole("dialog", { name: /Archive Bowel/ });
-
-    act(() => window.history.back());
-    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(dialog).toBeInTheDocument();
-
-    await controlledForward.releaseNext();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Archive Bowel/ })).toBeNull());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-  });
-
-  it.each(["ordinary", "committed"] as const)(
-    "defers %s archive success until browser Back restoration settles",
-    async (outcome) => {
-      const user = userEvent.setup();
-      window.history.pushState({}, "");
-      const controlledForward = controlHistoryForward();
-      const archived = deferred<void>();
-      const health = panelController();
-      health.archiveBowel = vi.fn(() => archived.promise);
-      render(<BowelPanelHarness controller={health} />);
-      await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-      await user.click(screen.getByRole("button", { name: "Delete" }));
-      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
-
-      act(() => window.history.back());
-      await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
-      await act(async () => outcome === "ordinary"
-        ? archived.resolve()
-        : archived.reject(new HealthMutationRefreshError()));
-      expect(screen.getByText("Bowel entry details")).toBeInTheDocument();
-      expect(screen.getByRole("dialog", { name: /Archive Bowel/ })).toBeInTheDocument();
-
-      await controlledForward.releaseNext();
-      await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
-      await waitFor(() => expect(screen.getByRole("button", { name: "Add bowel entry" })).toHaveFocus());
-      expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-      expect(health.archiveBowel).toHaveBeenCalledOnce();
-    },
-  );
-
-  it("defers ordinary archive failure cleanup until browser Back restoration settles", async () => {
-    const user = userEvent.setup();
-    window.history.pushState({}, "");
-    const controlledForward = controlHistoryForward();
-    const archived = deferred<void>();
-    const health = panelController();
-    health.archiveBowel = vi.fn(() => archived.promise);
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
-
-    act(() => window.history.back());
-    await waitFor(() => expect(controlledForward.spy).toHaveBeenCalledOnce());
-    await act(async () => archived.reject(new Error("Archive unavailable")));
-    expect(screen.getByRole("dialog", { name: /Archive Bowel/ })).toBeInTheDocument();
-
-    await controlledForward.releaseNext();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Archive unavailable");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Archive Bowel/ })).toBeNull());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus());
-    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await screen.findByRole("row", { name: /Open details for Type 4/ });
-  });
-
-  it("uses exact clean/dirty archive copy, cancel focus, and ordinary-success history cleanup", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({}, "");
-    const health = panelController();
-    const pushState = vi.spyOn(window.history, "pushState");
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    const remove = screen.getByRole("button", { name: "Delete" });
-    await user.click(remove);
-    expect(screen.getByRole("dialog", { name: "Archive Bowel · Type 4?" }))
-      .toHaveTextContent("Move this bowel entry to Archive?");
-    expect(screen.getByRole("dialog")).not.toHaveTextContent("Unsaved changes");
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(remove).toHaveFocus());
+    const { view } = await openEdit(user, health);
     await user.type(screen.getByLabelText("Note"), "draft");
-    await user.click(remove);
-    expect(screen.getByRole("dialog")).toHaveTextContent(
-      "Move this bowel entry to Archive? Unsaved changes will be discarded.",
-    );
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
-    await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
-    expect(health.archiveBowel).toHaveBeenCalledOnce();
-    expect(pushState).toHaveBeenCalledOnce();
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBeNull());
-  });
-
-  it("treats committed detail archive as success and retries without repeating it", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({}, "");
-    const pushState = vi.spyOn(window.history, "pushState");
-    const health = panelController();
-    health.archiveBowel = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
-    health.refreshBowel = vi.fn().mockResolvedValue(true);
-    render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Changes were saved, but Health could not refresh.");
-    const add = screen.getByRole("button", { name: "Add bowel entry" });
-    await waitFor(() => expect(add).toHaveFocus());
-    expect(pushState).toHaveBeenCalledOnce();
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.history.state.__ravenHealthBowelDetailId).toBeNull());
-    expect(screen.queryByText("Bowel entry details")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Retry" }));
-    expect(health.refreshBowel).toHaveBeenCalledOnce();
-    expect(health.archiveBowel).toHaveBeenCalledOnce();
-  });
-
-  it.each(["Time", "Bristol Scale", "Blood Visible"])(
-    "restores stable row focus after saving an edit to %s",
-    async (label) => {
-      const user = userEvent.setup();
-      const health = panelController();
-      render(<BowelPanelHarness controller={health} />);
-      await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-      if (label === "Time") {
-        fireEvent.change(screen.getByLabelText(label), { target: { value: "2026-08-20T10:00" } });
-      } else if (label === "Bristol Scale") {
-        await user.selectOptions(screen.getByLabelText(label), "7");
-      } else await user.click(screen.getByLabelText(label));
-      await user.click(screen.getByRole("button", { name: "Save" }));
-      const row = await screen.findByRole("row", { name: /Open details for Type 4/ });
-      await waitFor(() => expect(row).toHaveFocus());
-    },
-  );
-
-  it("exits an open detail when authoritative active truth removes it", async () => {
-    const user = userEvent.setup();
-    const health = panelController();
-    const view = render(<BowelPanelHarness controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
     view.rerender(<BowelPanelHarness controller={{ ...health,
       state: { ...health.state, bowelEntries: [] } }} />);
-    await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add bowel entry" })).toHaveFocus());
-  });
-
-  it("exits a tombstoned open detail and falls back to Add focus", async () => {
-    const user = userEvent.setup();
-    const health = panelController();
-    const props = { controller: health, onArchiveCommitted: vi.fn(), refreshWarning: null,
-      refreshPending: false, onRetryRefresh: vi.fn() };
-    const view = render(<BowelPanel {...props} tombstonedIds={new Set()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    view.rerender(<BowelPanel {...props} tombstonedIds={new Set([event.id])} />);
-    await waitFor(() => expect(screen.queryByText("Bowel entry details")).toBeNull());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add bowel entry" })).toHaveFocus());
+    expect(screen.getByRole("dialog", { name: "Edit bowel entry" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Note")).toHaveValue("draft");
   });
 
   it("scopes saved views and exposes only Bowel filter, sort, and group choices", async () => {

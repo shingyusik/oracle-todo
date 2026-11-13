@@ -25,19 +25,10 @@ export function useModalIsolation(
     if (!active || !dialog) return;
 
     const background = backgroundElements(dialog, scope);
-    const snapshots = background.map((element) => ({
-      element,
-      ariaHidden: attributeSnapshot(element, "aria-hidden"),
-      inert: attributeSnapshot(element, "inert"),
-    }));
-    for (const element of background) {
-      element.setAttribute("aria-hidden", "true");
-      element.setAttribute("inert", "");
-    }
+    for (const element of background) holdIsolation(element);
 
-    const originalOverflow = document.body.style.overflow;
     const locksBody = !dialog.parentElement?.closest('[role="dialog"]');
-    if (locksBody) document.body.style.overflow = "hidden";
+    if (locksBody) holdBodyScrollLock();
     const keepFocusInside = (event: FocusEvent) => {
       if (event.target instanceof Node && !dialog.contains(event.target)) {
         event.stopPropagation();
@@ -48,13 +39,54 @@ export function useModalIsolation(
 
     return () => {
       document.removeEventListener("focusin", keepFocusInside, true);
-      if (locksBody) document.body.style.overflow = originalOverflow;
-      for (const snapshot of snapshots) {
-        restoreAttribute(snapshot.element, "aria-hidden", snapshot.ariaHidden);
-        restoreAttribute(snapshot.element, "inert", snapshot.inert);
-      }
+      if (locksBody) releaseBodyScrollLock();
+      for (const element of background) releaseIsolation(element);
     };
   }, [active, dialogRef, scope]);
+}
+
+// Dialogs can nest or close in the same commit, in any order. Reference counts keep the first
+// snapshot and restore it only when the last dialog holding an element or the body lets go.
+type IsolationHold = {
+  count: number;
+  ariaHidden: AttributeSnapshot;
+  inert: AttributeSnapshot;
+};
+const isolationHolds = new WeakMap<HTMLElement, IsolationHold>();
+let bodyScrollLocks = 0;
+let bodyOverflowBeforeLock = "";
+
+function holdIsolation(element: HTMLElement) {
+  const hold = isolationHolds.get(element) ?? {
+    count: 0,
+    ariaHidden: attributeSnapshot(element, "aria-hidden"),
+    inert: attributeSnapshot(element, "inert"),
+  };
+  hold.count += 1;
+  isolationHolds.set(element, hold);
+  element.setAttribute("aria-hidden", "true");
+  element.setAttribute("inert", "");
+}
+
+function releaseIsolation(element: HTMLElement) {
+  const hold = isolationHolds.get(element);
+  if (!hold) return;
+  hold.count -= 1;
+  if (hold.count > 0) return;
+  isolationHolds.delete(element);
+  restoreAttribute(element, "aria-hidden", hold.ariaHidden);
+  restoreAttribute(element, "inert", hold.inert);
+}
+
+function holdBodyScrollLock() {
+  if (bodyScrollLocks === 0) bodyOverflowBeforeLock = document.body.style.overflow;
+  bodyScrollLocks += 1;
+  document.body.style.overflow = "hidden";
+}
+
+function releaseBodyScrollLock() {
+  bodyScrollLocks = Math.max(0, bodyScrollLocks - 1);
+  if (bodyScrollLocks === 0) document.body.style.overflow = bodyOverflowBeforeLock;
 }
 
 export function focusFirst(dialog: HTMLElement) {

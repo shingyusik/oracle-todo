@@ -1,6 +1,5 @@
 "use client";
 
-import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -14,7 +13,6 @@ import {
 import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { AccountCreateDialog } from "@/features/ledger/ui/AccountCreateDialog";
-import { AccountDetail } from "@/features/ledger/ui/AccountDetail";
 import { AccountSettingsDialog } from "@/features/ledger/ui/AccountSettingsDialog";
 import { AccountsTable } from "@/features/ledger/ui/AccountsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
@@ -33,6 +31,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
   const deleteInFlight = useRef(false);
   const sectionRef = useRef<HTMLElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const rowFocusRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const page = controller.tablePage?.("ledger.accounts") ?? {
@@ -124,23 +123,19 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
     }
   }
 
-  function returnToList() {
-    setSelectedDetailRow(null);
-    requestAnimationFrame(() => sectionRef.current?.focus());
+  function openEditor(row: AccountRow, trigger: HTMLElement) {
+    rowFocusRef.current = trigger;
+    setSelectedDetailRow(row);
   }
 
-  if (selectedDetail) {
-    return (
-      <ReferenceDataBoundary load={controller.ensureAccountFormReferences} onCancel={returnToList}>
-      <AccountDetail
-        controller={controller}
-        row={selectedDetail}
-        onBack={returnToList}
-        onDeleted={returnToList}
-        onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
-      />
-      </ReferenceDataBoundary>
-    );
+  function closeEditor() {
+    detailDirty.current = false;
+    setSelectedDetailRow(null);
+    // The row may have left the table (filtered, archived); keep focus inside the panel.
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) sectionRef.current?.focus();
+    });
   }
 
   return (
@@ -168,7 +163,7 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={setSelectedDetailRow}
+        onOpen={openEditor}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
         page={visibleTablePage(page, controller.state.error)}
@@ -180,6 +175,15 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
           controller={controller}
           onClose={() => setCreateOpen(false)}
           returnFocusRef={addButtonRef}
+        />
+      ) : null}
+      {selectedDetail ? (
+        <AccountCreateDialog
+          controller={controller}
+          record={selectedDetail}
+          onClose={closeEditor}
+          onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
+          returnFocusRef={rowFocusRef}
         />
       ) : null}
       {deleteConfirmationOpen ? (

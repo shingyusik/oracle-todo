@@ -9,9 +9,15 @@ import {
   HealthMutationRefreshError,
   type HealthController,
 } from "@/features/health/hooks/useHealthController";
+import { healthApi } from "@/features/health/api/health-api";
+import type { BowelRow } from "@/features/health/model/bowel-table";
+import type { DietRow } from "@/features/health/model/diet-table";
+import type { MedicationRow } from "@/features/health/model/medication-table";
 import type {
   DietInput,
+  DietUpdate,
   EventInput,
+  EventUpdate,
   HealthEvent,
   MealType,
   MedicationUnit,
@@ -60,17 +66,29 @@ export function DietForm({
   onDirtyChange,
   dialogActions,
   tagOptions,
-}: HealthFormProps & { tagOptions?: readonly string[] }) {
-  const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
-  const [mealType, setMealType] = useState<MealType>("breakfast");
-  const [foodName, setFoodName] = useState("");
-  const [note, setNote] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
+  entry,
+}: HealthFormProps & { tagOptions?: readonly string[]; entry?: DietRow }) {
+  const [baseline] = useState(() => entry && {
+    row: entry,
+    values: {
+      occurredAt: healthLocalDateTime(new Date(entry.entry.occurredAt)),
+      mealType: entry.entry.mealType,
+      foodName: entry.entry.foodName,
+      note: entry.entry.note ?? "",
+      tags: [...entry.entry.tags],
+    },
+  });
+  const [occurredAt, setOccurredAt] = useState(baseline?.values.occurredAt ?? defaultLocalDateTime());
+  const [mealType, setMealType] = useState<MealType>(baseline?.values.mealType ?? "breakfast");
+  const [foodName, setFoodName] = useState(baseline?.values.foodName ?? "");
+  const [note, setNote] = useState(baseline?.values.note ?? "");
+  const [tags, setTags] = useState<string[]>(baseline?.values.tags ?? []);
   const [image, setImage] = useState<File | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
   const imageInput = useRef<HTMLInputElement | null>(null);
-  useDraftDirty([occurredAt, mealType, foodName, note, tags, image], onDirtyChange);
+  useDraftDirty([occurredAt, mealType, foodName, note, tags, image?.name ?? null, removeImage], onDirtyChange);
   const action = useFormAction(onPendingChange);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -87,8 +105,20 @@ export function DietForm({
         note: nullable(note),
         tags,
       };
+      let patch: DietUpdate | null = null;
+      if (baseline) {
+        patch = dietPatch(baseline.row, baseline.values, input, tags, image, removeImage);
+        if (patch === null) {
+          if (action.isMounted()) onSaved?.();
+          return;
+        }
+      }
       try {
-        await controller.createDiet(input, image ?? undefined);
+        if (baseline && patch) {
+          await controller.updateDiet(baseline.row.id, patch, image ?? undefined);
+        } else {
+          await controller.createDiet(input, image ?? undefined);
+        }
       } catch (cause) {
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
@@ -101,11 +131,13 @@ export function DietForm({
         throw cause;
       }
       if (!action.isMounted()) return;
-      setFoodName("");
-      setNote("");
-      setTags([]);
-      setImage(null);
-      if (imageInput.current) imageInput.current.value = "";
+      if (!baseline) {
+        setFoodName("");
+        setNote("");
+        setTags([]);
+        setImage(null);
+        if (imageInput.current) imageInput.current.value = "";
+      }
       onSaved?.();
     });
   }
@@ -171,8 +203,30 @@ export function DietForm({
           ref={imageInput}
           selectedName={image?.name}
           disabled={refreshRecovery || action.pending}
-          onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+          onChange={(event) => {
+            const next = event.target.files?.[0] ?? null;
+            setImage(next);
+            if (next) setRemoveImage(false);
+          }}
         />
+        {baseline ? (
+          image ? (
+            <button type="button" disabled={refreshRecovery || action.pending} onClick={() => {
+              setImage(null);
+              if (imageInput.current) imageInput.current.value = "";
+            }}>Remove selected photo</button>
+          ) : baseline.row.entry.mediaId && removeImage ? (
+            <><span>Photo will be removed</span>
+              <button type="button" disabled={refreshRecovery || action.pending}
+                onClick={() => setRemoveImage(false)}>Keep photo</button></>
+          ) : baseline.row.entry.mediaId ? (
+            <><img src={healthApi.photoUrl(baseline.row.id)} alt="Saved meal"
+              style={{ maxWidth: "100%", maxHeight: 280 }} />
+              <span>Current photo</span>
+              <button type="button" disabled={refreshRecovery || action.pending}
+                onClick={() => setRemoveImage(true)}>Remove photo</button></>
+          ) : <span>No photo</span>
+        ) : null}
       </label>
       <label className="field-label">
         Note
@@ -217,11 +271,21 @@ export function BowelForm({
   onRecoveryChange,
   onDirtyChange,
   dialogActions,
-}: HealthFormProps) {
-  const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
-  const [bristol, setBristol] = useState("4");
-  const [bloodVisible, setBloodVisible] = useState(false);
-  const [note, setNote] = useState("");
+  row,
+}: HealthFormProps & { row?: BowelRow }) {
+  const [baseline] = useState(() => row && {
+    row,
+    values: {
+      occurredAt: healthLocalDateTime(new Date(row.event.occurredAt)),
+      bristol: String(row.bristolScale),
+      bloodVisible: row.bloodVisible,
+      note: row.event.note ?? "",
+    },
+  });
+  const [occurredAt, setOccurredAt] = useState(baseline?.values.occurredAt ?? defaultLocalDateTime());
+  const [bristol, setBristol] = useState(baseline?.values.bristol ?? "4");
+  const [bloodVisible, setBloodVisible] = useState(baseline?.values.bloodVisible ?? false);
+  const [note, setNote] = useState(baseline?.values.note ?? "");
   useDraftDirty([occurredAt, bristol, bloodVisible, note], onDirtyChange);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
@@ -240,8 +304,17 @@ export function BowelForm({
         },
         note: nullable(note),
       };
+      let patch: EventUpdate | null = null;
+      if (baseline) {
+        patch = bowelPatch(baseline.row, baseline.values, input);
+        if (patch === null) {
+          if (action.isMounted()) onSaved?.();
+          return;
+        }
+      }
       try {
-        await controller.createBowel(input);
+        if (baseline && patch) await controller.updateBowel(baseline.row.id, patch);
+        else await controller.createBowel(input);
       } catch (cause) {
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
@@ -254,8 +327,10 @@ export function BowelForm({
         throw cause;
       }
       if (!action.isMounted()) return;
-      setNote("");
-      setBloodVisible(false);
+      if (!baseline) {
+        setNote("");
+        setBloodVisible(false);
+      }
       onSaved?.();
     });
   }
@@ -344,12 +419,23 @@ export function MedicationForm({
   onRecoveryChange,
   onDirtyChange,
   dialogActions,
-}: HealthFormProps) {
-  const [occurredAt, setOccurredAt] = useState(defaultLocalDateTime);
-  const [name, setName] = useState("");
-  const [dose, setDose] = useState("");
-  const [unit, setUnit] = useState<MedicationUnit>("tablet");
-  const [note, setNote] = useState("");
+  row,
+}: HealthFormProps & { row?: MedicationRow }) {
+  const [baseline] = useState(() => row && {
+    row,
+    values: {
+      occurredAt: healthLocalDateTime(new Date(row.event.occurredAt)),
+      name: row.medicationName,
+      dose: String(row.dose),
+      unit: row.unit,
+      note: row.event.note ?? "",
+    },
+  });
+  const [occurredAt, setOccurredAt] = useState(baseline?.values.occurredAt ?? defaultLocalDateTime());
+  const [name, setName] = useState(baseline?.values.name ?? "");
+  const [dose, setDose] = useState(baseline?.values.dose ?? "");
+  const [unit, setUnit] = useState<MedicationUnit>(baseline?.values.unit ?? "tablet");
+  const [note, setNote] = useState(baseline?.values.note ?? "");
   useDraftDirty([occurredAt, name, dose, unit, note], onDirtyChange);
   const [refreshRecovery, setRefreshRecovery] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState(new HealthMutationRefreshError().message);
@@ -372,8 +458,17 @@ export function MedicationForm({
         },
         note: nullable(note),
       };
+      let patch: EventUpdate | null = null;
+      if (baseline) {
+        patch = medicationPatch(baseline.row, baseline.values, input);
+        if (patch === null) {
+          if (action.isMounted()) onSaved?.();
+          return;
+        }
+      }
       try {
-        await controller.createMedication(input);
+        if (baseline && patch) await controller.updateMedication(baseline.row.id, patch);
+        else await controller.createMedication(input);
       } catch (cause) {
         if (cause instanceof HealthMutationRefreshError) {
           if (action.isMounted()) {
@@ -386,9 +481,11 @@ export function MedicationForm({
         throw cause;
       }
       if (!action.isMounted()) return;
-      setName("");
-      setDose("");
-      setNote("");
+      if (!baseline) {
+        setName("");
+        setDose("");
+        setNote("");
+      }
       onSaved?.();
     });
   }
@@ -537,8 +634,10 @@ export function MetricsForm({
 
   React.useEffect(() => {
     if (dateStatus !== "loaded") return;
-    const row = rows.find((candidate) => candidate.date === date)
-      ?? (initialRow?.date === date ? initialRow : undefined);
+    const row = mode === "edit" && initialRow
+      ? initialRow
+      : rows.find((candidate) => candidate.date === date)
+        ?? (initialRow?.date === date ? initialRow : undefined);
     const selectedNewDate = selectedDateRef.current !== date;
     const receivedInitialRow = !snapshotRef.current && pristineRef.current && Boolean(row);
     if ((!selectedNewDate && !receivedInitialRow) || action.pending || refreshRecovery) return;
@@ -559,6 +658,29 @@ export function MetricsForm({
     await action.run(async () => {
       const timestamp = localDateTimeToRfc3339(`${date}T12:00`);
       const row = snapshotRef.current;
+      if (mode === "edit" && row) {
+        const mutation = metricsEditMutation(row, timestamp,
+          { weight, sleep, crp, calprotectin, condition: conditionScore }, conditionNote);
+        if (mutation.metrics.length === 0 && mutation.archives.length === 0) {
+          if (action.isMounted()) onSaved?.();
+          return;
+        }
+        try {
+          await controller.saveMetrics(mutation);
+        } catch (cause) {
+          if (cause instanceof HealthMutationRefreshError) {
+            if (action.isMounted()) {
+              setRefreshRecovery(true);
+              setRecoveryMessage(cause.message);
+              onRecoveryChange?.(true);
+            }
+            return;
+          }
+          throw cause;
+        }
+        if (action.isMounted()) onSaved?.();
+        return;
+      }
       const metrics: DailyMetricInput[] = [];
       if (weight !== "") {
         metrics.push({
@@ -674,6 +796,7 @@ export function MetricsForm({
         Date
         <input
           type="date"
+          disabled={mode === "edit"}
           value={date}
           onChange={(event) => setDate(event.target.value)}
           required
@@ -837,6 +960,119 @@ function useFormAction(onPendingChange?: (pending: boolean) => void) {
   }
 
   return { pending, error, run, isMounted: () => mounted.current };
+}
+
+function dietPatch(
+  row: DietRow,
+  base: { occurredAt: string; mealType: MealType; foodName: string; note: string; tags: string[] },
+  input: DietInput,
+  tags: readonly string[],
+  image: File | null,
+  removeImage: boolean,
+): DietUpdate | null {
+  const patch: DietUpdate = { expectedUpdatedAt: row.entry.updatedAt };
+  if (input.occurredAt !== localDateTimeToRfc3339(base.occurredAt)) patch.occurredAt = input.occurredAt;
+  if (input.mealType !== base.mealType) patch.mealType = input.mealType;
+  if (input.foodName !== base.foodName.trim()) patch.foodName = input.foodName;
+  if (!sameTrimmedSet(tags, base.tags)) patch.tags = [...tags];
+  if (input.note !== nullable(base.note)) patch.note = input.note;
+  if (!image && row.entry.mediaId !== null && removeImage) patch.removeImage = true;
+  return Object.keys(patch).length > 1 || image ? patch : null;
+}
+
+function sameTrimmedSet(left: readonly string[], right: readonly string[]): boolean {
+  const a = new Set(left.map((tag) => tag.trim()).filter(Boolean));
+  const b = new Set(right.map((tag) => tag.trim()).filter(Boolean));
+  return a.size === b.size && [...a].every((tag) => b.has(tag));
+}
+
+function bowelPatch(
+  row: BowelRow,
+  base: { occurredAt: string; bristol: string; bloodVisible: boolean; note: string },
+  input: EventInput,
+): EventUpdate | null {
+  const patch: EventUpdate = { expectedUpdatedAt: row.event.updatedAt };
+  if (input.occurredAt !== localDateTimeToRfc3339(base.occurredAt)) patch.occurredAt = input.occurredAt;
+  if (input.details.kind === "bowel" && (
+    input.details.bristolScale !== Number(base.bristol) ||
+    input.details.bloodVisible !== base.bloodVisible)) {
+    patch.details = input.details;
+  }
+  if (input.note !== nullable(base.note)) patch.note = input.note;
+  return Object.keys(patch).length > 1 ? patch : null;
+}
+
+function medicationPatch(
+  row: MedicationRow,
+  base: { occurredAt: string; name: string; dose: string; unit: MedicationUnit; note: string },
+  input: EventInput,
+): EventUpdate | null {
+  const patch: EventUpdate = { expectedUpdatedAt: row.event.updatedAt };
+  if (input.occurredAt !== localDateTimeToRfc3339(base.occurredAt)) patch.occurredAt = input.occurredAt;
+  if (input.details.kind === "medication" && (
+    input.details.medicationName !== base.name.trim() ||
+    input.details.dose !== Number(base.dose) ||
+    input.details.unit !== base.unit)) {
+    patch.details = input.details;
+  }
+  if (input.note !== nullable(base.note)) patch.note = input.note;
+  return Object.keys(patch).length > 1 ? patch : null;
+}
+
+type MetricFieldKey = "weight" | "sleep" | "crp" | "calprotectin" | "condition";
+
+function metricsEditMutation(
+  row: HealthMetricsRow,
+  occurredAt: string,
+  drafts: Record<MetricFieldKey, string>,
+  noteDraft: string,
+): { metrics: DailyMetricInput[]; archives: Array<{ id: string; expectedUpdatedAt: string }> } {
+  const parsers: Record<MetricFieldKey, (value: string) => number> = {
+    weight: (value) => positiveNumber(value, "Weight"),
+    sleep: (value) => {
+      const hours = positiveNumber(value, "Sleep");
+      if (hours > 24) throw new Error("Sleep must not exceed 24");
+      return hours;
+    },
+    crp: (value) => nonNegativeNumber(value, "CRP"),
+    calprotectin: (value) => nonNegativeNumber(value, "Calprotectin"),
+    condition: (value) => integerInRange(value, "Overall condition score", 1, 10),
+  };
+  if (drafts.condition === "" && noteDraft.trim()) throw new Error("Select Condition to save Note");
+  const note = drafts.condition === "" ? null : nullable(noteDraft);
+  const metrics: DailyMetricInput[] = [];
+  const archives: Array<{ id: string; expectedUpdatedAt: string }> = [];
+  for (const field of ["weight", "sleep", "crp", "calprotectin", "condition"] as const) {
+    const present = drafts[field] === "" ? null : parsers[field](drafts[field]);
+    const original = row[field] ?? null;
+    const changed = present !== original || (field === "condition" && note !== nullable(row.note));
+    if (!changed) continue;
+    const existing = row.events[field];
+    if (present === null) {
+      if (existing) archives.push({ id: existing.id, expectedUpdatedAt: existing.updatedAt });
+      continue;
+    }
+    metrics.push({
+      occurredAt,
+      details: metricDetails(field, present, note),
+      ...(existing ? { expectedUpdatedAt: existing.updatedAt } : {}),
+    });
+  }
+  return { metrics, archives };
+}
+
+function metricDetails(
+  field: MetricFieldKey,
+  value: number,
+  note: string | null,
+): DailyMetricInput["details"] {
+  if (field === "weight") return { kind: "weight", value, unit: "kg" };
+  if (field === "sleep") return { kind: "sleep", value };
+  if (field === "crp") return { kind: "lab", key: "crp", name: "CRP", value, unit: "mg/L" };
+  if (field === "calprotectin") {
+    return { kind: "lab", key: "fecal_calprotectin", name: "Fecal calprotectin", value, unit: "µg/g" };
+  }
+  return { kind: "overall_condition", score: value, conditionNote: note };
 }
 
 function nullable(value: string): string | null {

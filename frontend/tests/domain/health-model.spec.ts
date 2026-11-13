@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { healthApi } from "@/features/health/api/health-api";
 import {
   mapHealthEvent,
-  mapHealthRecord,
 } from "@/features/health/model/health-model";
 import { mapHealthReport } from "@/features/health/model/health-reports";
 

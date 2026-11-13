@@ -5,6 +5,7 @@ import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoun
 import React from "react";
 import { createPortal } from "react-dom";
 
+import type { DietRow } from "@/features/health/model/diet-table";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import { DietForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
@@ -13,7 +14,8 @@ import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-conf
 type DietCreateDialogProps = {
   controller: HealthController;
   onClose(): void;
-  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+  entry?: DietRow;
   tagOptions?: readonly string[];
 };
 
@@ -35,8 +37,10 @@ function DietCreateDialogContent({
   controller,
   onClose,
   returnFocusRef,
+  entry,
   tagOptions,
 }: DietCreateDialogProps) {
+  const editing = entry !== undefined;
   const [pending, setPending] = React.useState(false);
   const [recovering, setRecovering] = React.useState(false);
   const pendingRef = React.useRef(false);
@@ -53,7 +57,7 @@ function DietCreateDialogContent({
     )?.focus();
     return () => {
       mountedRef.current = false;
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+      if (returnFocusRef?.current?.isConnected) returnFocusRef.current.focus();
     };
   }, [returnFocusRef]);
 
@@ -117,23 +121,24 @@ function DietCreateDialogContent({
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add diet entry"
+        aria-label={editing ? "Edit diet entry" : "Add diet entry"}
         aria-busy={pending || recovering}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         {discardConfirmation}
         <header className="dashboard-widget-header">
-          <h2>Add diet entry</h2>
+          <h2>{editing ? "Edit diet entry" : "Add diet entry"}</h2>
         </header>
-        <ReferenceDataBoundary load={controller.ensureQuickAddReferences} scope="health.diet" onCancel={close} cancelLabel="Close Add diet entry">
+        <ReferenceDataBoundary load={controller.ensureQuickAddReferences} scope="health.diet" onCancel={close} cancelLabel={editing ? "Close Edit diet entry" : "Close Add diet entry"}>
         <DietForm
+          entry={entry}
           controller={controller}
           onSaved={onClose}
           onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
-          dialogActions={{ closeLabel: "Close Add diet entry", onClose: close }}
+          dialogActions={{ closeLabel: (editing ? "Close Edit diet entry" : "Close Add diet entry"), onClose: close }}
           tagOptions={tagOptions}
         />
         </ReferenceDataBoundary>

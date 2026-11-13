@@ -16,7 +16,7 @@ type TransactionsTableProps = {
   groups: TransactionRowGroup[];
   activeRowCount: number;
   selectedIds: string[];
-  onOpen: (row: TransactionRow) => void;
+  onOpen: (row: TransactionRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
   page?: LedgerTablePageState;
@@ -112,7 +112,7 @@ function TransactionTableBody({
   rows: TransactionRow[];
   selectedIds: string[];
   emptyMessage: string;
-  onOpen: (row: TransactionRow) => void;
+  onOpen: (row: TransactionRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
 }) {
   if (rows.length === 0) {
@@ -165,7 +165,7 @@ function TransactionTableRow({
   controller: LedgerController;
   row: TransactionRow;
   selected: boolean;
-  onOpen: (row: TransactionRow) => void;
+  onOpen: (row: TransactionRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
 }) {
   const amount = formatMoney(
@@ -189,11 +189,11 @@ function TransactionTableRow({
       role="button"
       tabIndex={0}
       aria-label={`Open details for ${accessibleContext}`}
-      onClick={() => onOpen(row)}
+      onClick={(event) => onOpen(row, event.currentTarget)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " " || event.key === "Space") {
           event.preventDefault();
-          onOpen(row);
+          onOpen(row, event.currentTarget);
         }
       }}
     >

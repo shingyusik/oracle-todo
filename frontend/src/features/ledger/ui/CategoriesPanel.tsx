@@ -1,6 +1,5 @@
 "use client";
 
-import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -14,7 +13,6 @@ import {
 import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import { defaultLedgerTableSettings } from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
-import { CategoryDetail } from "@/features/ledger/ui/CategoryDetail";
 import { CategoriesTable } from "@/features/ledger/ui/CategoriesTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
@@ -31,6 +29,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
   const deleteInFlight = useRef(false);
   const sectionRef = useRef<HTMLElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const rowFocusRef = useRef<HTMLElement | null>(null);
 
   const page = controller.tablePage?.("ledger.categories") ?? {
     items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
@@ -75,23 +74,19 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
     }
   }, [activeRows, controller, selectedDetailRow]);
 
-  function returnToList() {
-    setSelectedDetailRow(null);
-    requestAnimationFrame(() => sectionRef.current?.focus());
+  function openEditor(row: CategoryRow, trigger: HTMLElement) {
+    rowFocusRef.current = trigger;
+    setSelectedDetailRow(row);
   }
 
-  if (selectedDetail) {
-    return (
-      <ReferenceDataBoundary load={controller.ensureReferenceData} scope="ledger.categories" onCancel={returnToList}>
-      <CategoryDetail
-        controller={controller}
-        row={selectedDetail}
-        onBack={returnToList}
-        onDeleted={returnToList}
-        onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
-      />
-      </ReferenceDataBoundary>
-    );
+  function closeEditor() {
+    detailDirty.current = false;
+    setSelectedDetailRow(null);
+    // The row may have left the table (filtered, archived); keep focus inside the panel.
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) sectionRef.current?.focus();
+    });
   }
 
   function toggleSelection(id: string) {
@@ -158,7 +153,7 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
         groups={groups}
         activeRowCount={activeRowCount}
         selectedIds={selectedIds}
-        onOpen={setSelectedDetailRow}
+        onOpen={openEditor}
         onToggle={toggleSelection}
         onToggleAll={toggleAllVisible}
         page={visibleTablePage(page, controller.state.error)}
@@ -170,6 +165,15 @@ export function CategoriesPanel({ controller }: { controller: LedgerController }
           controller={controller}
           onClose={() => setCreateOpen(false)}
           returnFocusRef={addButtonRef}
+        />
+      ) : null}
+      {selectedDetail ? (
+        <CategoryCreateDialog
+          controller={controller}
+          record={selectedDetail}
+          onClose={closeEditor}
+          onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
+          returnFocusRef={rowFocusRef}
         />
       ) : null}
       {deleteTargets.length > 0 ? (

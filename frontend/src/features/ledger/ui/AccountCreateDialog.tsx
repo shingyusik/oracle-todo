@@ -5,15 +5,21 @@ import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoun
 import React from "react";
 import { createPortal } from "react-dom";
 
+import type { AccountInput } from "@/features/ledger/api/ledger-api";
 import type { LedgerController } from "@/features/ledger/hooks/useLedgerController";
-import { safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
+import type { AccountRow } from "@/features/ledger/model/account-table";
+import { InitialFieldFocus, useDialogFocus } from "@/features/ledger/ui/dialog-focus";
+import { formatMinorUnits, safeLedgerErrorMessage } from "@/features/ledger/ui/ledger-ui";
 import { useDraftDirty, useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
 import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-confirmation";
 
 type AccountCreateDialogProps = {
   controller: LedgerController;
+  /** Existing account to edit; the dialog creates a new one when omitted. */
+  record?: AccountRow;
   onClose(): void;
-  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
+  onDirtyChange?(dirty: boolean): void;
+  returnFocusRef: React.RefObject<HTMLElement | null>;
 };
 
 type AccountDraft = {
@@ -30,11 +36,7 @@ const emptyDraft: AccountDraft = {
   openingBalance: "0",
 };
 
-export function AccountCreateDialog({
-  controller,
-  onClose,
-  returnFocusRef,
-}: AccountCreateDialogProps): React.ReactNode {
+export function AccountCreateDialog(props: AccountCreateDialogProps): React.ReactNode {
   const [host, setHost] = React.useState<HTMLElement | null>(null);
 
   React.useLayoutEffect(() => {
@@ -46,27 +48,32 @@ export function AccountCreateDialog({
   }, []);
 
   return host ? createPortal(
-    <AccountCreateDialogContent
-      controller={controller}
-      onClose={onClose}
-      returnFocusRef={returnFocusRef}
-    />,
+    <AccountCreateDialogContent {...props} />,
     host,
   ) : null;
 }
 
 function AccountCreateDialogContent({
   controller,
+  record,
   onClose,
+  onDirtyChange: reportDirty,
   returnFocusRef,
 }: AccountCreateDialogProps) {
-  const [draft, setDraft] = React.useState(emptyDraft);
+  const title = record ? "Edit account" : "Add account";
+  const closeLabel = `Close ${title}`;
+  const [initial] = React.useState(() => (record ? accountDraft(record) : emptyDraft));
+  const [draft, setDraft] = React.useState(initial);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const mounted = React.useRef(true);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
   useModalIsolation(dialogRef, true, "body");
-  const { onDirtyChange, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
+  const { onDirtyChange: markDirty, requestDiscard, discardConfirmation } = useDiscardConfirmation(dialogRef);
+  const onDirtyChange = React.useCallback((dirty: boolean) => {
+    markDirty(dirty);
+    reportDirty?.(dirty);
+  }, [markDirty, reportDirty]);
   useDraftDirty([draft], onDirtyChange);
 
   function close() {
@@ -75,14 +82,11 @@ function AccountCreateDialogContent({
 
   React.useEffect(() => {
     mounted.current = true;
-    dialogRef.current?.querySelector<HTMLElement>(
-      'form input:not([disabled]), form select:not([disabled]), form textarea:not([disabled]), form button:not([disabled])',
-    )?.focus();
     return () => {
       mounted.current = false;
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
     };
-  }, [returnFocusRef]);
+  }, []);
+  useDialogFocus(dialogRef, returnFocusRef);
 
   function field(name: keyof AccountDraft, value: string) {
     setDraft((current) => ({ ...current, [name]: value }));
@@ -95,10 +99,17 @@ function AccountCreateDialogContent({
     setError(null);
     let saved = false;
     try {
-      await controller.createAccount(draft);
+      if (record) {
+        const update = accountUpdate(initial, draft);
+        if (Object.keys(update).length > 0) await controller.updateAccount(record.id, update);
+      } else {
+        await controller.createAccount(draft);
+      }
       saved = true;
     } catch (cause) {
-      if (mounted.current) setError(safeLedgerErrorMessage(cause, "Could not create account."));
+      if (mounted.current) {
+        setError(safeLedgerErrorMessage(cause, record ? "Could not save account." : "Could not create account."));
+      }
     } finally {
       if (!mounted.current) return;
       setPending(false);
@@ -136,16 +147,18 @@ function AccountCreateDialogContent({
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add account"
+        aria-label={title}
         aria-busy={pending}
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         {discardConfirmation}
         <header className="dashboard-widget-header">
-          <h2>Add account</h2>
+          <h2>{title}</h2>
         </header>
-        <ReferenceDataBoundary load={controller.ensureAccountFormReferences} onCancel={close} cancelLabel="Close Add account">
-        <form aria-label="New account" onSubmit={submit}>
+        <ReferenceDataBoundary load={controller.ensureAccountFormReferences} onCancel={close} cancelLabel={closeLabel}>
+        <InitialFieldFocus />
+        <form aria-label={record ? "Edit account" : "New account"} onSubmit={submit}>
           <label className="field-label">
             Account name
             <input
@@ -167,6 +180,9 @@ function AccountCreateDialogContent({
               {accountTypes.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
+              {record && draft.category && !accountTypes.some(({ id }) => id === draft.category) ? (
+                <option value={draft.category} disabled>{record.accountTypeLabel}</option>
+              ) : null}
             </select>
           </label>
           <label className="field-label">
@@ -181,6 +197,9 @@ function AccountCreateDialogContent({
               {currencies.map((item) => (
                 <option key={item.id} value={item.id}>{item.code} — {item.name}</option>
               ))}
+              {record && draft.currency && !currencies.some(({ id }) => id === draft.currency) ? (
+                <option value={draft.currency} disabled>{record.currencyCode}</option>
+              ) : null}
             </select>
           </label>
           <label className="field-label">
@@ -198,7 +217,7 @@ function AccountCreateDialogContent({
             <button
               type="button"
               className="items-toolbar-button"
-              aria-label="Close Add account"
+              aria-label={closeLabel}
               disabled={pending}
               onClick={close}
             >
@@ -217,4 +236,24 @@ function AccountCreateDialogContent({
       </div>
     </div>
   );
+}
+
+function accountDraft(row: AccountRow): AccountDraft {
+  return {
+    name: row.name,
+    category: row.accountTypeId,
+    currency: row.currencyId,
+    openingBalance: formatMinorUnits(row.account.openingBalanceMinor, row.decimalPlaces),
+  };
+}
+
+function accountUpdate(baseline: AccountDraft, draft: AccountDraft): Partial<AccountInput> {
+  return {
+    ...(draft.name !== baseline.name ? { name: draft.name } : {}),
+    ...(draft.category !== baseline.category ? { category: draft.category } : {}),
+    ...(draft.currency !== baseline.currency ? { currency: draft.currency, openingBalance: draft.openingBalance } : {}),
+    ...(draft.currency === baseline.currency && draft.openingBalance !== baseline.openingBalance
+      ? { openingBalance: draft.openingBalance }
+      : {}),
+  };
 }

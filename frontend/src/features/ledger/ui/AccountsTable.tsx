@@ -14,7 +14,7 @@ type AccountsTableProps = {
   groups: AccountRowGroup[];
   activeRowCount: number;
   selectedIds: string[];
-  onOpen: (row: AccountRow) => void;
+  onOpen: (row: AccountRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
   page?: LedgerTablePageState;
@@ -104,7 +104,7 @@ function AccountTableBody({
   rows: AccountRow[];
   selectedIds: string[];
   emptyMessage: string;
-  onOpen: (row: AccountRow) => void;
+  onOpen: (row: AccountRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
 }) {
   if (rows.length === 0) {
@@ -154,7 +154,7 @@ function AccountTableRow({
 }: {
   row: AccountRow;
   selected: boolean;
-  onOpen: (row: AccountRow) => void;
+  onOpen: (row: AccountRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
 }) {
   const accessibleContext = `${row.name}, ${row.accountTypeLabel}`;
@@ -164,11 +164,11 @@ function AccountTableRow({
       role="button"
       tabIndex={0}
       aria-label={`Open details for ${accessibleContext}`}
-      onClick={() => onOpen(row)}
+      onClick={(event) => onOpen(row, event.currentTarget)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " " || event.key === "Space") {
           event.preventDefault();
-          onOpen(row);
+          onOpen(row, event.currentTarget);
         }
       }}
     >

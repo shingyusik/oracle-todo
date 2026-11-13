@@ -7,16 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LedgerController, LedgerState } from "@/features/ledger/hooks/useLedgerController";
 import { AccountCreateDialog } from "@/features/ledger/ui/AccountCreateDialog";
-import { AccountDetail } from "@/features/ledger/ui/AccountDetail";
 import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { AccountsTable } from "@/features/ledger/ui/AccountsTable";
-import { deriveAccountGroups, type AccountRowGroup } from "@/features/ledger/model/account-table";
+import { deriveAccountGroups, type AccountRow, type AccountRowGroup } from "@/features/ledger/model/account-table";
 import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
-import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
-import {
-  createLedgerTableViews,
-  defaultLedgerTableSettings,
-} from "@/features/ledger/model/ledger-table-views";
+import { createLedgerTableViews } from "@/features/ledger/model/ledger-table-views";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
 
 const state: LedgerState = {
@@ -133,6 +128,15 @@ function AccountCreateHarness({ ledger }: { ledger: LedgerController }) {
       ) : null}
     </>
   );
+}
+
+function AccountEditDialog({ controller: ledger, row, onClose }: {
+  controller: LedgerController;
+  row: AccountRow;
+  onClose(): void;
+}) {
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  return <AccountCreateDialog controller={ledger} record={row} onClose={onClose} returnFocusRef={triggerRef} />;
 }
 
 async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
@@ -469,6 +473,31 @@ describe("AccountsTable", () => {
 });
 
 describe("AccountsPanel", () => {
+  it("opens an edit popup from a row click and handles Escape with a discard confirmation", async () => {
+    const user = userEvent.setup();
+    render(<AccountsPanel controller={accountsController()} />);
+
+    const row = screen.getByRole("button", { name: "Open details for Wallet, Cash" });
+    await user.click(row);
+    const dialog = await screen.findByRole("dialog", { name: "Edit account" });
+    expect(within(dialog).queryByRole("button", { name: "< Back" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit account" })).toBeNull());
+    expect(row).toHaveFocus();
+
+    await user.click(row);
+    await user.type(await screen.findByLabelText("Account name"), " draft");
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Account name")).toHaveValue("Wallet draft");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit account" })).toBeNull());
+  });
+
   it("opens the production create dialog and restores Add account focus", async () => {
     const user = userEvent.setup();
     render(<AccountsPanel controller={accountsController()} />);
@@ -549,58 +578,53 @@ describe("AccountsPanel", () => {
   });
 });
 
-describe("AccountDetail", () => {
-  it("edits only account fields, saves a partial payload, and keeps the refreshed detail open", async () => {
+describe("AccountCreateDialog in edit mode", () => {
+  it("prefills the Add form from the account, saves a partial payload, and closes", async () => {
     const user = userEvent.setup();
     const ledger = accountsController();
     const row = accountRows[0]!.rows[0]!;
-    const onBack = vi.fn();
+    const onClose = vi.fn();
     render(
       <React.StrictMode>
-        <AccountDetail controller={ledger} row={row} onBack={onBack} onDeleted={vi.fn()} />
+        <AccountEditDialog controller={ledger} row={row} onClose={onClose} />
       </React.StrictMode>,
     );
 
-    expect(screen.getByRole("region", { name: "Wallet details" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Edit account" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Account name")).toHaveValue("Wallet");
     expect(screen.getByLabelText("Opening balance")).toHaveValue("0.00");
-    expect(screen.getByText("1234.56 USD")).toBeInTheDocument();
-    expect(screen.getByLabelText("Current balance")).toHaveTextContent("1234.56 USD");
-    expect(screen.queryByRole("textbox", { name: "Current balance" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
 
     await user.clear(screen.getByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Everyday wallet");
-    window.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "s", ctrlKey: true, isComposing: true, cancelable: true,
-    }));
-    expect(ledger.updateAccount).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", {
       name: "Everyday wallet",
     }));
-    expect(onBack).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(ledger.createAccount).not.toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("saves a name-only edit without unavailable current references", async () => {
     const user = userEvent.setup();
     const ledger = inactiveReferenceController();
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
 
-    await user.clear(screen.getByLabelText("Account name"));
+    await user.clear(await screen.findByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Cash wallet");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", { name: "Cash wallet" }));
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("saves an opening balance-only edit without unavailable current references", async () => {
     const user = userEvent.setup();
     const ledger = inactiveReferenceController();
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
 
-    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.clear(await screen.findByLabelText("Opening balance"));
     await user.type(screen.getByLabelText("Opening balance"), "12.34");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -610,9 +634,9 @@ describe("AccountDetail", () => {
   it("saves a category-only edit without unavailable current references", async () => {
     const user = userEvent.setup();
     const ledger = inactiveReferenceController();
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
 
-    await user.selectOptions(screen.getByLabelText("Account type"), "account-type-bank");
+    await user.selectOptions(await screen.findByLabelText("Account type"), "account-type-bank");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", { category: "account-type-bank" }));
   });
@@ -620,8 +644,8 @@ describe("AccountDetail", () => {
   it("saves a currency edit with the current opening balance", async () => {
     const user = userEvent.setup();
     const currencyLedger = inactiveReferenceController();
-    render(<AccountDetail controller={currencyLedger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
-    await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
+    render(<AccountEditDialog controller={currencyLedger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
+    await user.selectOptions(await screen.findByLabelText("Currency"), "currency-krw");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(currencyLedger.updateAccount).toHaveBeenCalledWith("account-wallet", {
       currency: "currency-krw",
@@ -629,30 +653,24 @@ describe("AccountDetail", () => {
     }));
   });
 
-  it("keeps local draft history for buttons and shortcuts without saving until requested", async () => {
+  it("closes an unchanged account without calling update", async () => {
     const user = userEvent.setup();
     const ledger = accountsController();
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    const onClose = vi.fn();
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={onClose} />);
 
-    await user.clear(screen.getByLabelText("Account name"));
-    await user.type(screen.getByLabelText("Account name"), "Cash wallet");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Account name")).toHaveValue("Wallet");
-    await user.keyboard("{Control>}{Shift>}z{/Shift}{/Control}");
-    expect(screen.getByLabelText("Account name")).toHaveValue("Cash wallet");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    await user.keyboard("{Control>}y{/Control}");
-    expect(screen.getByLabelText("Account name")).toHaveValue("Cash wallet");
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(ledger.updateAccount).not.toHaveBeenCalled();
   });
 
-  it("returns directly for a clean Back action", async () => {
+  it("returns directly for a clean Close action", async () => {
     const user = userEvent.setup();
-    const onBack = vi.fn();
-    render(<AccountDetail controller={accountsController()} row={accountRows[0]!.rows[0]!} onBack={onBack} onDeleted={vi.fn()} />);
+    const onClose = vi.fn();
+    render(<AccountEditDialog controller={accountsController()} row={accountRows[0]!.rows[0]!} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    expect(onBack).toHaveBeenCalledOnce();
+    await user.click(await screen.findByRole("button", { name: "Close Edit account" }));
+    expect(onClose).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
   });
 
@@ -661,14 +679,13 @@ describe("AccountDetail", () => {
     const request = deferred<void>();
     const ledger = accountsController();
     ledger.updateAccount = vi.fn(() => request.promise);
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
 
-    await user.clear(screen.getByLabelText("Account name"));
+    await user.clear(await screen.findByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Pending wallet");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByLabelText("Account name")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    await user.keyboard("{Control>}s{/Control}");
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
     expect(ledger.updateAccount).toHaveBeenCalledOnce();
 
     await act(async () => request.resolve(undefined));
@@ -681,136 +698,86 @@ describe("AccountDetail", () => {
     const user = userEvent.setup();
     const ledger = accountsController();
     ledger.updateAccount = vi.fn().mockRejectedValue(cause);
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    const onClose = vi.fn();
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={onClose} />);
 
-    await user.clear(screen.getByLabelText("Account name"));
+    await user.clear(await screen.findByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Draft stays");
-    await user.keyboard("{Control>}s{/Control}");
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.getByLabelText("Account name")).toHaveValue("Draft stays");
     expect(screen.queryByText("sqlite path must stay private")).toBeNull();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("confirms dirty Back and Delete, restores trigger focus on cancel, and deactivates only after Delete confirms", async () => {
+  it("confirms a dirty Close and keeps the draft when discard is cancelled", async () => {
     const user = userEvent.setup();
-    const ledger = accountsController();
-    const onBack = vi.fn();
-    const onDeleted = vi.fn();
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={onBack} onDeleted={onDeleted} />);
+    const onClose = vi.fn();
+    render(<AccountEditDialog controller={accountsController()} row={accountRows[0]!.rows[0]!} onClose={onClose} />);
 
-    await user.clear(screen.getByLabelText("Account name"));
+    await user.clear(await screen.findByLabelText("Account name"));
     await user.type(screen.getByLabelText("Account name"), "Unsaved wallet");
-    const back = screen.getByRole("button", { name: "< Back" });
-    await user.click(back);
+    await user.click(screen.getByRole("button", { name: "Close Edit account" }));
     expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(back).toHaveFocus());
-    expect(onBack).not.toHaveBeenCalled();
-
-    const remove = screen.getByRole("button", { name: "Delete" });
-    await user.click(remove);
-    expect(screen.getByRole("dialog", { name: "Delete Unsaved wallet?" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(remove).toHaveFocus());
-    await user.click(remove);
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => expect(ledger.archiveAccount).toHaveBeenCalledWith("account-wallet"));
-    expect(onDeleted).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Account name")).toHaveValue("Unsaved wallet");
   });
 
-  it("retains detail and a safe error while delete is pending or fails", async () => {
-    const user = userEvent.setup();
-    const request = deferred<void>();
-    const ledger = accountsController();
-    ledger.archiveAccount = vi.fn(() => request.promise);
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
-
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog", { name: "Delete Wallet?" })).getByRole("button", { name: "Delete" }));
-    expect(screen.getByRole("button", { name: "Save", hidden: true })).toBeDisabled();
-    await user.keyboard("{Control>}s{/Control}");
-    expect(ledger.updateAccount).not.toHaveBeenCalled();
-    await act(async () => request.reject(new Error("sensitive delete failure")));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not delete account.");
-    expect(screen.getByRole("region", { name: "Wallet details", hidden: true })).toBeInTheDocument();
-    expect(screen.queryByText("sensitive delete failure")).toBeNull();
-  });
-
-  it("uses disabled fallback options for inactive references", () => {
+  it("uses disabled fallback options for inactive references", async () => {
     const stale = accountsState();
     stale.accountCategories = stale.accountCategories.map((item) => ({ ...item, active: false }));
     stale.currencies = stale.currencies.map((item) => ({ ...item, active: false }));
-    render(<AccountDetail controller={accountsController(stale)} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountEditDialog controller={accountsController(stale)} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
 
-    expect(within(screen.getByLabelText("Account type")).getByRole("option", { name: "Cash" })).toBeDisabled();
+    expect(within(await screen.findByLabelText("Account type")).getByRole("option", { name: "Cash" })).toBeDisabled();
     expect(within(screen.getByLabelText("Currency")).getByRole("option", { name: /USD/ })).toBeDisabled();
   });
 
-  it.each([false, true])("resolves refreshed accounts and protects disappearing edit drafts (dirty=%s)", async (dirty) => {
+  it("keeps the dialog and focus on the dialog while reference data is loading, so Escape still closes it", async () => {
+    const user = userEvent.setup();
+    const references = deferred<boolean>();
+    const ledger = accountsController();
+    ledger.ensureAccountFormReferences = vi.fn(() => references.promise);
+    const onClose = vi.fn();
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={onClose} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Edit account" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    await act(async () => references.resolve(true));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("protects a disappearing edit draft when the refreshed account is gone", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<AccountsPanel controller={accountsController()} />);
 
     await user.click(screen.getByRole("button", { name: "Open details for Wallet, Cash" }));
-    expect(screen.getByLabelText("Current balance")).toHaveTextContent("1234.56 USD");
-
-    const refreshed = accountsState();
-    refreshed.balances = refreshed.balances.map((balance) => balance.account.id === "account-wallet"
-      ? { ...balance, currentBalanceMinor: 777 }
-      : balance);
-    rerender(<AccountsPanel controller={accountsController(refreshed)} />);
-    await waitFor(() => expect(screen.getByLabelText("Current balance"))
-      .toHaveTextContent("7.77 USD"));
-
-    if (dirty) await user.type(screen.getByLabelText("Account name"), " draft");
-    rerender(<AccountsPanel controller={accountsController({ ...refreshed, accounts: [], balances: [] })} />);
-    if (dirty) expect(screen.getByLabelText("Account name")).toHaveValue("Wallet draft");
-    else {
-      expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
-      expect(screen.queryByRole("region", { name: "Wallet details" })).toBeNull();
-    }
+    await user.type(await screen.findByLabelText("Account name"), " draft");
+    rerender(<AccountsPanel controller={accountsController({ ...accountsState(), accounts: [], balances: [] })} />);
+    expect(screen.getByLabelText("Account name")).toHaveValue("Wallet draft");
   });
 
-  it("keeps detail open from the unfiltered account projection after saving out of the active name filter", async () => {
+  it("closes a clean edit popup when the refreshed account is gone", async () => {
     const user = userEvent.setup();
-    const ledger = accountsController();
-    const filteredSettings: PlannerTableSettings = {
-      ...defaultLedgerTableSettings("ledger.accounts"),
-      filterRules: [{ id: "wallet", field: "name", type: "text", operator: "contains", value: "wallet" }],
-    };
-    ledger.tableSettings = vi.fn(() => filteredSettings);
-    const request = deferred<void>();
-    ledger.updateAccount = vi.fn(() => request.promise);
-    const { rerender } = render(<AccountsPanel controller={ledger} />);
+    const { rerender } = render(<AccountsPanel controller={accountsController()} />);
 
     await user.click(screen.getByRole("button", { name: "Open details for Wallet, Cash" }));
-    await user.clear(screen.getByLabelText("Account name"));
-    await user.type(screen.getByLabelText("Account name"), "Everyday cash");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    ledger.state = {
-      ...ledger.state,
-      accounts: ledger.state.accounts.map((account) => account.id === "account-wallet"
-        ? { ...account, name: "Everyday cash" }
-        : account),
-    };
-    await act(async () => request.resolve(undefined));
-    rerender(<AccountsPanel controller={ledger} />);
-
-    expect(await screen.findByRole("region", { name: "Everyday cash details" }))
-      .toBeInTheDocument();
-    expect(screen.getByLabelText("Account name")).toHaveValue("Everyday cash");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await screen.findByLabelText("Account name");
+    rerender(<AccountsPanel controller={accountsController({ ...accountsState(), accounts: [], balances: [] })} />);
+    expect(screen.getByText("No accounts yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Edit account" })).toBeNull();
   });
 
   it("preserves the opening balance draft verbatim when currency changes", async () => {
     const user = userEvent.setup();
     const ledger = accountsController();
-    render(<AccountDetail controller={ledger} row={accountRows[0]!.rows[0]!} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
 
-    await user.clear(screen.getByLabelText("Opening balance"));
+    await user.clear(await screen.findByLabelText("Opening balance"));
     await user.type(screen.getByLabelText("Opening balance"), "1.");
     await user.selectOptions(screen.getByLabelText("Currency"), "currency-krw");
     expect(screen.getByLabelText("Opening balance")).toHaveValue("1.");
@@ -821,28 +788,40 @@ describe("AccountDetail", () => {
     }));
   });
 
-  it("returns focus to the Accounts section after clean Back, discard, and successful Delete", async () => {
+  it("returns focus to the clicked row after clean close, discard, and successful save", async () => {
     const user = userEvent.setup();
     const ledger = accountsController();
     render(<AccountsPanel controller={ledger} />);
 
-    const openWallet = async () => user.click(screen.getByRole("button", { name: "Open details for Wallet, Cash" }));
-    const accountsSection = () => screen
-      .getAllByRole<HTMLElement>("region", { name: "Accounts" })
-      .find((element) => element.tabIndex === -1)!;
-    await openWallet();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await waitFor(() => expect(accountsSection()).toHaveFocus());
+    const walletRow = () => screen.getByRole("button", { name: "Open details for Wallet, Cash" });
+    await user.click(walletRow());
+    await user.click(await screen.findByRole("button", { name: "Close Edit account" }));
+    await waitFor(() => expect(walletRow()).toHaveFocus());
 
-    await openWallet();
-    await user.type(screen.getByLabelText("Account name"), " draft");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    await user.click(screen.getByRole("button", { name: "Discard changes" }));
-    await waitFor(() => expect(accountsSection()).toHaveFocus());
+    await user.click(walletRow());
+    await user.type(await screen.findByLabelText("Account name"), " draft");
+    await user.click(screen.getByRole("button", { name: "Close Edit account" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(walletRow()).toHaveFocus());
 
-    await openWallet();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(accountsSection()).toHaveFocus());
+    await user.click(walletRow());
+    await user.type(await screen.findByLabelText("Account name"), " saved");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit account" })).toBeNull());
+    await waitFor(() => expect(walletRow()).toHaveFocus());
+    expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", { name: "Wallet saved" });
+  });
+
+  it("opens the edit popup from Enter and Space on a focused row", async () => {
+    const user = userEvent.setup();
+    render(<AccountsPanel controller={accountsController()} />);
+    const row = screen.getByRole("button", { name: "Open details for Wallet, Cash" });
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("dialog", { name: "Edit account" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(row).toHaveFocus());
+    await user.keyboard(" ");
+    expect(await screen.findByRole("dialog", { name: "Edit account" })).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import type { HealthMetricsRow } from "@/features/health/model/health-metrics-table";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import type { HealthEvent } from "@/features/health/model/health-model";
 import { MetricsForm } from "@/features/health/ui/HealthForms";
@@ -13,7 +14,8 @@ type HealthMetricsCreateDialogProps = {
   controller: HealthController;
   metricsEntries: readonly HealthEvent[];
   onClose(): void;
-  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+  row?: HealthMetricsRow;
 };
 
 function useIsomorphicLayoutEffect(
@@ -45,7 +47,9 @@ function HealthMetricsCreateDialogContent({
   metricsEntries,
   onClose,
   returnFocusRef,
+  row,
 }: HealthMetricsCreateDialogProps) {
+  const editing = row !== undefined;
   const [pending, setPending] = React.useState(false);
   const [recovering, setRecovering] = React.useState(false);
   const pendingRef = React.useRef(false);
@@ -62,7 +66,7 @@ function HealthMetricsCreateDialogContent({
     )?.focus();
     return () => {
       mountedRef.current = false;
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+      if (returnFocusRef?.current?.isConnected) returnFocusRef.current.focus();
     };
   }, [returnFocusRef]);
 
@@ -124,24 +128,25 @@ function HealthMetricsCreateDialogContent({
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add health metrics"
+        aria-label={editing ? "Edit health metrics" : "Add health metrics"}
         aria-busy={pending || recovering}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         {discardConfirmation}
         <header className="dashboard-widget-header">
-          <h2>Add health metrics</h2>
+          <h2>{editing ? "Edit health metrics" : "Add health metrics"}</h2>
         </header>
         <MetricsForm
+          initialRow={row}
           controller={controller}
           metricsEntries={metricsEntries}
-          mode="create"
+          mode={editing ? "edit" : "create"}
           onSaved={onClose}
           onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
-          dialogActions={{ closeLabel: "Close Add health metrics", onClose: close }}
+          dialogActions={{ closeLabel: (editing ? "Close Edit health metrics" : "Close Add health metrics"), onClose: close }}
         />
       </div>
     </div>

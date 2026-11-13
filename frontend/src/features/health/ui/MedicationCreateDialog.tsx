@@ -3,6 +3,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import type { MedicationRow } from "@/features/health/model/medication-table";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import { MedicationForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
@@ -11,7 +12,8 @@ import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-conf
 type MedicationCreateDialogProps = {
   controller: HealthController;
   onClose(): void;
-  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+  row?: MedicationRow;
 };
 
 function useIsomorphicLayoutEffect(
@@ -40,7 +42,9 @@ function MedicationCreateDialogContent({
   controller,
   onClose,
   returnFocusRef,
+  row,
 }: MedicationCreateDialogProps) {
+  const editing = row !== undefined;
   const [pending, setPending] = React.useState(false);
   const [recovering, setRecovering] = React.useState(false);
   const pendingRef = React.useRef(false);
@@ -57,7 +61,7 @@ function MedicationCreateDialogContent({
     )?.focus();
     return () => {
       mountedRef.current = false;
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+      if (returnFocusRef?.current?.isConnected) returnFocusRef.current.focus();
     };
   }, [returnFocusRef]);
 
@@ -121,22 +125,23 @@ function MedicationCreateDialogContent({
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add medication entry"
+        aria-label={editing ? "Edit medication entry" : "Add medication entry"}
         aria-busy={pending || recovering}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         {discardConfirmation}
         <header className="dashboard-widget-header">
-          <h2>Add medication entry</h2>
+          <h2>{editing ? "Edit medication entry" : "Add medication entry"}</h2>
         </header>
         <MedicationForm
+          row={row}
           controller={controller}
           onSaved={onClose}
           onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
-          dialogActions={{ closeLabel: "Close Add medication entry", onClose: close }}
+          dialogActions={{ closeLabel: (editing ? "Close Edit medication entry" : "Close Add medication entry"), onClose: close }}
         />
       </div>
     </div>
