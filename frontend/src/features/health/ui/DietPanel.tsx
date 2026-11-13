@@ -13,10 +13,8 @@ import {
   healthDietFilterSelectOptions,
 } from "@/features/health/model/health-table-views";
 import { DietCreateDialog } from "@/features/health/ui/DietCreateDialog";
-import { DietDetail } from "@/features/health/ui/DietDetail";
 import { DietTable } from "@/features/health/ui/DietTable";
 import { HealthTableViewHeader } from "@/features/health/ui/HealthTableViewHeader";
-import { useBrowserDetailHistory } from "@/features/workbench/hooks/useBrowserDetailHistory";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 
 type DietPanelProps = {
@@ -40,7 +38,7 @@ export function DietPanel({
 }: DietPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detailRow, setDetailRow] = useState<DietRow | null>(null);
+  const [editRow, setEditRow] = useState<DietRow | null>(null);
   const [archiveTargets, setArchiveTargets] = useState<string[] | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -73,23 +71,6 @@ export function DietPanel({
       ?? [...new Set(entries.flatMap(({ tags }) => tags))],
     [controller.state.tableLookups, entries],
   );
-  const currentDetailRow = detailRow ? resolveDietDetail(detailRow, entries) : null;
-  const detailHistory = useBrowserDetailHistory({
-    stateKey: "__ravenHealthDietDetailId",
-    currentId: currentDetailRow?.id ?? null,
-    resolve: (id) => activeRows.find((row) => row.id === id) ?? null,
-    open: (row) => {
-      if (detailOriginRef.current?.rowId !== row.id) {
-        detailOriginRef.current = { occurrence: "", rowId: row.id };
-      }
-      setDetailRow(row);
-    },
-    close: () => {
-      setDetailRow(null);
-      restoreDetailFocus();
-    },
-    clearOnUnmount: true,
-  });
 
   useEffect(() => {
     const activeIds = new Set(activeRows.map(({ id }) => id));
@@ -97,11 +78,7 @@ export function DietPanel({
       const next = current.filter((id) => activeIds.has(id));
       return next.length === current.length ? current : next;
     });
-    if (detailRow && !activeIds.has(detailRow.id) && !detailHistory.dirty) {
-      setDetailRow(null);
-      restoreDetailFocus();
-    }
-  }, [activeRows, detailRow]);
+  }, [activeRows]);
 
   function restoreDetailFocus() {
     requestAnimationFrame(() => {
@@ -169,31 +146,14 @@ export function DietPanel({
   }
 
   function openCreate() {
-    setDetailRow(null);
+    setEditRow(null);
     setCreateOpen(true);
   }
 
   function openDetail(row: DietRow, occurrence: string) {
     setCreateOpen(false);
     detailOriginRef.current = { occurrence, rowId: row.id };
-    setDetailRow(row);
-  }
-
-  if (currentDetailRow) {
-    return (
-      <DietDetail
-        key={currentDetailRow.id}
-        controller={controller}
-        row={currentDetailRow}
-        tagOptions={detailTags}
-        detailHistory={detailHistory}
-        onArchived={(warning) => {
-          detailHistory.setDirty(false);
-          detailHistory.requestBack();
-          markArchived(currentDetailRow.id, warning);
-        }}
-      />
-    );
+    setEditRow(resolveDietDetail(row, entries));
   }
 
   return (
@@ -241,6 +201,18 @@ export function DietPanel({
       ) : null}
       {archiveError && archiveTargets === null ? (
         <p role="alert" className="items-message">{archiveError}</p>
+      ) : null}
+      {editRow ? (
+        <DietCreateDialog
+          key={editRow.id}
+          controller={controller}
+          entry={editRow}
+          onClose={() => {
+            setEditRow(null);
+            restoreDetailFocus();
+          }}
+          tagOptions={detailTags}
+        />
       ) : null}
       {createOpen ? (
         <DietCreateDialog

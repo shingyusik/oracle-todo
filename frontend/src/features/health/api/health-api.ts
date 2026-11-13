@@ -9,12 +9,10 @@ import {
   type HealthEventDetailsInput,
   type HealthTableLookups,
   type HealthTableScope,
-  type HealthRecord,
   mapDietEntry,
   mapHealthEvent,
   mapHealthTableLookups,
   mapHealthTablePage,
-  mapHealthRecord,
 } from "@/features/health/model/health-model";
 import { mapTableGroups } from "@/features/workbench/api/table-groups";
 import type { PlannerTableSettings } from "@/features/workbench/model/planner-model";
@@ -126,9 +124,6 @@ export const healthApi = {
   async archiveDiet(id: string, expectedUpdatedAt: string): Promise<DietEntry> {
     return mapDietEntry(await transition("diet", id, "archive", expectedUpdatedAt));
   },
-  async restoreDiet(id: string, expectedUpdatedAt: string): Promise<DietEntry> {
-    return mapDietEntry(await transition("diet", id, "restore", expectedUpdatedAt));
-  },
   async listEvents(query: EventQuery = {}): Promise<HealthEvent[]> {
     return mapItems(await requestJson(apiPath(`${ROOT}/events`, {
       offset: query.offset,
@@ -161,9 +156,6 @@ export const healthApi = {
   async archiveEvent(id: string, expectedUpdatedAt: string): Promise<HealthEvent> {
     return mapHealthEvent(await transition("events", id, "archive", expectedUpdatedAt));
   },
-  async restoreEvent(id: string, expectedUpdatedAt: string): Promise<HealthEvent> {
-    return mapHealthEvent(await transition("events", id, "restore", expectedUpdatedAt));
-  },
   async upsertDailyMetrics(input: DailyMetricInput[]): Promise<HealthEvent[]> {
     return mapItems(await requestJson(`${ROOT}/metrics/daily`, jsonRequest("POST", {
       metrics: input.map(dailyMetricBody),
@@ -177,12 +169,6 @@ export const healthApi = {
         expected_updated_at: archive.expectedUpdatedAt,
       })),
     })), mapHealthEvent);
-  },
-  async records(query: PageQuery = {}): Promise<HealthRecord[]> {
-    return mapItems(await requestJson(apiPath(`${ROOT}/records`, query)), mapHealthRecord);
-  },
-  async audit(kind: "diet_entry" | "health_event", id: string, query: PageQuery = {}): Promise<Record<string, unknown>[]> {
-    return mapItems(await requestJson(apiPath(`${ROOT}/audit/${kind}/${segment(id)}`, query)), (value) => record(value, "audit event"));
   },
   photoUrl(id: string): string { return `${ROOT}/diet/${segment(id)}/image`; },
   async reports(query: { from: string; to: string }): Promise<HealthReport> {

@@ -6,14 +6,13 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LedgerController, LedgerState } from "@/features/ledger/hooks/useLedgerController";
-import { deriveCategoryGroups } from "@/features/ledger/model/category-table";
+import { deriveCategoryGroups, type CategoryRow } from "@/features/ledger/model/category-table";
 import type { LedgerTableOccurrence } from "@/features/ledger/model/ledger-model";
 import {
   createLedgerTableViews,
   defaultLedgerTableSettings,
 } from "@/features/ledger/model/ledger-table-views";
 import { CategoryCreateDialog } from "@/features/ledger/ui/CategoryCreateDialog";
-import { CategoryDetail } from "@/features/ledger/ui/CategoryDetail";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { CategoriesTable } from "@/features/ledger/ui/CategoriesTable";
 import { RavenApiError, RavenTransportError } from "@/lib/raven-api";
@@ -124,6 +123,15 @@ function CategoryCreateHarness({ ledger }: { ledger: LedgerController }) {
       ) : null}
     </main>
   );
+}
+
+function CategoryEditDialog({ controller: ledger, row, onClose }: {
+  controller: LedgerController;
+  row: CategoryRow;
+  onClose(): void;
+}) {
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  return <CategoryCreateDialog controller={ledger} record={row} onClose={onClose} returnFocusRef={triggerRef} />;
 }
 
 async function fillDraft(user: ReturnType<typeof userEvent.setup>) {
@@ -344,7 +352,7 @@ describe("CategoriesTable", () => {
       name: "Open details for Food, Expense, No parent",
     });
     await user.click(foodRow);
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "category-food" }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "category-food" }), expect.any(HTMLElement));
 
     onOpen.mockClear();
     foodRow.focus();
@@ -431,48 +439,52 @@ function detailRow(id = "category-dining") {
   ).flatMap(({ rows }) => rows).find((row) => row.id === id)!;
 }
 
-describe("CategoryDetail", () => {
-  it("shows the ToDo-style actions and ordered editable properties", () => {
+describe("CategoryCreateDialog in edit mode", () => {
+  it("prefills the Add form with the same ordered fields and no extra actions", async () => {
     const ledger = categoriesController(detailState());
-    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<CategoryEditDialog controller={ledger} row={detailRow()} onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "Save" });
 
-    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label")).filter(Boolean))
-      .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
-    expect(Array.from(screen.getByRole("region", { name: "Edit category properties" })
+    expect(screen.getByRole("dialog", { name: "Edit category" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent))
+      .toEqual(["Close Edit category", "Save"]);
+    expect(Array.from(screen.getByRole("form", { name: "Edit category" })
       .querySelectorAll("input, select"))).toEqual([
       screen.getByLabelText("Category name"),
       screen.getByLabelText("Category type"),
       screen.getByLabelText("Parent category"),
     ]);
+    expect(screen.getByLabelText("Category name")).toHaveValue("Dining");
+    expect(screen.getByLabelText("Parent category")).toHaveValue("category-food");
     expect(within(screen.getByLabelText("Parent category")).getByRole("option", { name: "Food" }))
       .toBeInTheDocument();
     expect(within(screen.getByLabelText("Parent category")).queryByRole("option", { name: "Cafe" }))
       .toBeNull();
   });
 
-  it("keeps local history and saves only changed fields", async () => {
+  it("saves only changed fields and closes", async () => {
     const user = userEvent.setup();
     const ledger = categoriesController(detailState());
-    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    const onClose = vi.fn();
+    render(<CategoryEditDialog controller={ledger} row={detailRow()} onClose={onClose} />);
+    await screen.findByRole("button", { name: "Save" });
 
     await user.clear(screen.getByLabelText("Category name"));
     await user.type(screen.getByLabelText("Category name"), "Restaurants");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Category name")).toHaveValue("Dining");
-    await user.keyboard("{Control>}{Shift>}z{/Shift}{/Control}");
-    await user.keyboard("{Control>}s{/Control}");
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledger.updateCategory).toHaveBeenCalledWith("category-dining", {
       name: "Restaurants",
     }));
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(ledger.createCategory).not.toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("clears the parent when type changes", async () => {
     const user = userEvent.setup();
     const ledger = categoriesController(detailState());
-    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    render(<CategoryEditDialog controller={ledger} row={detailRow()} onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "Save" });
 
     await user.selectOptions(screen.getByLabelText("Category type"), "income");
     expect(screen.getByLabelText("Parent category")).toHaveValue("");
@@ -485,11 +497,23 @@ describe("CategoryDetail", () => {
     }));
   });
 
-  it("preserves the draft and exposes only a safe conflict after save failure", async () => {
+  it("closes an unchanged category without calling update", async () => {
+    const user = userEvent.setup();
+    const ledger = categoriesController(detailState());
+    const onClose = vi.fn();
+    render(<CategoryEditDialog controller={ledger} row={detailRow()} onClose={onClose} />);
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(ledger.updateCategory).not.toHaveBeenCalled();
+  });
+
+  it("preserves the draft and exposes only a safe error after save failure", async () => {
     const user = userEvent.setup();
     const ledger = categoriesController(detailState());
     ledger.updateCategory = vi.fn().mockRejectedValue(new Error("private sqlite path"));
-    render(<CategoryDetail controller={ledger} row={detailRow()} onBack={vi.fn()} onDeleted={vi.fn()} />);
+    const onClose = vi.fn();
+    render(<CategoryEditDialog controller={ledger} row={detailRow()} onClose={onClose} />);
+    await screen.findByRole("button", { name: "Save" });
 
     await user.clear(screen.getByLabelText("Category name"));
     await user.type(screen.getByLabelText("Category name"), "Draft stays");
@@ -498,40 +522,65 @@ describe("CategoryDetail", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save category.");
     expect(screen.getByLabelText("Category name")).toHaveValue("Draft stays");
     expect(screen.queryByText("private sqlite path")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("confirms a dirty Back action before discarding the draft", async () => {
+  it("confirms a dirty Close before discarding the draft", async () => {
     const user = userEvent.setup();
-    const onBack = vi.fn();
-    render(<CategoryDetail controller={categoriesController(detailState())} row={detailRow()} onBack={onBack} onDeleted={vi.fn()} />);
+    const onClose = vi.fn();
+    render(<CategoryEditDialog controller={categoriesController(detailState())} row={detailRow()} onClose={onClose} />);
+    await screen.findByRole("button", { name: "Save" });
 
     await user.type(screen.getByLabelText("Category name"), " draft");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit category" }));
     expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Discard changes" }));
-    expect(onBack).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("blocks deleting a parent with active children and deletes a leaf after confirmation", async () => {
+  it("keeps focus on the dialog while references load so Escape still closes it", async () => {
     const user = userEvent.setup();
+    let resolve!: (value: boolean) => void;
     const ledger = categoriesController(detailState());
-    const { unmount } = render(
-      <CategoryDetail controller={ledger} row={detailRow("category-food")} onBack={vi.fn()} onDeleted={vi.fn()} />,
-    );
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    ledger.ensureReferenceData = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+    const onClose = vi.fn();
+    render(<CategoryEditDialog controller={ledger} row={detailRow()} onClose={onClose} />);
 
-    const onDeleted = vi.fn();
-    unmount();
-    render(<CategoryDetail controller={ledger} row={detailRow("category-cafe")} onBack={vi.fn()} onDeleted={onDeleted} />);
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog", { name: "Delete Cafe?" }))
-      .getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(ledger.archiveCategory).toHaveBeenCalledWith("category-cafe"));
-    expect(onDeleted).toHaveBeenCalledOnce();
+    const dialog = await screen.findByRole("dialog", { name: "Edit category" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    await act(async () => resolve(true));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
 describe("CategoriesPanel", () => {
+  it("opens an edit popup from a row click and handles Escape with a discard confirmation", async () => {
+    const user = userEvent.setup();
+    render(<CategoriesPanel controller={categoriesController()} />);
+
+    const row = screen.getByRole("button", { name: "Open details for Food, Expense, No parent" });
+    await user.click(row);
+    const dialog = await screen.findByRole("dialog", { name: "Edit category" });
+    expect(within(dialog).queryByRole("button", { name: "< Back" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved changes?" })).toBeNull();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit category" })).toBeNull());
+    expect(row).toHaveFocus();
+
+    await user.click(row);
+    await user.type(await screen.findByLabelText("Category name"), " draft");
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Category name")).toHaveValue("Food draft");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit category" })).toBeNull());
+  });
+
   it("uses the shared header and opens the production create dialog", async () => {
     const user = userEvent.setup();
     render(<CategoriesPanel controller={categoriesController()} />);
@@ -611,14 +660,14 @@ describe("CategoriesPanel", () => {
     const { rerender } = render(<CategoriesPanel controller={ledger} />);
 
     await user.click(screen.getByRole("button", { name: "Open details for Food, Expense, No parent" }));
-    expect(screen.getByRole("region", { name: "Food details" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Edit category" })).toBeInTheDocument();
     ledger.tableSettings = vi.fn(() => ({
       ...defaultLedgerTableSettings("ledger.categories"),
       filterRules: [{ id: "salary", field: "name" as const, type: "text" as const, operator: "contains" as const, value: "salary" }],
     }));
     rerender(<CategoriesPanel controller={ledger} />);
-    expect(screen.getByRole("region", { name: "Food details" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    expect(screen.getByRole("dialog", { name: "Edit category" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Edit category" }));
     await waitFor(() => expect(screen.getAllByRole("region", { name: "Categories" })
       .find((element) => element.tabIndex === -1)).toHaveFocus());
 
@@ -629,6 +678,6 @@ describe("CategoriesPanel", () => {
     if (dirty) await user.type(screen.getByLabelText("Category name"), " draft");
     rerender(<CategoriesPanel controller={ledger} />);
     if (dirty) expect(screen.getByLabelText("Category name")).toHaveValue("Food draft");
-    else await waitFor(() => expect(screen.queryByRole("region", { name: "Food details" })).toBeNull());
+    else await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit category" })).toBeNull());
   });
 });

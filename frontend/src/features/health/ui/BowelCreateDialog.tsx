@@ -3,6 +3,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import type { BowelRow } from "@/features/health/model/bowel-table";
 import type { HealthController } from "@/features/health/hooks/useHealthController";
 import { BowelForm } from "@/features/health/ui/HealthForms";
 import { useModalIsolation } from "@/features/workbench/ui/modal-lifecycle";
@@ -11,7 +12,8 @@ import { useDiscardConfirmation } from "@/features/workbench/ui/use-discard-conf
 type BowelCreateDialogProps = {
   controller: HealthController;
   onClose(): void;
-  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+  row?: BowelRow;
 };
 
 export function BowelCreateDialog(props: BowelCreateDialogProps): React.ReactNode {
@@ -32,7 +34,9 @@ function BowelCreateDialogContent({
   controller,
   onClose,
   returnFocusRef,
+  row,
 }: BowelCreateDialogProps) {
+  const editing = row !== undefined;
   const [pending, setPending] = React.useState(false);
   const [recovering, setRecovering] = React.useState(false);
   const pendingRef = React.useRef(false);
@@ -49,7 +53,7 @@ function BowelCreateDialogContent({
     )?.focus();
     return () => {
       mountedRef.current = false;
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+      if (returnFocusRef?.current?.isConnected) returnFocusRef.current.focus();
     };
   }, [returnFocusRef]);
 
@@ -114,22 +118,23 @@ function BowelCreateDialogContent({
         className="confirmation-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add bowel entry"
+        aria-label={editing ? "Edit bowel entry" : "Add bowel entry"}
         aria-busy={pending || recovering}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         {discardConfirmation}
         <header className="dashboard-widget-header">
-          <h2>Add bowel entry</h2>
+          <h2>{editing ? "Edit bowel entry" : "Add bowel entry"}</h2>
         </header>
         <BowelForm
+          row={row}
           controller={controller}
           onSaved={onClose}
           onDirtyChange={onDirtyChange}
           onPendingChange={updatePending}
           onRecoveryChange={updateRecovery}
-          dialogActions={{ closeLabel: "Close Add bowel entry", onClose: close }}
+          dialogActions={{ closeLabel: (editing ? "Close Edit bowel entry" : "Close Add bowel entry"), onClose: close }}
         />
       </div>
     </div>

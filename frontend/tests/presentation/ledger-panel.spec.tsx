@@ -934,8 +934,7 @@ describe("LedgerPanel", () => {
     await user.click(await screen.findByRole("button", { name: /Open details for Lunch/ }));
     await user.type(await screen.findByLabelText("Content"), " edited");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
     expect(await screen.findByRole("button", { name: /Open details for Lunch edited/ })).toBeVisible();
     view.unmount();
     render(<LiveLedger />);
@@ -992,7 +991,7 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("This transaction was deleted elsewhere.");
     await user.click(screen.getByRole("button", { name: /Open details for Dinner/ }));
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit transaction" }));
     expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
   });
 
@@ -1010,17 +1009,6 @@ describe("LedgerPanel", () => {
     const page = ledger.tablePage!("ledger.transactions");
     ledger.tablePage = () => ({ ...page, generation: page.generation + 1 });
     view.rerender(<LedgerPanel controller={ledger} />);
-    expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
-  });
-
-  it("keeps a direct archive from the detail silent", async () => {
-    const user = userEvent.setup();
-    const ledger = controller({ ...loadedState, entries: [transactionEntry("expense-1", "Lunch")] });
-    render(<LedgerPanel controller={ledger} />);
-    await user.click(screen.getByRole("button", { name: /Open details for Lunch/ }));
-    await user.click(screen.getByRole("button", { name: "Archive" }));
-    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Archive" }));
-    await waitFor(() => expect(screen.queryByLabelText("Content")).toBeNull());
     expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
   });
 
@@ -2019,21 +2007,21 @@ describe("LedgerPanel", () => {
     });
 
     await user.click(checkbox);
-    expect(screen.queryByRole("button", { name: "< Back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close Edit transaction" })).toBeNull();
     checkbox.focus();
     await user.keyboard("{Enter}");
     await user.keyboard(" ");
-    expect(screen.queryByRole("button", { name: "< Back" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close Edit transaction" })).toBeNull();
 
     await user.click(row);
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit transaction" }));
     screen.getByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     }).focus();
     await user.keyboard("{Enter}");
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit transaction" }));
     screen.getByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     }).focus();
@@ -2041,7 +2029,7 @@ describe("LedgerPanel", () => {
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
   });
 
-  it("renders a dedicated transaction detail with only user-facing fields", async () => {
+  it("opens the Add transaction form pre-filled with the row's values", async () => {
     const user = userEvent.setup();
     render(<LedgerPanel controller={controller({
       ...loadedState,
@@ -2051,98 +2039,80 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     }));
-    const detail = screen.getByRole("region", { name: "Lunch details" });
-    expect(screen.queryByRole("table", { name: "Transactions" })).toBeNull();
-    expect(within(detail).getAllByRole("button").map((button) => button.getAttribute("aria-label")).filter(Boolean))
-      .toEqual(["< Back", "Undo", "Redo", "Save", "Archive"]);
-    for (const label of ["Content", "Date", "Type", "Account", "Category", "Amount", "Currency", "Note"]) {
-      expect(within(detail).getByLabelText(label)).toBeInTheDocument();
-    }
+    const detail = screen.getByRole("dialog", { name: "Edit transaction" });
+    expect(within(detail).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent))
+      .toEqual(["Close Edit transaction", "Save"]);
+    expect(within(detail).getByRole("tab", { name: "Expense" })).toHaveAttribute("aria-selected", "true");
+    expect(within(detail).getByRole("tab", { name: "Transfer" })).toBeDisabled();
+    expect(within(detail).getByLabelText("Content")).toHaveValue("Lunch");
+    expect(within(detail).getByLabelText("Date")).toHaveValue("2026-07-30");
+    expect(within(detail).getByLabelText("Account")).toHaveValue("account-cash");
+    expect(within(detail).getByLabelText("Amount")).toHaveValue("12000");
+    expect(within(detail).queryByLabelText("Currency")).toBeNull();
     expect(within(detail).queryByLabelText("Written at")).toBeNull();
     expect(within(detail).queryByLabelText("Source")).toBeNull();
-    expect(within(detail).queryByText("expense-1")).toBeNull();
 
-    await user.click(within(detail).getByRole("button", { name: "< Back" }));
+    await user.click(within(detail).getByRole("button", { name: "Close Edit transaction" }));
     await user.click(screen.getByRole("button", {
       name: "Open details for Move funds, 2026-08-01, Cash → Card",
     }));
-    const transferDetail = screen.getByRole("region", { name: "Move funds details" });
+    const transferDetail = screen.getByRole("dialog", { name: "Edit transaction" });
+    expect(within(transferDetail).getByRole("tab", { name: "Transfer" })).toHaveAttribute("aria-selected", "true");
     expect(within(transferDetail).getByLabelText("Source account")).toHaveValue("account-cash");
     expect(within(transferDetail).getByLabelText("Destination account"))
       .toHaveValue("account-card");
     expect(within(transferDetail).queryByLabelText("Category")).toBeNull();
-    expect(within(transferDetail).queryByLabelText("Type")).toBeNull();
   });
 
-  it("keeps transaction Undo and Redo local until explicit Save", async () => {
+  it("saves only the changed transaction fields and closes the popup", async () => {
     const user = userEvent.setup();
     const ledger = controller({
       ...loadedState,
       entries: [transactionEntry("expense-1", "Lunch")],
     });
     render(<LedgerPanel controller={ledger} />);
-    await user.click(screen.getByRole("button", {
-      name: "Open details for Lunch, 2026-07-30, Cash",
-    }));
-    const content = screen.getByLabelText("Content");
-    const undo = screen.getByRole("button", { name: "Undo" });
-    const redo = screen.getByRole("button", { name: "Redo" });
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(undo).toBeDisabled();
-    expect(redo).toBeDisabled();
-    expect(save).toBeDisabled();
+    const row = screen.getByRole("button", { name: "Open details for Lunch, 2026-07-30, Cash" });
+    await user.click(row);
+    await user.type(screen.getByLabelText("Content"), " updated");
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await user.type(content, " updated");
-    expect(ledger.updateEntry).not.toHaveBeenCalled();
-    expect(undo).toBeEnabled();
-    await user.click(undo);
-    expect(content).toHaveValue("Lunch");
-    expect(redo).toBeEnabled();
-    await user.click(redo);
-    expect(content).toHaveValue("Lunch updated");
-
-    await user.click(save);
-    expect(ledger.updateEntry).toHaveBeenCalledWith("expense-1", { content: "Lunch updated" });
-    expect(save).toBeDisabled();
-    await user.click(undo);
-    expect(content).toHaveValue("Lunch");
-    expect(save).toBeEnabled();
-  });
-
-  it("supports transaction history shortcuts and clears Redo after a new edit", async () => {
-    const user = userEvent.setup();
-    const ledger = controller({
-      ...loadedState,
-      entries: [transactionEntry("expense-1", "Lunch")],
-    });
-    render(<LedgerPanel controller={ledger} />);
-    await user.click(screen.getByRole("button", {
-      name: "Open details for Lunch, 2026-07-30, Cash",
-    }));
-    const content = screen.getByLabelText("Content");
-    await user.type(content, " updated");
-
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    expect(content).toHaveValue("Lunch");
-    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
-    expect(content).toHaveValue("Lunch updated");
-    fireEvent.keyDown(window, { key: "z", metaKey: true });
-    await user.type(content, " revised");
-    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
-
-    fireEvent.keyDown(window, { key: "s", metaKey: true });
     await waitFor(() => expect(ledger.updateEntry)
-      .toHaveBeenCalledWith("expense-1", { content: "Lunch revised" }));
-    fireEvent(window, new KeyboardEvent("keydown", {
-      key: "z",
-      ctrlKey: true,
-      isComposing: true,
-      bubbles: true,
-    }));
-    expect(content).toHaveValue("Lunch revised");
+      .toHaveBeenCalledWith("expense-1", { content: "Lunch updated" }));
+    expect(ledger.createEntry).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
+    await waitFor(() => expect(row).toHaveFocus());
   });
 
-  it("preserves the transaction draft and history when Save fails", async () => {
+  it("opens the transaction edit popup from Enter and Space on a focused row", async () => {
+    const user = userEvent.setup();
+    render(<LedgerPanel controller={controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    })} />);
+    const row = screen.getByRole("button", { name: "Open details for Lunch, 2026-07-30, Cash" });
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("dialog", { name: "Edit transaction" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(row).toHaveFocus());
+    await user.keyboard(" ");
+    expect(await screen.findByRole("dialog", { name: "Edit transaction" })).toBeInTheDocument();
+  });
+
+  it("closes an unchanged transaction without calling update", async () => {
+    const user = userEvent.setup();
+    const ledger = controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    });
+    render(<LedgerPanel controller={ledger} />);
+    await user.click(screen.getByRole("button", { name: "Open details for Lunch, 2026-07-30, Cash" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
+    expect(ledger.updateEntry).not.toHaveBeenCalled();
+  });
+
+  it("preserves the transaction draft when Save fails", async () => {
     const user = userEvent.setup();
     const ledger = controller({
       ...loadedState,
@@ -2158,8 +2128,7 @@ describe("LedgerPanel", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Transaction could not be saved");
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch updated");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    expect(screen.getByRole("dialog", { name: "Edit transaction" })).toBeInTheDocument();
   });
 
   it("saves a transfer through the atomic transfer update boundary", async () => {
@@ -2197,61 +2166,39 @@ describe("LedgerPanel", () => {
       name: "Open details for Lunch, 2026-07-30, Cash",
     }));
     await user.type(screen.getByLabelText("Content"), " updated");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit transaction" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch updated");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit transaction" }));
     await user.click(within(await screen.findByRole("dialog", {
       name: "Discard unsaved changes?",
-    })).getByRole("button", { name: "Discard changes" }));
+    })).getByRole("button", { name: "Discard" }));
     expect(screen.getByRole("table", { name: "Transactions" })).toBeInTheDocument();
   });
 
-  it("archives a dirty transfer as one logical transaction after confirmation", async () => {
+  it("opens a transaction edit popup on row click and asks to discard on Escape only when dirty", async () => {
     const user = userEvent.setup();
-    const ledger = controller({ ...loadedState, entries: transactionEntries() });
-    render(<LedgerPanel controller={ledger} />);
-    await user.click(screen.getByRole("button", {
-      name: "Open details for Move funds, 2026-08-01, Cash → Card",
-    }));
-    await user.type(screen.getByLabelText("Content"), " updated");
-    await user.click(screen.getByRole("button", { name: "Archive" }));
-
-    const dialog = await screen.findByRole("dialog", { name: "Archive Move funds updated?" });
-    expect(dialog).toHaveTextContent("Unsaved changes will be discarded");
-    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
-
-    expect(ledger.archive).toHaveBeenCalledTimes(1);
-    expect(ledger.archive).toHaveBeenCalledWith("transfer-out");
-    expect(screen.queryByText("Move funds")).toBeNull();
-    expect(screen.getByRole("table", { name: "Transactions" })).toBeInTheDocument();
-  });
-
-  it("keeps a failed transaction archive open for a safe retry", async () => {
-    const user = userEvent.setup();
-    const ledger = controller({
+    render(<LedgerPanel controller={controller({
       ...loadedState,
       entries: [transactionEntry("expense-1", "Lunch")],
-    });
-    ledger.archive = vi.fn()
-      .mockRejectedValueOnce(new Error("Transaction could not be archived"))
-      .mockResolvedValueOnce(undefined);
-    render(<LedgerPanel controller={ledger} />);
-    await user.click(screen.getByRole("button", {
-      name: "Open details for Lunch, 2026-07-30, Cash",
-    }));
-    await user.click(screen.getByRole("button", { name: "Archive" }));
-    const dialog = await screen.findByRole("dialog", { name: "Archive Lunch?" });
-    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
-    expect(await within(dialog).findByRole("alert"))
-      .toHaveTextContent("Transaction could not be archived");
-    expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
+    })} />);
+    const row = screen.getByRole("button", { name: "Open details for Lunch, 2026-07-30, Cash" });
+    await user.click(row);
+    expect(await screen.findByRole("dialog", { name: "Edit transaction" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "< Back" })).toBeNull();
 
-    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
-    expect(ledger.archive).toHaveBeenCalledTimes(2);
-    expect(screen.queryByRole("region", { name: "Lunch details" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
+    expect(row).toHaveFocus();
+
+    await user.click(row);
+    await user.type(await screen.findByLabelText("Content"), " updated");
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
   });
 
   it("gives duplicate transaction rows distinct contextual accessible names", () => {
@@ -2336,7 +2283,7 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     }));
-    expect(screen.getByRole("button", { name: "< Back" }))
+    expect(screen.getByRole("button", { name: "Close Edit transaction" }))
       .toBeInTheDocument();
 
     view.rerender(<LedgerPanel controller={controller({
@@ -2345,7 +2292,7 @@ describe("LedgerPanel", () => {
     })} />);
 
     await waitFor(() => expect(screen.queryByRole("button", {
-      name: "< Back",
+      name: "Close Edit transaction",
     })).toBeNull());
   });
 
@@ -2379,7 +2326,7 @@ describe("LedgerPanel", () => {
     expect(screen.queryByRole("button", {
       name: "Open details for Lunch, 2026-07-30, Cash",
     })).toBeNull();
-    expect(screen.getByRole("button", { name: "< Back" }))
+    expect(screen.getByRole("button", { name: "Close Edit transaction" }))
       .toBeInTheDocument();
     expect(screen.getByLabelText("Content")).toHaveValue("Lunch");
   });
@@ -4590,7 +4537,7 @@ describe("LedgerPanel", () => {
     expect(collections.every((spy) => spy.mock.calls.length === 0)).toBe(true);
   });
 
-  it("keeps a page-two account detail mounted after save reloads offset zero", async () => {
+  it("saves a page-two account edit and closes the popup after reloading offset zero", async () => {
     const user = userEvent.setup();
     const updatedAccount = {
       ...loadedState.accounts[0]!, name: "Wallet", openingBalanceMinor: 2500,
@@ -4615,7 +4562,7 @@ describe("LedgerPanel", () => {
     const accountRow = await screen.findByRole("button", { name: /Open details for Cash/ });
     fireEvent.click(accountRow);
     fireEvent.click(accountRow);
-    expect(await screen.findByRole("region", { name: "Cash details" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Edit account" })).toBeInTheDocument();
     expect(ledgerApi.listAccounts).not.toHaveBeenCalled();
     expect(ledgerApi.listAccountBalances).not.toHaveBeenCalled();
     vi.mocked(ledgerApi.queryTable).mockResolvedValue({ items: [], nextOffset: null });
@@ -4629,13 +4576,15 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("region", { name: "Wallet details" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Current balance")).toHaveTextContent("2500 KRW");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit account" })).toBeNull());
+    expect(ledgerApi.updateAccount).toHaveBeenCalledWith(updatedAccount.id, {
+      name: "Wallet", openingBalance: "2500",
+    });
     expect(ledgerApi.listAccountBalances).not.toHaveBeenCalled();
     expect(ledgerApi.getAccountBalance).toHaveBeenCalledWith(updatedAccount.id);
   });
 
-  it("keeps a page-two transaction detail mounted after save reloads offset zero", async () => {
+  it("saves a page-two transaction edit and closes the popup after reloading offset zero", async () => {
     const user = userEvent.setup();
     const initial = transactionEntry("expense-1", "Lunch");
     const updated = transactionEntry("expense-1", "Dinner");
@@ -4671,10 +4620,11 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("region", { name: "Dinner details" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
+    expect(ledgerApi.updateEntry).toHaveBeenCalledWith("expense-1", { content: "Dinner" });
   });
 
-  it("keeps a page-two category detail mounted after save reloads offset zero", async () => {
+  it("saves a page-two category edit and closes the popup after reloading offset zero", async () => {
     const user = userEvent.setup();
     const updatedCategory = { ...loadedState.categories[0]!, name: "Meals" };
     vi.spyOn(ledgerApi, "queryTable")
@@ -4696,7 +4646,8 @@ describe("LedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(ledgerApi.queryTable).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("region", { name: "Meals details" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit category" })).toBeNull());
+    expect(ledgerApi.updateTransactionCategory).toHaveBeenCalledWith(updatedCategory.id, { name: "Meals" });
   });
 
   it.each([
@@ -5571,7 +5522,7 @@ it("closes a transaction detail when its remembered canonical record is archived
   const next = controller({ ...loadedState, entries: [archived] });
   next.hasReferenceData = vi.fn(() => false);
   view.rerender(<LedgerPanel controller={next} />);
-  expect(screen.queryByRole("region", { name: "Lunch details" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull();
 });
 
 it("retries a failed changed-account balance read without repeating the saved mutation", async () => {

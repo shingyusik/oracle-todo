@@ -67,10 +67,6 @@ export type HealthEvent = {
   deletedAt: string | null;
 };
 
-export type HealthRecord =
-  | { kind: "diet"; record: DietEntry }
-  | { kind: "health_event"; record: HealthEvent };
-
 export type HealthTableScope =
   | "health.diet" | "health.bowel" | "health.medication" | "health.metrics";
 export type HealthTableOccurrence =
@@ -185,14 +181,6 @@ export function mapHealthEvent(value: unknown): HealthEvent {
     updatedAt: timestamp(wire.updated_at, "health event.updated_at"),
     deletedAt: nullableTimestamp(wire.deleted_at, "health event.deleted_at"),
   };
-}
-
-export function mapHealthRecord(value: unknown): HealthRecord {
-  const wire = record(value, "health record");
-  const kind = string(wire.kind, "health record.kind");
-  if (kind === "diet") return { kind, record: mapDietEntry(wire.record) };
-  if (kind === "health_event") return { kind, record: mapHealthEvent(wire.record) };
-  throw new TypeError("invalid health record.kind");
 }
 
 export function mapHealthTablePage(

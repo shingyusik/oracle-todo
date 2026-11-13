@@ -288,6 +288,7 @@ describe("HealthPanel", () => {
   it("uses Diet as the default and fallback leaf and has no Overview", () => {
     render(<HealthPanel controller={controller()} />);
 
+    expect(screen.queryByText("Records, archive & history")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Diet" })).toBeInTheDocument();
     expect(screen.getByText("Bibimbap")).toBeInTheDocument();
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
@@ -332,48 +333,7 @@ describe("HealthPanel", () => {
     expect(screen.queryByRole("heading", { name: "Trends" })).toBeNull();
   });
 
-  it("cleans Diet detail history and its listener when the Health leaf changes", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({ preserved: "health" }, "");
-    const removeEventListener = vi.spyOn(window, "removeEventListener");
-    const health = controller();
-    const view = render(<HealthPanel controller={health} leafTabId="diet" />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    expect(window.history.state).toMatchObject({
-      preserved: "health",
-      __ravenHealthDietDetailId: "diet-1",
-    });
 
-    view.rerender(<HealthPanel controller={health} leafTabId="bowel" />);
-
-    expect(screen.getByRole("heading", { name: "Bowel" })).toBeInTheDocument();
-    expect(window.history.state).toMatchObject({
-      preserved: "health",
-      __ravenHealthDietDetailId: null,
-    });
-    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
-  });
-
-  it("cleans only Bowel detail history when the Health leaf changes", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({ __ravenHealthDietDetailId: "keep-diet" }, "");
-    const removeEventListener = vi.spyOn(window, "removeEventListener");
-    const health = controller();
-    const view = render(<HealthPanel controller={health} leafTabId="bowel" />);
-    await user.click(screen.getByRole("row", { name: /Open details for Type 4/ }));
-    expect(window.history.state).toMatchObject({
-      __ravenHealthDietDetailId: "keep-diet",
-      __ravenHealthBowelDetailId: bowel.id,
-    });
-
-    view.rerender(<HealthPanel controller={health} leafTabId="reports" />);
-
-    expect(window.history.state).toMatchObject({
-      __ravenHealthDietDetailId: "keep-diet",
-      __ravenHealthBowelDetailId: null,
-    });
-    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
-  });
 
   it("preserves committed Diet archive recovery across Health leaf tabs", async () => {
     const user = userEvent.setup();
@@ -468,31 +428,6 @@ describe("HealthPanel", () => {
     await waitFor(() => expect(screen.getByText("Type 4")).toBeInTheDocument());
   });
 
-  it("cleans only Medication detail history and its listener when the Health leaf changes", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({
-      __ravenHealthDietDetailId: "keep-diet",
-      __ravenHealthBowelDetailId: "keep-bowel",
-    }, "");
-    const removeEventListener = vi.spyOn(window, "removeEventListener");
-    const health = controller({ ...loadedState, medicationEntries: [medication] });
-    const view = render(<HealthPanel controller={health} leafTabId="medication" />);
-    await user.click(screen.getByRole("row", { name: /Open details for Vitamin D/ }));
-    expect(window.history.state).toMatchObject({
-      __ravenHealthDietDetailId: "keep-diet",
-      __ravenHealthBowelDetailId: "keep-bowel",
-      __ravenHealthMedicationDetailId: medication.id,
-    });
-
-    view.rerender(<HealthPanel controller={health} leafTabId="reports" />);
-
-    expect(window.history.state).toMatchObject({
-      __ravenHealthDietDetailId: "keep-diet",
-      __ravenHealthBowelDetailId: "keep-bowel",
-      __ravenHealthMedicationDetailId: null,
-    });
-    expect(removeEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
-  });
 
   it("preserves and reconciles committed Medication recovery across Health leaf tabs", async () => {
     const user = userEvent.setup();
@@ -1028,26 +963,23 @@ describe("HealthPanel", () => {
         return row!;
       });
       await userEvent.click(pageTwoRow);
-      expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+      const editDialog = await screen.findByRole("dialog", { name: /^Edit / });
       if (scope === "health.metrics") {
-        expect(screen.getByRole("region", {
-          name: `Health Metrics ${pageTwoLabel} details`,
-        })).toBeInTheDocument();
+        expect(within(editDialog).getByLabelText("Date")).toHaveValue(pageTwoLabel);
+      } else if (scope === "health.bowel") {
+        expect(within(editDialog).getByLabelText("Bristol Scale")).toHaveValue("5");
       } else {
-        expect(screen.getByText(pageTwoLabel)).toBeInTheDocument();
+        expect(within(editDialog).getByDisplayValue(pageTwoLabel)).toBeInTheDocument();
       }
-
-      expect(legacyDiet).not.toHaveBeenCalled();
-      expect(legacyEvents).not.toHaveBeenCalled();
-      act(() => window.history.back());
-      await screen.findByRole("table");
-      act(() => window.history.forward());
-      await screen.findByRole("button", { name: "Delete" });
       expect(legacyDiet).not.toHaveBeenCalled();
       expect(legacyEvents).not.toHaveBeenCalled();
 
-      await userEvent.click(screen.getByRole("button", { name: "Delete" }));
-      await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await userEvent.click(within(pageTwoRow).getByRole("checkbox"));
+      await userEvent.click(screen.getByRole("button", { name: /^Archive selected/ }));
+      await userEvent.click(within(screen.getByRole("dialog", { name: /^Archive selected/ }))
+        .getByRole("button", { name: "Archive" }));
       await waitFor(() => expect(vi.mocked(healthApi.queryTable).mock.calls.at(-1)?.[2]).toBe(0));
       const record = pages[2].record;
       if (record.kind === "diet") {
@@ -1401,12 +1333,11 @@ it.each([
     const found = table.querySelector<HTMLElement>("tbody tr[tabindex='0']");
     expect(found).not.toBeNull(); return found!;
   });
-  await user.click(row);
-  await user.click(screen.getByRole("button", { name: "Delete" }));
+  await user.click(within(row).getByRole("checkbox"));
+  await user.click(screen.getByRole("button", { name: /^Archive selected/ }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Archive" }));
   expect(await screen.findByText("Changes were saved, but Health could not refresh."))
     .toBeVisible();
-  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   expect(screen.getByRole("table").querySelector("tbody tr[tabindex='0']")).toBeNull();
   const retries = screen.getAllByRole("button", { name: "Retry" });
   await user.click(retries.at(-1)!);

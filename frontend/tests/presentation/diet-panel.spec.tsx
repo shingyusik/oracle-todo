@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render,  screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { healthApi } from "@/features/health/api/health-api";
 import {
   HealthMutationRefreshError,
-  useHealthController,
+  
 } from "@/features/health/hooks/useHealthController";
 import type { DietEntry } from "@/features/health/model/health-model";
 import type { HealthController, HealthState } from "@/features/health/hooks/useHealthController";
@@ -145,31 +145,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function mockOtherReads() {
-  vi.spyOn(healthApi, "listEvents").mockResolvedValue([]);
-  vi.spyOn(healthApi, "reports").mockResolvedValue({} as never);
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
-}
-
-function readSet() {
-  return {
-    diet: deferred<DietEntry[]>(),
-  };
-}
-
-function mockOverlappingReads() {
-  const older = readSet();
-  const newer = readSet();
-  vi.mocked(healthApi.listDiet).mockReset()
-    .mockImplementationOnce(() => older.diet.promise)
-    .mockImplementationOnce(() => newer.diet.promise);
-  return { older, newer };
-}
-
-function resolveReads(reads: ReturnType<typeof readSet>, dietEntries: DietEntry[] = []) {
-  reads.diet.resolve(dietEntries);
-}
-
 describe("Health Diet paging", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -185,102 +160,63 @@ describe("Health Diet paging", () => {
 describe("DietPanel table", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("uses one browser history entry for clean Diet Back and Forward", async () => {
+  const openRow = () => screen.getByRole("row", { name: /Open details for Bibimbap/ });
+  const editDialog = () => screen.getByRole("dialog", { name: "Edit diet entry" });
+
+  it("opens the add popup in edit mode, pre-filled, and leaves browser history alone", async () => {
     const user = userEvent.setup();
     window.history.replaceState({ preserved: "diet" }, "");
-    const pushState = vi.spyOn(window.history, "pushState");
+    const lengthBefore = window.history.length;
     render(<DietPanel controller={controller()} />);
+    await user.click(openRow());
 
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    expect(pushState).toHaveBeenCalledOnce();
-    expect(window.history.state).toMatchObject({
-      preserved: "diet",
-      __ravenHealthDietDetailId: "diet-1",
-    });
-    act(() => window.history.back());
-    expect(await screen.findByRole("row", { name: /Open details for Bibimbap/ }))
-      .toBeInTheDocument();
-    act(() => window.history.forward());
-    expect(await screen.findByText("Diet entry details")).toBeInTheDocument();
-    expect(pushState).toHaveBeenCalledOnce();
+    const dialog = editDialog();
+    expect(within(dialog).getByRole("heading", { name: "Edit diet entry" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Food")).toHaveValue("Bibimbap");
+    expect(within(dialog).getByLabelText("Meal")).toHaveValue("lunch");
+    expect(within(dialog).getByLabelText("Note")).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "Remove rice tag" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Close Edit diet entry" })).toBeInTheDocument();
+    for (const name of ["Undo", "Redo", "Delete"]) {
+      expect(within(dialog).queryByRole("button", { name })).toBeNull();
+    }
+    expect(window.history.length).toBe(lengthBefore);
+    expect(window.history.state).toEqual({ preserved: "diet" });
   });
 
-  it("repairs dirty browser Back on cancel and discards on confirm", async () => {
+  it("closes a clean popup with Escape, Close or a backdrop click and restores row focus", async () => {
     const user = userEvent.setup();
-    window.history.replaceState({}, "");
     render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.type(screen.getByLabelText("Note"), "draft");
+    await user.click(openRow());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(openRow()).toHaveFocus());
 
-    act(() => window.history.back());
-    const dialog = await screen.findByRole("dialog", { name: "Discard unsaved changes?" });
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.getByLabelText("Note")).toHaveValue("draft");
-    act(() => window.history.back());
-    await user.click(within(await screen.findByRole("dialog", {
-      name: "Discard unsaved changes?",
-    })).getByRole("button", { name: "Discard changes" }));
-    expect(await screen.findByRole("row", { name: /Open details for Bibimbap/ }))
-      .toBeInTheDocument();
+    await user.click(openRow());
+    await user.click(screen.getByRole("button", { name: "Close Edit diet entry" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(openRow()).toHaveFocus());
+
+    await user.click(openRow());
+    fireEvent.mouseDown(screen.getByRole("dialog").parentElement as HTMLElement);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("normalizes a stale Diet Forward entry without reopening or looping", async () => {
+  it("asks before Escape or Close discards a dirty popup", async () => {
     const user = userEvent.setup();
-    window.history.replaceState({ preserved: "stale" }, "");
-    const view = render(
-      <DietPanelView controller={controller()} tombstonedIds={new Set()} />,
-    );
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    act(() => window.history.back());
-    await screen.findByRole("row", { name: /Open details for Bibimbap/ });
-
-    view.rerender(
-      <DietPanelView controller={controller()} tombstonedIds={new Set(["diet-1"])} />,
-    );
-    act(() => window.history.forward());
-
-    await waitFor(() => expect(window.history.state).toMatchObject({
-      preserved: "stale",
-      __ravenHealthDietDetailId: null,
-    }));
-    expect(screen.queryByText("Diet entry details")).toBeNull();
-    act(() => window.history.back());
-    await waitFor(() => expect(screen.queryByText("Diet entry details")).toBeNull());
-  });
-
-  it("closes a successful save through Diet history without a duplicate entry", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({}, "");
-    const pushState = vi.spyOn(window.history, "pushState");
-    const health = controller();
-    render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.type(screen.getByLabelText("Note"), "saved");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await screen.findByRole("row", { name: /Open details for Bibimbap/ });
-    expect(health.updateDiet).toHaveBeenCalledOnce();
-    expect(pushState).toHaveBeenCalledOnce();
-    act(() => window.history.forward());
-    expect(await screen.findByText("Diet entry details")).toBeInTheDocument();
-    expect(pushState).toHaveBeenCalledOnce();
-  });
-
-  it("removes an archived Diet detail from its Forward history entry", async () => {
-    const user = userEvent.setup();
-    window.history.replaceState({}, "");
-    const health = controller();
-    render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog", {
-      name: "Archive Bibimbap?",
-    })).getByRole("button", { name: "Archive" }));
-
-    await waitFor(() => expect(screen.queryByText("Diet entry details")).toBeNull());
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.history.state.__ravenHealthDietDetailId).toBeNull());
-    expect(screen.queryByText("Diet entry details")).toBeNull();
+    render(<DietPanel controller={controller()} />);
+    await user.click(openRow());
+    await user.type(screen.getByLabelText("Note"), "changed");
+    await user.keyboard("{Escape}");
+    const confirm = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Note")).toHaveValue("changed");
+    await user.click(screen.getByRole("button", { name: "Close Edit diet entry" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Discard unsaved changes?" }))
+      .getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(openRow()).toHaveFocus());
   });
 
   it("renders active Diet rows in the required columns with accessible interaction", async () => {
@@ -294,7 +230,7 @@ describe("DietPanel table", () => {
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "", "Time", "Meal", "Food", "Tags", "Photo", "Note",
     ]);
-    let row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
+    let row = openRow();
     expect(row.tagName).toBe("TR");
     expect(row).toHaveRole("row");
     expect(row).toHaveAttribute("tabindex", "0");
@@ -308,17 +244,23 @@ describe("DietPanel table", () => {
 
     const checkbox = screen.getByRole("checkbox", { name: /Select Bibimbap/ });
     await user.click(checkbox);
-    expect(screen.queryByText("Diet entry details")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     checkbox.focus();
     await user.keyboard("{Enter} ");
-    expect(screen.queryByText("Diet entry details")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     await user.click(within(row).getByText("Lunch"));
-    expect(screen.getByText("Diet entry details")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
+    expect(editDialog()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Edit diet entry" }));
+    row = openRow();
     row.focus();
     await user.keyboard("{Enter}");
-    expect(screen.getByText("Diet entry details")).toBeInTheDocument();
+    expect(editDialog()).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    row = openRow();
+    row.focus();
+    await user.keyboard(" ");
+    expect(editDialog()).toBeInTheDocument();
   });
 
   it("opens a Diet row exactly once for each Space key spelling", () => {
@@ -335,68 +277,45 @@ describe("DietPanel table", () => {
     }
   });
 
-  it("opens detail by click or Enter, renders the approved editor order, and restores row focus", async () => {
+  it("keeps the Add layout order in edit mode", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
-    const row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
-
-    await user.click(row);
-    const detailHeader = screen.getByRole("region", { name: "Edit diet properties" })
-      .closest(".detail-view")!.querySelector("header")!;
-    expect(within(detailHeader).getAllByRole("button").map((button) => button.getAttribute("aria-label")))
-      .toEqual(["< Back", "Undo", "Redo", "Save", "Delete"]);
-    expect(screen.getByText(`Created ${new Date(entry.createdAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`))
-      .toBeInTheDocument();
-    expect(screen.getByText(`Updated ${new Date(entry.updatedAt).toLocaleString(undefined, { timeZone: "Etc/GMT-9" })}`))
-      .toBeInTheDocument();
-    expect([...screen.getByRole("region", { name: "Edit diet properties" }).children]
-      .map((field) => field.textContent?.trim())).toEqual([
-        "Time", "MealBreakfastLunchDinnerSnackLate night", "Food", "Tagsrice", "PhotoClick to add a photoNo photo", "Note",
-      ]);
-
-    await user.click(screen.getByRole("button", { name: "< Back" }));
-    const restoredRow = await screen.findByRole("row", { name: /Open details for Bibimbap/ });
-    await waitFor(() => expect(restoredRow).toHaveFocus());
-    restoredRow.focus();
-    await user.keyboard("{Enter}");
-    expect(screen.getByRole("region", { name: "Edit diet properties" })).toBeInTheDocument();
+    await user.click(openRow());
+    const labels = [...editDialog().querySelectorAll("form .field-label")]
+      .map((field) => field.firstChild?.textContent?.trim());
+    expect(labels).toEqual(["Time", "Meal", "Food", "Tags", "Photo", "Note"]);
   });
 
-  it("restores Back focus for an opaque occurrence key without parsing it as CSS", async () => {
+  it("restores focus for an opaque occurrence key without parsing it as CSS", async () => {
     const user = userEvent.setup();
     const health = controller();
     const page = health.tablePage("health.diet");
     const occurrence = `tag:"quoted"]\\line\n${page.items[0]!.key}`;
     health.tablePage = vi.fn(() => ({ ...page, items: [{ ...page.items[0]!, key: occurrence }] }));
     render(<DietPanel controller={health} />);
-    const row = screen.getByRole("row", { name: /Open details for Bibimbap/ });
 
-    await user.click(row);
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(openRow());
+    await user.click(screen.getByRole("button", { name: "Close Edit diet entry" }));
 
     const restored = await screen.findByRole("row", { name: /Open details for Bibimbap/ });
     await waitFor(() => expect(restored).toHaveFocus());
     expect(restored).toHaveAttribute("data-diet-occurrence", occurrence);
   });
 
-  it("opens Diet detail immediately and Add while compact tags are pending", async () => {
+  it("opens the edit popup immediately and Add while compact tags are pending", async () => {
     const user = userEvent.setup();
     const health = controller();
     const references = deferred<boolean>();
     health.ensureQuickAddReferences = vi.fn(() => references.promise);
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    expect(screen.getByText("Diet entry details")).toBeInTheDocument();
+    await user.click(openRow());
+    expect(editDialog()).toBeInTheDocument();
     expect(health.ensureReferenceData).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await act(async () => references.resolve(true));
+    await user.click(screen.getByRole("button", { name: "Close Edit diet entry" }));
     await screen.findByRole("button", { name: "Add diet entry" });
     await user.click(screen.getByRole("button", { name: "Add diet entry" }));
     expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Loading references");
-    expect(health.ensureQuickAddReferences).toHaveBeenCalledWith("health.diet");
-    await user.click(screen.getByRole("button", { name: "Close Add diet entry" }));
-    await act(async () => references.resolve(true));
-    expect(screen.queryByRole("dialog", { name: "Add diet entry" })).toBeNull();
     expect(health.ensureReferenceData).not.toHaveBeenCalled();
   });
 
@@ -435,70 +354,11 @@ describe("DietPanel table", () => {
     expect(screen.getByRole("dialog", { name: "Add diet entry" })).toBeInTheDocument();
   });
 
-  it("uses shared tag behavior and coalesces text history while keeping distinct actions separate", async () => {
-    const user = userEvent.setup();
-    const dinner = { ...entry, id: "dinner", foodName: "Soup", tags: ["warm"] };
-    render(<DietPanel controller={controller({ ...loadedState, dietEntries: [entry, dinner] })} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    const food = screen.getByLabelText("Food");
-
-    await user.clear(food);
-    await user.type(food, "Rice bowl");
-    await user.click(screen.getByRole("button", { name: "Tags" }));
-    await user.click(screen.getByRole("option", { name: "warm" }));
-    await user.click(screen.getByRole("button", { name: "Remove rice tag" }));
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByRole("button", { name: "Remove rice tag" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.queryByRole("button", { name: "Remove warm tag" })).toBeNull();
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    expect(food).toHaveValue("Bibimbap");
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
-    expect(food).toHaveValue("Rice bowl");
-    await user.type(food, "!");
-    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
-  });
-
-  it("caps draft history at 50 distinct steps while retaining the newest states", async () => {
-    const user = userEvent.setup();
-    render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    const meal = screen.getByLabelText("Meal");
-    for (let index = 0; index < 52; index += 1) {
-      fireEvent.change(meal, { target: { value: index % 2 === 0 ? "breakfast" : "dinner" } });
-    }
-    for (let index = 0; index < 50; index += 1) {
-      await user.click(screen.getByRole("button", { name: "Undo" }));
-    }
-
-    expect(meal).toHaveValue("dinner");
-    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
-  });
-
-  it("confirms dirty Back, keeps focus on cancel, and discards on confirmation", async () => {
-    const user = userEvent.setup();
-    render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.type(screen.getByLabelText("Note"), "changed");
-    const back = screen.getByRole("button", { name: "< Back" });
-    await user.click(back);
-    const dialog = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(back).toHaveFocus());
-    expect(screen.getByLabelText("Note")).toHaveValue("changed");
-    await user.click(back);
-    await user.click(within(screen.getByRole("dialog", {
-      name: "Discard unsaved changes?",
-    })).getByRole("button", { name: "Discard changes" }));
-    expect(screen.getByRole("row", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
-  });
-
   it("saves only changed scalar and tag fields with the current row version", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(openRow());
     await user.selectOptions(screen.getByLabelText("Meal"), "dinner");
     await user.click(screen.getByRole("button", { name: "Tags" }));
     await user.type(screen.getByRole("combobox", { name: "Tags" }), "Straße,wheat{Enter}");
@@ -509,16 +369,18 @@ describe("DietPanel table", () => {
       tags: ["rice", "Straße", "wheat"],
       expectedUpdatedAt: entry.updatedAt,
     }, undefined));
-    expect(screen.getByRole("row", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+    expect(health.createDiet).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(openRow()).toHaveFocus());
   });
 
-  it("freezes the opened version and restores focus by ID after refreshed labels change", async () => {
+  it("freezes the opened version across a same-ID refresh", async () => {
     const user = userEvent.setup();
     const saved = deferred<void>();
     const health = controller();
     health.updateDiet = vi.fn(() => saved.promise);
     const view = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(openRow());
     await user.type(screen.getByLabelText("Note"), "user edit");
 
     const refreshed = {
@@ -545,12 +407,12 @@ describe("DietPanel table", () => {
     await waitFor(() => expect(refreshedRow).toHaveFocus());
   });
 
-  it("uses canonical scalar values and exact unordered tag sets for no-op checks", async () => {
+  it("treats canonical-equal values as a no-op: Save closes without a request", async () => {
     const user = userEvent.setup();
     const tagged = { ...entry, tags: ["rice", "warm", "𐐨"] };
     const health = controller({ ...loadedState, dietEntries: [tagged] });
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(openRow());
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "  Bibimbap  " } });
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "   " } });
     const time = screen.getByLabelText("Time") as HTMLInputElement;
@@ -562,15 +424,22 @@ describe("DietPanel table", () => {
     await user.click(screen.getByRole("button", { name: "Remove 𐐨 tag" }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
     await user.type(screen.getByRole("combobox", { name: "Tags" }), "𐐨,warm,rice,rice{Enter}");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(health.updateDiet).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
 
+  it("trims a changed Food before sending", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    render(<DietPanel controller={health} />);
+    await user.click(openRow());
     fireEvent.change(screen.getByLabelText("Food"), { target: { value: "  Kimchi  " } });
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+    await waitFor(() => expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
       foodName: "Kimchi",
       expectedUpdatedAt: entry.updatedAt,
-    }, undefined);
+    }, undefined));
   });
 
   it.each([
@@ -583,119 +452,94 @@ describe("DietPanel table", () => {
     const tagged = { ...entry, tags: [original] };
     const health = controller({ ...loadedState, dietEntries: [tagged] });
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(openRow());
     await user.click(screen.getByRole("button", { name: `Remove ${original} tag` }));
     await user.click(screen.getByRole("button", { name: "Tags" }));
     await user.type(screen.getByRole("combobox", { name: "Tags" }), `${changed}{Enter}`);
-
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+    await waitFor(() => expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
       tags: [changed],
       expectedUpdatedAt: entry.updatedAt,
-    }, undefined);
+    }, undefined));
   });
 
   it("sends an exact RFC3339 instant across the UTC+09:00 date boundary", async () => {
     const user = userEvent.setup();
     const health = controller();
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(openRow());
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "2026-08-19T00:15:00" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
-    const submitted = vi.mocked(health.updateDiet).mock.calls[0]![1].occurredAt!;
-    expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
+    await waitFor(() => expect(health.updateDiet).toHaveBeenCalledWith("diet-1", {
       occurredAt: "2026-08-18T15:15:00.000Z",
       expectedUpdatedAt: entry.updatedAt,
-    }, undefined);
-    const roundTrip = new Date(new Date(submitted).getTime() + 9 * 60 * 60 * 1000);
-    expect([
-      roundTrip.getUTCFullYear(), roundTrip.getUTCMonth(), roundTrip.getUTCDate(),
-      roundTrip.getUTCHours(), roundTrip.getUTCMinutes(), roundTrip.getUTCSeconds(),
-    ]).toEqual([2026, 7, 19, 0, 15, 0]);
+    }, undefined));
   });
 
-  it("rejects a missing Diet detail time without losing the draft", async () => {
-    const previousTimezone = process.env.TZ;
-    process.env.TZ = "America/New_York";
-    try {
-      const health = controller();
-      render(<DietPanel controller={health} />);
-      await userEvent.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-      fireEvent.change(screen.getByLabelText("Time"), {
-        target: { value: "" },
-      });
-
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "Time must be a valid local date and time",
-      );
-      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-      fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-      expect(health.updateDiet).not.toHaveBeenCalled();
-      expect(screen.getByLabelText("Time")).toHaveValue("");
-    } finally {
-      if (previousTimezone === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTimezone;
-    }
+  it("does not save a cleared Time and keeps the draft", async () => {
+    const user = userEvent.setup();
+    const health = controller();
+    render(<DietPanel controller={health} />);
+    await user.click(openRow());
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(health.updateDiet).not.toHaveBeenCalled();
+    expect(editDialog()).toBeInTheDocument();
+    expect(screen.getByLabelText("Time")).toHaveValue("");
   });
 
-  it("keeps draft and history after save failure", async () => {
+  it("keeps the draft and dialog after save failure", async () => {
     const user = userEvent.setup();
     const health = controller();
     health.updateDiet = vi.fn().mockRejectedValue(new Error("Save failed"));
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(openRow());
     await user.type(screen.getByLabelText("Note"), "first");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Save failed");
     expect(screen.getByLabelText("Note")).toHaveValue("first");
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Note")).toHaveValue("");
+    expect(editDialog()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
-  it("sends exactly one media update path and rejects non-images without changing intent", async () => {
+  it("rejects non-images, then removes or replaces the current photo", async () => {
     const user = userEvent.setup({ applyAccept: false });
     const withPhoto = { ...entry, mediaId: "media-1" };
     const health = controller({ ...loadedState, dietEntries: [withPhoto] });
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    const photo = screen.getByLabelText("Photo");
-    const invalid = new File(["text"], "notes.txt", { type: "text/plain" });
-    await user.upload(photo, invalid);
-    expect(screen.getByRole("alert")).toHaveTextContent("Meal image must be an image file");
+    await user.click(openRow());
+    expect(screen.getByAltText("Saved meal")).toBeInTheDocument();
     expect(screen.getByText("Current photo")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Note"), "kept");
-    await user.upload(photo, invalid);
-    expect(screen.getByLabelText("Note")).toHaveValue("kept");
+    const invalid = new File(["text"], "notes.txt", { type: "text/plain" });
+    await user.upload(screen.getByLabelText("Photo"), invalid);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
-      note: "kept",
-      expectedUpdatedAt: entry.updatedAt,
-    }, undefined);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Meal image must be an image file");
+    expect(health.updateDiet).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Remove selected photo" }));
+    expect(screen.getByText("Current photo")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(screen.getByRole("button", { name: "Remove photo" }));
+    expect(screen.getByText("Photo will be removed")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep photo" }));
     await user.click(screen.getByRole("button", { name: "Remove photo" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
+    await waitFor(() => expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
       expectedUpdatedAt: entry.updatedAt,
       removeImage: true,
-    }, undefined);
+    }, undefined));
 
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(openRow());
     const image = new File(["photo"], "meal.png", { type: "image/png" });
-    await user.click(screen.getByRole("button", { name: "Remove photo" }));
     await user.upload(screen.getByLabelText("Photo"), image);
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(screen.getByLabelText("Photo")).toHaveProperty("files.length", 0);
-    await user.click(screen.getByRole("button", { name: "Redo" }));
     expect(screen.getByText("meal.png")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
+    await waitFor(() => expect(health.updateDiet).toHaveBeenLastCalledWith("diet-1", {
       expectedUpdatedAt: entry.updatedAt,
-    }, image);
+    }, image));
   });
 
-  it("retries reads only when an update committed before refresh failed", async () => {
+  it("shows recovery Retry when an update committed before refresh failed, without resubmitting", async () => {
     const user = userEvent.setup();
     const health = controller();
     health.updateDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
@@ -703,109 +547,55 @@ describe("DietPanel table", () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
+    await user.click(openRow());
     await user.type(screen.getByLabelText("Note"), "saved");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Changes were saved, but Health could not refresh.",
     );
     expect(screen.getByLabelText("Food")).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Tags" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
     expect(health.refresh).toHaveBeenCalledOnce();
     expect(health.updateDiet).toHaveBeenCalledOnce();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Changes were saved, but Health could not refresh.",
     );
     expect(screen.getByLabelText("Note")).toHaveValue("saved");
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Retry refresh" }));
     expect(health.refresh).toHaveBeenCalledTimes(2);
     expect(health.updateDiet).toHaveBeenCalledOnce();
-    expect(screen.getByRole("row", { name: /Open details for Bibimbap/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(openRow()).toHaveFocus());
   });
 
-  it("blocks invalid and pending edits, actions, shortcuts, and duplicate saves", async () => {
+  it("locks the popup while saving and ignores a duplicate Save", async () => {
     const user = userEvent.setup();
     const saved = deferred<void>();
     const health = controller();
     health.updateDiet = vi.fn(() => saved.promise);
     render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.clear(screen.getByLabelText("Food"));
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-    expect(health.updateDiet).not.toHaveBeenCalled();
-
-    await user.type(screen.getByLabelText("Food"), "Dinner");
-    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    await user.click(openRow());
+    await user.type(screen.getByLabelText("Note"), "x");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(health.updateDiet).toHaveBeenCalledOnce());
-    for (const name of ["< Back", "Undo", "Redo", "Save", "Delete"]) {
-      expect(screen.getByRole("button", { name })).toBeDisabled();
-    }
     expect(screen.getByLabelText("Food")).toBeDisabled();
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(screen.getByRole("button", { name: "Close Edit diet entry" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Diet entry" }));
+    await user.keyboard("{Escape}");
     expect(health.updateDiet).toHaveBeenCalledOnce();
+    expect(editDialog()).toBeInTheDocument();
     await act(async () => saved.resolve());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("supports Meta undo, Shift redo, and the established Ctrl+Y alternative", async () => {
+  it("closes the edit popup without archive controls and leaves archiving to the table", async () => {
     const user = userEvent.setup();
     render(<DietPanel controller={controller()} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    fireEvent.change(screen.getByLabelText("Food"), { target: { value: "Dinner" } });
-    fireEvent.keyDown(window, { key: "z", metaKey: true });
-    expect(screen.getByLabelText("Food")).toHaveValue("Bibimbap");
-    fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
-    expect(screen.getByLabelText("Food")).toHaveValue("Dinner");
-    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
-    expect(screen.getByLabelText("Food")).toHaveValue("Dinner");
-  });
-
-  it("treats detail archive refresh failure as committed and retries reads only", async () => {
-    const user = userEvent.setup();
-    const health = controller();
-    health.archiveDiet = vi.fn().mockRejectedValue(new HealthMutationRefreshError());
-    health.refresh = vi.fn().mockResolvedValue(true);
-    render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog", {
-      name: "Archive Bibimbap?",
-    })).getByRole("button", { name: "Archive" }));
-
-    await waitFor(() => expect(screen.queryByText("Bibimbap")).toBeNull());
-    expect(health.archiveDiet).toHaveBeenCalledOnce();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add diet entry" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "Retry" }));
-    expect(health.refresh).toHaveBeenCalledOnce();
-    expect(health.archiveDiet).toHaveBeenCalledOnce();
-  });
-
-  it("archives from detail once and exits when active truth or a tombstone removes the row", async () => {
-    const user = userEvent.setup();
-    const health = controller();
-    const view = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(within(screen.getByRole("dialog", {
-      name: "Archive Bibimbap?",
-    })).getByRole("button", { name: "Archive" }));
-    await waitFor(() => expect(health.archiveDiet).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("region", { name: "Edit diet properties" })).toBeNull();
-
-    view.unmount();
-    const activeView = render(<DietPanel controller={health} />);
-    await user.click(screen.getByRole("row", { name: /Open details for Bibimbap/ }));
-    activeView.rerender(<DietPanel controller={{
-      ...health,
-      state: { ...health.state, dietEntries: [] },
-    }} />);
-    await waitFor(() => expect(screen.queryByRole("region", {
-      name: "Edit diet properties",
-    })).toBeNull());
+    await user.click(openRow());
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByText(/Created /)).toBeNull();
+    expect(screen.queryByText(/Updated /)).toBeNull();
   });
 
   it("distinguishes no active entries from no matches", () => {
@@ -886,7 +676,7 @@ describe("DietPanel table", () => {
     const second = screen.getAllByRole("row", { name: /Open details for Bibimbap/ })[1]!;
     second.focus();
     await user.keyboard("{Enter}");
-    await user.click(screen.getByRole("button", { name: "< Back" }));
+    await user.click(screen.getByRole("button", { name: "Close Edit diet entry" }));
     const restored = screen.getAllByRole("row", { name: /Open details for Bibimbap/ })[1]!;
     await waitFor(() => expect(restored).toHaveFocus());
   });

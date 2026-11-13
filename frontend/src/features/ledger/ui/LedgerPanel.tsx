@@ -1,5 +1,4 @@
 "use client";
-import { ReferenceDataBoundary } from "@/features/workbench/ui/ReferenceDataBoundary";
 import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -20,7 +19,6 @@ import { AccountsPanel } from "@/features/ledger/ui/AccountsPanel";
 import { CategoriesPanel } from "@/features/ledger/ui/CategoriesPanel";
 import { LedgerReports } from "@/features/ledger/ui/LedgerReports";
 import { TransactionCreateDialog } from "@/features/ledger/ui/TransactionCreateDialog";
-import { TransactionDetail } from "@/features/ledger/ui/TransactionDetail";
 import { TransactionsTable } from "@/features/ledger/ui/TransactionsTable";
 import { LedgerTableViewHeader } from "@/features/ledger/ui/LedgerTableViewHeader";
 import { TransactionAnalysis } from "@/features/ledger/ui/TransactionAnalysis";
@@ -187,6 +185,7 @@ function TransactionsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const actions = useLifecycleAction();
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const rowFocusRef = useRef<HTMLElement | null>(null);
   const page = controller.tablePage?.("ledger.transactions") ?? {
     items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
   };
@@ -302,33 +301,16 @@ function TransactionsPanel({
     if (complete) setArchiveConfirmationOpen(false);
   }
 
-  function openTransaction(row: TransactionRow) {
+  function openTransaction(row: TransactionRow, trigger: HTMLElement) {
+    rowFocusRef.current = trigger;
     setNotice(null);
     setEditing(row);
   }
 
   function closeTransaction() {
+    detailDirty.current = false;
     setEditing(null);
     setLatestCheck(null);
-  }
-
-  if (resolvedEditing) {
-    return (
-      <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={closeTransaction}>
-      <TransactionDetail
-        controller={controller}
-        row={resolvedEditing}
-        notice={latestCheckResult === "unverified" ? "Could not check for the latest version." : null}
-        onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
-        onBack={closeTransaction}
-        onArchived={(deletedElsewhere) => {
-          setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
-          if (deletedElsewhere) setNotice("This transaction was deleted elsewhere.");
-          closeTransaction();
-        }}
-      />
-      </ReferenceDataBoundary>
-    );
   }
 
   return (
@@ -378,6 +360,21 @@ function TransactionsPanel({
           onClose={() => setDialogOpen(false)}
           returnFocusRef={addButtonRef}
           onRefreshRecoveryChange={onRefreshRecoveryChange}
+        />
+      ) : null}
+      {resolvedEditing ? (
+        <TransactionCreateDialog
+          controller={controller}
+          record={resolvedEditing}
+          notice={latestCheckResult === "unverified" ? "Could not check for the latest version." : null}
+          onDirtyChange={(dirty) => { detailDirty.current = dirty; }}
+          onClose={closeTransaction}
+          onMissing={() => {
+            setTombstonedIds((current) => new Set(current).add(resolvedEditing.id));
+            setNotice("This transaction was deleted elsewhere.");
+            closeTransaction();
+          }}
+          returnFocusRef={rowFocusRef}
         />
       ) : null}
       {archiveConfirmationOpen ? (

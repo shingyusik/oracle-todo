@@ -13,7 +13,7 @@ type CategoriesTableProps = {
   groups: CategoryRowGroup[];
   activeRowCount: number;
   selectedIds: string[];
-  onOpen: (row: CategoryRow) => void;
+  onOpen: (row: CategoryRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
   page?: LedgerTablePageState;
@@ -103,7 +103,7 @@ function CategoryTableBody({
   rows: CategoryRow[];
   selectedIds: string[];
   emptyMessage: string;
-  onOpen: (row: CategoryRow) => void;
+  onOpen: (row: CategoryRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
 }) {
   if (rows.length === 0) {
@@ -153,7 +153,7 @@ function CategoryTableRow({
 }: {
   row: CategoryRow;
   selected: boolean;
-  onOpen: (row: CategoryRow) => void;
+  onOpen: (row: CategoryRow, trigger: HTMLElement) => void;
   onToggle: (id: string) => void;
 }) {
   const accessibleContext = `${row.name}, ${row.kindLabel}, ${row.parentLabel}`;
@@ -163,11 +163,11 @@ function CategoryTableRow({
       role="button"
       tabIndex={0}
       aria-label={`Open details for ${accessibleContext}`}
-      onClick={() => onOpen(row)}
+      onClick={(event) => onOpen(row, event.currentTarget)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " " || event.key === "Space") {
           event.preventDefault();
-          onOpen(row);
+          onOpen(row, event.currentTarget);
         }
       }}
     >
