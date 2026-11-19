@@ -164,15 +164,12 @@ function controller(state: LedgerState = loadedState): LedgerController {
     transfer: vi.fn(),
     updateTransfer: vi.fn(),
     archive: vi.fn(),
-    restore: vi.fn(),
     createAccount: vi.fn(),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
-    restoreAccount: vi.fn(),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
-    restoreCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -731,6 +728,23 @@ describe("LedgerPanel", () => {
     rerender(<LedgerPanel controller={ledger} leafTabId="reports" />);
     expect(screen.queryByRole("button", { name: "Account settings" })).toBeNull();
   });
+
+  it.each([
+    ["transactions", "Archived transactions", "Load archived transactions", "Add transaction"],
+    ["accounts", "Inactive accounts", "Load inactive accounts", "Add account"],
+    ["categories", "Inactive categories", "Load inactive categories", "Add category"],
+  ] as const)(
+    "does not render the %s header recovery disclosure",
+    (leafTabId, disclosure, loadButton, addButton) => {
+      render(<LedgerPanel controller={controller()} leafTabId={leafTabId} />);
+
+      expect(screen.getByRole("button", { name: addButton })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: loadButton })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+      // <summary> has no ARIA role in jsdom, so the disclosure label is checked by text.
+      expect(screen.queryByText(disclosure)).toBeNull();
+    },
+  );
 
   it("keeps a transaction edit draft if an external change archives its record", async () => {
     let notify!: (event: MessageEvent<string>) => void;
@@ -2993,7 +3007,6 @@ describe("LedgerPanel", () => {
       name: "Select Move funds, 2026-08-01, Cash → Card",
     })).toBeNull();
     await waitFor(() => expect(addButton).toHaveFocus());
-    expect(ledger.restore).not.toHaveBeenCalled();
   });
 
   it("removes archived rows from stale transaction group candidates", async () => {
@@ -4911,7 +4924,6 @@ describe("LedgerPanel", () => {
       ...entryView("entry", "Lunch").entry,
       deletedAt: "2026-07-31T00:00:00Z",
     });
-    vi.spyOn(ledgerApi, "restoreEntry").mockResolvedValue(entryView("entry", "Lunch").entry);
     vi.spyOn(ledgerApi, "createAccount")
       .mockResolvedValue({ ...loadedState.accounts[0]!, id: "account", active: false });
     vi.spyOn(ledgerApi, "updateAccount")
@@ -4929,15 +4941,12 @@ describe("LedgerPanel", () => {
     const ordinaryMutations = [
       () => result.current.updateEntry("entry", {} as never),
       () => result.current.archive("entry"),
-      () => result.current.restore("entry"),
       () => result.current.createAccount({} as never),
       () => result.current.updateAccount("account", {}),
       () => result.current.archiveAccount("account"),
-      () => result.current.restoreAccount("account"),
       () => result.current.createCategory({} as never),
       () => result.current.updateCategory("category", {}),
       () => result.current.archiveCategory("category"),
-      () => result.current.restoreCategory("category"),
     ];
     for (const mutation of ordinaryMutations) {
       await act(async () => {

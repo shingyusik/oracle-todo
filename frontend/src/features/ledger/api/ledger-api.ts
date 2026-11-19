@@ -141,11 +141,6 @@ export const ledgerApi = {
       method: "POST",
     }));
   },
-  async restoreEntry(id: string): Promise<LedgerEntry> {
-    return mapLedgerEntry(await requestJson(`${ROOT}/entries/${segment(id)}/restore`, {
-      method: "POST",
-    }));
-  },
   async createTransfer(input: TransferInput): Promise<TransferView> {
     const payload = transferBody(input);
     const fingerprint = await transferFingerprint(payload);

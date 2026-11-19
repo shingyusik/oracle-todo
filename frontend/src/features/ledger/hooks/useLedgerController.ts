@@ -144,15 +144,12 @@ export type LedgerController = {
   transfer(input: TransferInput): Promise<void>;
   updateTransfer(id: string, input: TransferUpdate): Promise<void>;
   archive(id: string): Promise<void>;
-  restore(id: string): Promise<void>;
   createAccount(input: AccountInput): Promise<void>;
   updateAccount(id: string, input: Partial<AccountInput>): Promise<void>;
   archiveAccount(id: string): Promise<void>;
-  restoreAccount(id: string): Promise<void>;
   createCategory(input: TransactionCategoryInput): Promise<void>;
   updateCategory(id: string, input: Partial<TransactionCategoryInput>): Promise<void>;
   archiveCategory(id: string): Promise<void>;
-  restoreCategory(id: string): Promise<void>;
   createCurrency(input: CurrencyInput): Promise<void>;
   updateCurrency(id: string, input: Partial<CurrencyInput> & { active?: boolean }): Promise<void>;
   deactivateCurrency(id: string): Promise<void>;
@@ -843,9 +840,6 @@ export function useLedgerController(): LedgerController {
     archive: (id) => mutate(async () => ({
       kind: "entry", record: await ledgerApi.archiveEntry(id),
     })),
-    restore: (id) => mutate(async () => ({
-      kind: "entry", record: await ledgerApi.restoreEntry(id),
-    })),
     createAccount: (input) => mutate(async () => ({
       kind: "account", record: await ledgerApi.createAccount(input),
     })),
@@ -855,9 +849,6 @@ export function useLedgerController(): LedgerController {
     archiveAccount: (id) => mutate(async () => ({
       kind: "account", record: await ledgerApi.updateAccount(id, { active: false }),
     })),
-    restoreAccount: (id) => mutate(async () => ({
-      kind: "account", record: await ledgerApi.updateAccount(id, { active: true }),
-    })),
     createCategory: (input) => mutate(async () => ({
       kind: "category", record: await ledgerApi.createTransactionCategory(input),
     })),
@@ -866,9 +857,6 @@ export function useLedgerController(): LedgerController {
     })),
     archiveCategory: (id) => mutate(async () => ({
       kind: "category", record: await ledgerApi.updateTransactionCategory(id, { active: false }),
-    })),
-    restoreCategory: (id) => mutate(async () => ({
-      kind: "category", record: await ledgerApi.updateTransactionCategory(id, { active: true }),
     })),
     createCurrency: (input) => mutate(async () => ({
       kind: "currency", record: await ledgerApi.createCurrency(input),

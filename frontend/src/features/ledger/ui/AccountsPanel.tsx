@@ -1,6 +1,5 @@
 "use client";
 
-import { LedgerRecovery } from "./LedgerRecovery";
 
 import React, { useEffect, useRef, useState } from "react";
 
@@ -140,7 +139,6 @@ export function AccountsPanel({ controller }: { controller: LedgerController }) 
 
   return (
     <section ref={sectionRef} aria-labelledby="ledger-accounts-heading" tabIndex={-1}>
-      <LedgerRecovery controller={controller} kind="accounts" />
       <LedgerTableViewHeader
         controller={controller}
         scope="ledger.accounts"
