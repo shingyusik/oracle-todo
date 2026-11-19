@@ -48,9 +48,9 @@ function BowelCreateDialogContent({
 
   React.useEffect(() => {
     mountedRef.current = true;
-    dialogRef.current?.querySelector<HTMLElement>(
-      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])',
-    )?.focus();
+    // Focus the dialog itself, not its first field: focusing the date/time input opens the
+    // native picker on mobile before the user taps it. Tab still reaches that field first.
+    dialogRef.current?.focus();
     return () => {
       mountedRef.current = false;
       if (returnFocusRef?.current?.isConnected) returnFocusRef.current.focus();
