@@ -8,6 +8,7 @@ pub mod ports;
 pub mod queries;
 mod references;
 pub mod reports;
+pub mod retention;
 #[cfg(test)]
 mod review_policy_tests;
 pub mod service;

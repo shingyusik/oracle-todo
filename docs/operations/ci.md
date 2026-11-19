@@ -25,7 +25,7 @@ Job ids and names are identical so the required-check contexts are exactly `fron
 and `rust`. Renaming either job breaks branch protection that requires it.
 
 - Node.js 24 matches `release.yml`; `frontend/package.json` requires `>=22.13.0`.
-- Stable Rust matches `release.yml`; the workspace `rust-version = "1.88"` is the MSRV.
+- Stable Rust matches `release.yml`; the workspace `rust-version = "1.89"` (needed for `File::try_lock`) is the MSRV.
 - The Rust cache is saved only from `main` runs (`save-if`); other runs restore it.
 - No system packages are installed. `rusqlite` uses the `bundled` SQLite feature and
   `reqwest` uses `rustls-tls` without default features, so no system SQLite or OpenSSL

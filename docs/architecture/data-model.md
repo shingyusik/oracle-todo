@@ -22,6 +22,8 @@ Statuses are `active`, `waiting`, `paused`, `completed`, `cancelled`, `dropped`,
 `archived`, `missed`, and `rejected`. Terminal statuses remain persisted. Normal lists hide
 `archived`, `dropped`, and `cancelled` unless explicitly requested; `missed` remains
 queryable but is not active work. Public mutations do not create dropped/cancelled states; tasks cannot pause.
+ToDo has no user-facing hard delete; hidden items are removed only by the
+[retention purge](#retention-purge).
 
 Routines support RRULE frequency `DAILY`, `WEEKLY`, `MONTHLY`, or `YEARLY` with the
 UI-supported subset of `INTERVAL` (1..365), `BYDAY`, and single `BYMONTHDAY`/`BYMONTH` values. Creation and updates share validation; unsupported stored rules remain readable.
@@ -60,7 +62,8 @@ operation key makes retries idempotent, and all transfer rows/audit state commit
 
 Ledger entry archive sets `deleted_at`; entry restore clears it. Currency, account-category,
 account, and transaction-category records use an `active` flag rather than archive/restore.
-Only account-category purge is exposed. Other entries and master data retain archive/restore or activation. Adjustment records remain readable, but creation and conversion are prohibited. Adapters assign entry source, actor, and written timestamp; updates preserve source and written timestamp.
+Only account-category purge is user-confirmed; archived entries and transfers are also
+removed by the [retention purge](#retention-purge). Master data retains activation. Adjustment records remain readable, but creation and conversion are prohibited. Adapters assign entry source, actor, and written timestamp; updates preserve source and written timestamp.
 
 ## Health database and media
 
@@ -85,7 +88,40 @@ Images are JPEG, PNG, or WebP, at most 10 MiB. Bytes live below `media/health`; 
 generated relative paths, never caller file paths. Media lifecycle is constrained by
 SQLite triggers and coordinated by `HealthService`.
 
-Archive/restore use `deleted_at`; public purge is absent. Optimistic `expected_updated_at` checks protect mutable Health records. Daily metrics use fixed UTC+09:00 dates and canonical weight, sleep, CRP, fecal calprotectin, and overall-condition identities. Generic event creation accepts bowel and medication. Legacy metrics remain visible in the record inspector.
+Archive/restore use `deleted_at`; there is no user-facing purge, only the
+[retention purge](#retention-purge) of archived records. Optimistic `expected_updated_at` checks protect mutable Health records. Daily metrics use fixed UTC+09:00 dates and canonical weight, sleep, CRP, fecal calprotectin, and overall-condition identities. Generic event creation accepts bowel and medication. Legacy metrics remain visible in the record inspector.
+
+## Retention purge
+
+Raven permanently deletes long-hidden records once they are older than `retention_days`
+(default `30`, range `7..=3650`). The purge is enabled by default and runs at most once per
+24 hours from the `raven ui`/`raven api` scheduler, or on demand through the
+[API](../operations/api-reference.md#maintenance-retention) and
+[CLI](../operations/cli-reference.md#maintenance). A record is due when its clock is at or
+before `now - retention_days` (UTC).
+
+| Domain | Purged | Clock | Kept (skip reason) |
+| --- | --- | --- | --- |
+| ToDo | Items with status `archived`, `dropped`, or `cancelled` (not `completed`, `missed`, `rejected`) | max(`archived_at`, `updated_at`) | Items still referenced by a kept item through `area_id`/`project_id`/`routine_id`/`parent_id` (`referenced`); the earliest generated task of each non-terminal routine (`routine_anchor`); generated tasks whose occurrence is today or later in local time (`future_occurrence`); unparseable timestamps (`unparseable_timestamp`) |
+| Ledger | Archived entries (`ledger_entry`); transfers as a pair plus their `transfer_operations` row (`ledger_transfer`) | `ledger_entries.deleted_at` | Inconsistent transfer pairs (`invalid_transfer_pair`) |
+| Health | Archived diet entries and health events (`health_diet`, `health_bowel`, `health_medication`, `health_metric`) and their photos (`health_media`) | `diet_entries.deleted_at`, `health_events.deleted_at` | Photos still used by another diet entry (`media_shared`); unparseable timestamps |
+
+Each run plans every domain read-only, backs up the affected databases (and the Health photos
+to be deleted) into `backups/retention/`, then applies each domain independently. Apply
+re-checks every planned record inside `BEGIN IMMEDIATE` transactions of at most 200 roots,
+with `foreign_keys` and `secure_delete` on; a record that changed since planning is kept
+(`changed_since_plan`). Reported skip counts are plan skips plus apply skips.
+
+All audit or event rows of a purged record are deleted in the same transaction and replaced
+by exactly one tombstone with `action = "purge"`, `reason = "retention"`, and no before/after
+payload. Tombstone actors are ToDo `system`, Ledger `ledger-retention`, and Health
+`retention`. Dashboard recent activity excludes these tombstones, and the Ledger doctor
+accepts a tombstone-only history. Health photos follow the normal detach and cleanup trail;
+a photo file that cannot be removed stays `cleanup_pending` and is counted as
+`media_cleanup_pending`. Orphaned diet tags are removed afterwards.
+
+Purged data is recoverable only from the retention backups, which keep the newest
+`backup_keep` (default `3`) runs. See [Data Home](../operations/data-home.md#maintenance-and-retention-backups).
 
 ## Dashboard projection
 

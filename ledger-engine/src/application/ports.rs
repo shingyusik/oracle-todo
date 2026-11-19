@@ -335,6 +335,13 @@ pub(crate) trait LedgerTransaction {
         result_json: &str,
         created_at: OffsetDateTime,
     ) -> LedgerResult<()>;
+    /// Hard-deletes entries by ID; returns the number of deleted rows.
+    fn delete_entries(&mut self, ids: &[&str]) -> LedgerResult<u64>;
+    /// Erases every audit event of one record; returns the number of deleted rows.
+    fn delete_audit_history(&mut self, record_type: &str, record_id: &str) -> LedgerResult<u64>;
+    /// Deletes the transfer operation whose result identifies the group.
+    fn delete_transfer_operation_for_group(&mut self, transfer_group_id: &str)
+    -> LedgerResult<u64>;
     fn commit(self: Box<Self>) -> LedgerResult<()>;
     fn rollback(self: Box<Self>) -> LedgerResult<()>;
 }
@@ -427,6 +434,8 @@ pub(crate) trait LedgerReadRepository: LedgerRepository {
         transfer_group_id: &str,
         include_archived: bool,
     ) -> LedgerResult<Vec<LedgerEntry>>;
+    /// Lists every archived entry (including transfer rows) for retention planning.
+    fn list_archived_entries(&self) -> LedgerResult<Vec<LedgerEntry>>;
     fn get_account_balance_record(&self, _id: &str) -> LedgerResult<Option<AccountBalanceRecord>> {
         Err(LedgerError::Storage(
             "account balance lookup is not implemented by this repository".into(),
@@ -499,4 +508,9 @@ pub(crate) trait LedgerExportSnapshot {
 /// application services are the sole mutation path.
 pub(crate) trait LedgerMutationRepository: LedgerReadRepository {
     fn begin_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>>;
+    /// Begins an immediate purge transaction with foreign keys and secure delete
+    /// enabled and a longer busy timeout for the retention session.
+    fn begin_retention_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>>;
+    /// Restores the connection settings changed by `begin_retention_transaction`.
+    fn end_retention_session(&mut self) -> LedgerResult<()>;
 }

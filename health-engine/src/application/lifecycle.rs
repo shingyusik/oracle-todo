@@ -233,7 +233,7 @@ impl<R: HealthMutationRepository, M: MediaStore> HealthService<R, M> {
         Ok(after)
     }
 
-    fn cleanup_pending_media(&mut self, pending: MediaFileRecord) -> HealthResult<()> {
+    pub(super) fn cleanup_pending_media(&mut self, pending: MediaFileRecord) -> HealthResult<()> {
         if let Err(error) = self
             .media_store
             .remove(std::path::Path::new(&pending.relative_path))

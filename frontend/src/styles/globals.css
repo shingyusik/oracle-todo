@@ -395,6 +395,200 @@ textarea::placeholder {
   color: var(--color-danger-text);
 }
 
+.sidebar-footer {
+  display: grid;
+  border-top: 1px solid var(--color-hairline-light);
+}
+
+.sidebar-footer .sidebar-version {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.sidebar-footer-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin: 8px 6px 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  padding: 0 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-footer-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+}
+
+.sidebar-footer-item:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: 2px;
+}
+
+.retention-dialog {
+  width: min(640px, calc(100vw - 32px));
+  display: grid;
+  gap: 16px;
+}
+
+.retention-dialog > h2 {
+  margin-bottom: 0;
+}
+
+.retention-dialog p {
+  margin: 0;
+}
+
+.retention-intro,
+.retention-hint,
+.retention-muted {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.retention-settings-form .field-label {
+  margin-bottom: 6px;
+}
+
+.retention-settings-form .field-label input {
+  max-width: 160px;
+}
+
+.retention-settings-form .dialog-actions {
+  margin-top: 12px;
+}
+
+.retention-field-error {
+  color: var(--color-danger-text);
+  font-size: 14px;
+}
+
+.retention-notice {
+  border-color: var(--color-danger-text);
+  background: var(--color-danger-soft);
+  color: var(--color-ink);
+}
+
+.retention-warning {
+  border: 1px solid var(--color-danger-text);
+  border-radius: var(--radius-xs);
+  background: var(--color-danger-soft);
+  padding: 8px 12px;
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
+.retention-result {
+  border-radius: var(--radius-xs);
+  background: var(--color-aloe);
+  padding: 8px 12px;
+  color: var(--color-accent-strong);
+  font-size: 14px;
+}
+
+.retention-result[data-ok="false"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-text);
+}
+
+.retention-section {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--color-hairline-light);
+  padding-top: 12px;
+}
+
+.retention-section h3,
+.retention-preview-domain h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.retention-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.retention-summary dt {
+  color: var(--color-text-muted);
+}
+
+.retention-summary dd {
+  margin: 0;
+}
+
+.retention-domain-summary {
+  display: grid;
+  gap: 2px;
+}
+
+.retention-button {
+  border-radius: var(--radius-pill);
+  padding: 0 20px;
+}
+
+.retention-button.retention-danger:not(:disabled) {
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
+
+.retention-run-actions {
+  justify-content: flex-start;
+}
+
+.retention-preview-domain {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.retention-preview-table-wrap {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--color-hairline-light);
+  border-radius: var(--radius-xs);
+}
+
+.retention-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.retention-preview-table th,
+.retention-preview-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-hairline-light);
+  text-align: left;
+  vertical-align: top;
+}
+
+.retention-preview-table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-weight: 560;
+}
+
+.retention-preview-table td:nth-child(2) {
+  overflow-wrap: anywhere;
+}
+
+.retention-dialog-footer {
+  border-top: 1px solid var(--color-hairline-light);
+  padding-top: 16px;
+}
+
 .update-overlay {
   position: fixed;
   inset: 0;

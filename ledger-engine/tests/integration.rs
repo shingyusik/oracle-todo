@@ -14,6 +14,8 @@ mod pagination_review;
 mod queries;
 #[path = "integration/reports.rs"]
 mod reports;
+#[path = "integration/retention.rs"]
+mod retention;
 #[path = "integration/schema.rs"]
 mod schema;
 #[path = "integration/service_policy.rs"]

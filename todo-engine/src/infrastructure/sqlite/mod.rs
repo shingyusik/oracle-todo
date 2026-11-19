@@ -6,6 +6,7 @@ use time::OffsetDateTime;
 
 mod mapping;
 mod repo;
+pub mod retention;
 mod schema;
 mod table_query;
 
@@ -118,6 +119,7 @@ impl SqliteTodoRepository {
             .prepare(
                 "SELECT at, action, object_id
                  FROM events
+                 WHERE NOT (action = 'purge' AND COALESCE(reason, '') = 'retention')
                  ORDER BY at DESC, object_id, action, id
                  LIMIT ?1",
             )

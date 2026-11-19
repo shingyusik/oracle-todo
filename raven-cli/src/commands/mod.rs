@@ -3,6 +3,7 @@ pub mod health;
 pub mod import;
 pub mod init;
 pub mod ledger;
+pub mod maintenance;
 pub mod mcp;
 pub mod todo;
 pub mod ui;
@@ -32,6 +33,7 @@ pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
         Command::Api => api::run(paths),
         Command::Ui(args) => ui::run(paths, args),
         Command::Mcp(args) => mcp::run(paths, args),
+        Command::Maintenance { command } => maintenance::run(paths, command),
     }
 }
 

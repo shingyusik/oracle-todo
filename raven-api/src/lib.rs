@@ -5,6 +5,7 @@ mod config;
 mod dto;
 mod error;
 pub mod mcp;
+pub mod retention;
 mod routes;
 mod server;
 mod state;
@@ -25,11 +26,13 @@ pub use dto::dashboard::{
     TodoDashboard,
 };
 pub use error::{ApiError, ApiErrorBody};
+pub use retention::Retention;
 pub use routes::health::{health_table_lookups, health_table_page_json, parse_health_table_query};
 pub use routes::ledger::{ledger_table_lookups, parse_ledger_table_query};
 pub use server::{
-    BindError, UiArtifact, UiPublicOriginError, serve, serve_listener, ui_router,
-    ui_router_with_updates, validate_bind, validate_ui_public_origin,
+    BindError, UiArtifact, UiPublicOriginError, serve, serve_listener,
+    serve_listener_with_retention, ui_router, ui_router_with_retention, ui_router_with_updates,
+    validate_bind, validate_ui_public_origin,
 };
 pub use state::RavenApiState;
 pub use system::{
@@ -37,14 +40,25 @@ pub use system::{
     RestartSignal, UiUpdates, UpdateSettings,
 };
 
+/// Standalone bearer API, including the retention maintenance routes.
 pub fn router(config: RavenApiConfig) -> anyhow::Result<Router> {
-    build_router(config, version::RELEASE_VERSION, None)
+    let retention = Retention::from_config(&config);
+    router_with_retention(config, retention)
+}
+
+/// Like [`router`], sharing a retention runtime (and its scheduler status) with the caller.
+pub fn router_with_retention(
+    config: RavenApiConfig,
+    retention: Retention,
+) -> anyhow::Result<Router> {
+    build_router(config, version::RELEASE_VERSION, None, Some(retention))
 }
 
 pub(crate) fn build_router(
     mut config: RavenApiConfig,
     version: &str,
     system: Option<Router<RavenApiState>>,
+    maintenance: Option<Retention>,
 ) -> anyhow::Result<Router> {
     auth::validate_mode(&config.auth)?;
     auth::protect_mode(&mut config.auth);
@@ -66,6 +80,10 @@ pub(crate) fn build_router(
         .nest("/v1/health", routes::health::router());
     let api = match system {
         Some(system) => api.nest("/v1/system", system),
+        None => api,
+    };
+    let api = match maintenance {
+        Some(retention) => api.nest("/v1/maintenance", routes::maintenance::router(retention)),
         None => api,
     }
     .fallback(not_found);

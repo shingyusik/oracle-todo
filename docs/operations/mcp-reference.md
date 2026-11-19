@@ -434,6 +434,10 @@ Archive and restore audit events name the service (`ledger-service`, Health `loc
 adapters. Unknown IDs are `not_found`, stale guards `conflict`, and same-key transfer or
 create retries with changed input `conflict`/`request_key_conflict` on both adapters.
 
+The retention purge is not exposed via MCP: there are no maintenance tools, and the MCP
+process does not run the retention scheduler. Use the UI, `/api/v1/maintenance/retention*`, or
+`raven maintenance` instead.
+
 ## Mutations and images
 
 Regular create tools accept optional `request_key` (1..128 ASCII letters, digits, `-_.:`).

@@ -10,6 +10,8 @@ mod goal_view;
 mod materialization;
 #[path = "integration/repository.rs"]
 mod repository;
+#[path = "integration/retention.rs"]
+mod retention;
 #[path = "integration/schema_indexes.rs"]
 mod schema_indexes;
 #[path = "integration/service_policy.rs"]

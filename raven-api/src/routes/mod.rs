@@ -7,6 +7,7 @@ use crate::ApiError;
 pub mod dashboard;
 pub mod health;
 pub mod ledger;
+pub mod maintenance;
 pub mod preferences;
 pub mod todo;
 

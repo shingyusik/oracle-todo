@@ -64,7 +64,8 @@ npm --prefix npm/raven test
 ## Data Home & Configuration
 
 - Home: `--home`, `RAVEN_HOME`, then `~/.raven`.
-- Layout: three SQLite files, `media/health/`, `logs/raven.log.jsonl(.1-.3)`.
+- Layout: three SQLite files, `media/health/`, `logs/raven.log.jsonl(.1-.3)`,
+  `maintenance/` (retention settings/state/lock) and `backups/retention/<UTC stamp>/`.
 - Logs: `RAVEN_CONSOLE_LOG`, `RAVEN_FILE_LOG`, `RAVEN_LOG_MAX_BYTES`, `RAVEN_LOG_MAX_FILES`.
 - API auth: exactly one of `RAVEN_API_TOKEN` or `RAVEN_API_TOKEN_FILE`.
 - API bind: `RAVEN_API_BIND_HOST`, `RAVEN_API_BIND_PORT`; non-loopback cleartext also
@@ -75,6 +76,9 @@ npm --prefix npm/raven test
   `RAVEN_UPDATE_SUPERVISOR`, `RAVEN_BUNDLE_VERSION`, `RAVEN_UI_VERSION`; optional
   `RAVEN_UPDATE_RESTART_LABELS` (launchd labels restarted after an update) and
   `RAVEN_GITHUB_TOKEN`; test-only loopback `RAVEN_GITHUB_API_URL`. `/api/v1/system/{version,update}` are UI-only; update exits `75`.
+- Retention purge: `maintenance/retention.json` (default enabled, 30 days, `backup_keep` 3).
+  `RAVEN_RETENTION=off` disables only the `raven ui`/`raven api` scheduler; manual
+  API/CLI runs still work. Maintenance routes are not exposed via MCP.
 - MCP: loopback port `3003`; requires `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER`
   and `RAVEN_MCP_ACCESS_AUDIENCE`; validates Cloudflare Access JWT signatures and application claims.
   Requires a caller allowlist (`RAVEN_MCP_GATEWAY_CLIENT_ID` + `RAVEN_MCP_GATEWAY_PUBLIC_KEY`
@@ -83,8 +87,15 @@ npm --prefix npm/raven test
 ## Gotchas
 
 - Never run destructive smoke, import, migration, or purge probes against a live home.
-- ToDo uses status lifecycle and no hard delete. Ledger entries and Health records use
-  archive/restore; Ledger master data uses activation. Only Ledger account-category purge is exposed and confirmed.
+- ToDo uses a status lifecycle; Ledger entries and Health records use archive/restore;
+  Ledger master data uses activation. User-facing hard delete is only the confirmed Ledger
+  account-category purge. The automatic retention purge (daily in `raven ui`/`raven api`,
+  first check 5 min after start) permanently deletes ToDo `archived|dropped|cancelled`
+  items and archived Ledger entries/transfers and Health records (plus their photos) older
+  than `retention_days`, after a backup. Their audit history becomes one payload-free
+  `purge`/`retention` tombstone; recovery is only from `backups/retention/` until rotated out.
+- Never run `raven maintenance purge --apply` or `POST /api/v1/maintenance/retention/run`
+  against a live home for verification; use the preview endpoint or `--dry-run`.
 - `raven todo api` is unsupported; all HTTP access uses authenticated Raven API/UI routes.
 - Health database and `media/health` must be backed up together.
 - Dashboard reads must not create or migrate missing stores; domain failures stay isolated.

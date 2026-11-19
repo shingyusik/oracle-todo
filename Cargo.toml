@@ -3,4 +3,4 @@ resolver = "3"
 members = ["backend", "health-engine", "ledger-engine", "raven-api", "raven-cli", "todo-engine"]
 
 [workspace.package]
-rust-version = "1.88"
+rust-version = "1.89"

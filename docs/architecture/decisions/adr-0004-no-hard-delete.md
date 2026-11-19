@@ -4,6 +4,12 @@
 
 Accepted (v1).
 
+Partially superseded by the automatic retention purge: items hidden by default (`archived`,
+`dropped`, `cancelled`) are permanently deleted after `retention_days` (default 30), after a
+backup, and their events are replaced by one payload-free `purge`/`retention` tombstone. No
+user-facing delete command exists. See
+[Data Model](../data-model.md#retention-purge).
+
 ## Context
 
 Items accumulate history that the audit log depends on. A row deleted from `items` would

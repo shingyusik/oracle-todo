@@ -32,6 +32,7 @@ help는 데이터 홈 없이 실행되며 저장소나 로그를 초기화하지
 | `raven api` | Bearer 인증 HTTP API 실행 |
 | `raven mcp [--port <u16>]` | Access 인증 Streamable HTTP MCP 실행. 루프백 `/mcp`, 기본 포트 `3003` |
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | 루프백 UI와 쿠키 인증 API 실행 |
+| `raven maintenance retention show\|set`, `raven maintenance purge` | 보존 기간 삭제 설정, 미리보기, 수동 실행. [유지 관리](#유지-관리) 참고 |
 
 `--ui-path`가 없으면 `RAVEN_UI_PATH`에서 UI 파일 경로를 읽습니다.
 
@@ -99,6 +100,7 @@ raven todo complete <item-id>
 
 Project는 비어 있지 않은 `definition_of_done`, Routine은 비어 있지 않은 RRULE,
 Event는 `scheduled`가 필요합니다. ToDo는 상태 전환으로 생명주기를 관리하며 purge를 제공하지 않습니다.
+숨김 항목은 [보존 기간 영구 삭제](#유지-관리)로만 삭제됩니다.
 `postpone --scheduled <date>`에서 오늘을 지정할 수 있는 것은 기존 예정일이 오늘 이전인 경우뿐입니다.
 그 외에는 오늘보다 뒤의 날짜를 지정해야 합니다.
 HTTP 접근은 인증된 `raven api` 또는 `raven ui`를 사용합니다.
@@ -200,6 +202,7 @@ raven ledger transfer-update <group-id> --json \
 거래는 `archive <id>`, `restore <id>`를 지원합니다. 기준 데이터는 `update --active <true|false>`를 사용합니다.
 Purge는 account-category만 제공합니다. 먼저 미리보기를 조회하고 `--confirm <confirmation-id>`로 확인합니다.
 감사 이력은 유지됩니다.
+보관된 거래와 이체는 이후 [보존 기간 영구 삭제](#유지-관리)로 삭제됩니다.
 `entry list --include-archived`는 보관된 거래를 검색 결과에 포함합니다.
 목록에는 전체 CLI 레코드가 포함됩니다. `entry show`는 보관되지 않은 거래만 조회합니다.
 
@@ -266,10 +269,40 @@ Health 감사 이력의 레코드 타입은 `diet_entry`, `health_event`, `media
 보고서 JSON은 전체 보고서 데이터를 반환하며 table 형식은 레코드 수를 요약합니다.
 
 Health archive/restore는 동시 수정을 확인하는 `--expected-updated-at <RFC3339>`를 선택적으로 받습니다.
-공개 Health CLI에는 purge가 없습니다. 보관·과거 레코드는 UI에서 조회하고 지원되는 복구 작업을 할 수 있습니다.
+공개 Health CLI에는 purge가 없습니다. 보관 레코드는 [보존 기간 영구 삭제](#유지-관리)로만 삭제됩니다. 보관·과거 레코드는 UI에서 조회하고 지원되는 복구 작업을 할 수 있습니다.
 Health 목록은 보관된 레코드를 제외하며 `--include-archived` 옵션이 없습니다.
 알고 있는 보관 ID는 해당 `diet|bowel|medication|metric show <id> --format json` 명령으로 조회합니다.
 감사 이력은 `health audit <record-type> <id> --format json`으로 확인합니다.
+
+## 유지 관리
+
+`raven maintenance`는 선택한 홈의 [보존 기간 영구 삭제](../architecture/data-model.md#retention-purge)를 관리합니다.
+`raven ui`·`raven api` 스케줄러, [유지 관리 API](api-reference.md#maintenance-retention)와 같은 코어를 쓰며 삭제 전 백업도 같습니다.
+
+```text
+raven maintenance retention show [--format table|json]
+raven maintenance retention set [--enabled true|false] [--days <7..=3650>] [--backup-keep <1..=30>] [--format table|json]
+raven maintenance purge (--dry-run|--apply) [--limit <1..=200>] [--format table|json]
+```
+
+- `retention show`는 설정, `env_override`, 마지막 실행을 출력합니다.
+  JSON 출력은 `GET /api/v1/maintenance/retention` 문서와 같습니다. CLI 프로세스에서는 `scheduler_active`가 `false`, `next_run_at`이 `null`입니다.
+  조회는 `maintenance/` 파일을 만들지 않습니다.
+- `retention set`은 옵션이 하나 이상 필요하며, 생략한 옵션은 기존 값을 유지합니다. `maintenance/retention.json`을 쓰고 새 상태를 출력합니다.
+- `purge --dry-run`은 읽기 전용이며 미리보기 문서(도메인별 상태, 종류별 개수, 건너뛴 사유, 최대 `--limit`개 항목, 기본 `50`)를 출력합니다.
+- `purge --apply`는 트리거 `cli`로 즉시 실행합니다. 24시간 주기, `enabled` 설정, `RAVEN_RETENTION=off`를 무시합니다.
+  영향받는 DB를 백업한 뒤 대상 레코드를 영구 삭제합니다. 확인 단계가 없습니다. 실제 홈에서 테스트 목적으로 실행하지 않습니다.
+
+루틴 보호에 쓰는 로컬 날짜는 UTC+09:00 기준입니다.
+
+| 종료 코드 | `purge --apply` 결과 |
+| --- | --- |
+| `0` | 결과 `ok` 또는 `nothing_due` |
+| `2` | `retention_in_progress`(다른 실행이 잠금 보유, 재시도 가능), `clock_regressed`(시계가 마지막 실행보다 이전), `validation_error` |
+| `1` | 결과 `partial`·`failed`(`retention_failed`), `insufficient_disk`, `storage_error` |
+
+`partial`, `failed`, `insufficient_disk`일 때는 오류 전에 실행 보고서를 stdout에 출력합니다.
+`retention set` 검증 실패는 `fields`에 필드를 담아 `2`로 종료하고, 설정·상태 파일을 읽을 수 없으면 `storage_error`로 `1`로 종료합니다.
 
 ## UI 테이블 검색과 선택 후보
 

@@ -10,6 +10,7 @@ use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{
     DiagnosticRow, DiagnosticTable, DiagnosticValue, LedgerReadRepository, MAX_PAGE_LIMIT,
 };
+use crate::application::retention::RETENTION_REASON;
 use crate::application::service::LedgerService;
 
 pub const DEFAULT_DOCTOR_MAX_RECORDS: usize = 100_000;
@@ -268,6 +269,22 @@ struct AuditRecord {
     record_id: String,
     before: Option<String>,
     after: Option<String>,
+    reason: Option<String>,
+}
+
+impl AuditRecord {
+    /// A payload-free retention purge marker left after history erasure.
+    fn is_retention_tombstone(&self) -> bool {
+        self.action == "purge"
+            && self.reason.as_deref() == Some(RETENTION_REASON)
+            && self.before.is_none()
+            && self.after.is_none()
+    }
+}
+
+/// A history consisting only of a retention tombstone (no create audit by design).
+fn is_tombstone_only(history: &[&AuditRecord]) -> bool {
+    matches!(history, [only] if only.is_retention_tombstone())
 }
 
 #[derive(Debug, Clone)]
@@ -810,7 +827,7 @@ fn parse_audits(rows: &[DiagnosticRow], issues: &mut Vec<DoctorIssue>) -> Vec<Au
         }
         let before = optional_json_text(row, "before_json", &id, issues);
         let after = optional_json_text(row, "after_json", &id, issues);
-        let _ = optional_text(row, "reason", "audit_event", &id, issues);
+        let reason = optional_text(row, "reason", "audit_event", &id, issues);
         records.push(AuditRecord {
             rowid: row.rowid,
             id,
@@ -821,6 +838,7 @@ fn parse_audits(rows: &[DiagnosticRow], issues: &mut Vec<DoctorIssue>) -> Vec<Au
             record_id: target_id,
             before,
             after,
+            reason,
         });
     }
     records
@@ -1216,6 +1234,10 @@ fn validate_audit_chain(history: &[&AuditRecord], issues: &mut Vec<DoctorIssue>)
     let Some(first) = history.first() else {
         return;
     };
+    if is_tombstone_only(history) {
+        // Live records next to a tombstone are reported by the durable-record checks.
+        return;
+    }
     let create_count = history
         .iter()
         .filter(|audit| audit.action == "create")
@@ -1996,7 +2018,12 @@ fn validate_operations(
 
     let groups: BTreeSet<_> = transfer_groups
         .keys()
-        .chain(transfer_histories.keys())
+        .chain(
+            transfer_histories
+                .iter()
+                .filter(|(_, history)| !is_tombstone_only(history))
+                .map(|(group, _)| group),
+        )
         .cloned()
         .collect();
     for group in groups {

@@ -15,9 +15,13 @@ use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::application::error::{LedgerError, LedgerResult};
+use crate::application::retention::{RetentionPlan, RetentionWindow};
+use crate::application::service::LedgerService;
 
 /// Keep cross-process writer contention bounded so callers can retry promptly.
 pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
+/// Busy timeout for retention purge transactions.
+pub const RETENTION_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct SqliteLedgerRepository {
     pub(super) connection: Connection,
@@ -170,6 +174,20 @@ impl SqliteLedgerRepository {
         register_read_functions(&repository.connection)?;
         Ok(repository)
     }
+}
+
+/// Plans a retention purge through the read path: a missing or uninitialized
+/// store yields an empty plan and is never created; an older initialized store
+/// is upgraded exactly as [`SqliteLedgerRepository::open_read_only`] does.
+pub fn retention_plan_at(
+    path: impl AsRef<Path>,
+    window: &RetentionWindow,
+) -> LedgerResult<RetentionPlan> {
+    let path = path.as_ref();
+    if SqliteLedgerRepository::health_at(path) == LedgerHealth::NotInitialized {
+        return Ok(RetentionPlan::empty(*window));
+    }
+    LedgerService::new(SqliteLedgerRepository::open_read_only(path)?).retention_plan(window)
 }
 
 fn register_read_functions(connection: &Connection) -> LedgerResult<()> {

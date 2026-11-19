@@ -24,3 +24,6 @@ mod legacy_support;
 
 #[path = "integration/ui_policy.rs"]
 mod ui_policy;
+
+#[path = "integration/retention.rs"]
+mod retention;

@@ -61,6 +61,25 @@ impl LocalMediaStore {
         self.max_bytes
     }
 
+    /// Copies one stored photo to `dest_root/<relative>` (dirs 0700, file 0600) for a
+    /// pre-purge backup. No path component on either side may be a symlink, and an
+    /// existing destination file is never overwritten. `Ok(None)` means the source is gone.
+    pub fn copy_media_for_backup(
+        &self,
+        relative: &Path,
+        dest_root: &Path,
+    ) -> HealthResult<Option<u64>> {
+        validate_media_relative_path(relative)?;
+        #[cfg(unix)]
+        {
+            copy_media_unix(&self.directory, relative, dest_root, self.max_bytes)
+        }
+        #[cfg(not(unix))]
+        {
+            copy_media_portable(&self.root, relative, dest_root, self.max_bytes)
+        }
+    }
+
     pub fn list_recoveries(&self) -> HealthResult<Vec<MediaRecovery>> {
         #[cfg(unix)]
         {
@@ -75,6 +94,143 @@ impl LocalMediaStore {
             list_recoveries_unsupported(&self.root)
         }
     }
+}
+
+#[cfg(unix)]
+fn copy_media_unix(
+    root: &File,
+    relative: &Path,
+    dest_root: &Path,
+    max_bytes: u64,
+) -> HealthResult<Option<u64>> {
+    use rustix::fs::{Mode, OFlags, mkdirat, openat, unlinkat};
+    use rustix::io::Errno;
+
+    let relative = relative.to_str().ok_or_else(invalid_media_relative_path)?;
+    let mut components = relative.split('/').collect::<Vec<_>>();
+    let file_name = components.pop().ok_or_else(invalid_media_relative_path)?;
+    let directory_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let io_error = |context: &str, error: Errno| media_storage_error(context, &error.into());
+
+    let mut source_parent = root
+        .try_clone()
+        .map_err(|error| media_storage_error("could not open the media directory", &error))?;
+    for component in &components {
+        source_parent = match openat(&source_parent, *component, directory_flags, Mode::empty()) {
+            Ok(descriptor) => File::from(descriptor),
+            Err(Errno::NOENT) => return Ok(None),
+            Err(error) => return Err(io_error("could not safely traverse media path", error)),
+        };
+    }
+    let mut source = match openat(
+        &source_parent,
+        file_name,
+        OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(descriptor) => File::from(descriptor),
+        Err(Errno::NOENT) => return Ok(None),
+        Err(error) => return Err(io_error("could not safely open media", error)),
+    };
+    let (_, size) = input_file_identity(&source)?;
+    if size > max_bytes {
+        return Err(HealthError::MediaTooLarge);
+    }
+
+    let mut dest_parent = File::from(
+        rustix::fs::open(
+            dest_root,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|error| io_error("could not open the backup directory", error))?,
+    );
+    for component in &components {
+        match mkdirat(&dest_parent, *component, Mode::RWXU) {
+            Ok(()) | Err(Errno::EXIST) => {}
+            Err(error) => return Err(io_error("could not create a backup directory", error)),
+        }
+        dest_parent = File::from(
+            openat(&dest_parent, *component, directory_flags, Mode::empty())
+                .map_err(|error| io_error("could not safely traverse backup path", error))?,
+        );
+    }
+    let mut destination = File::from(
+        openat(
+            &dest_parent,
+            file_name,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::RUSR | Mode::WUSR,
+        )
+        .map_err(|error| io_error("could not create the media backup", error))?,
+    );
+    let copied = std::io::copy(&mut (&mut source).take(max_bytes + 1), &mut destination)
+        .and_then(|copied| destination.sync_all().map(|()| copied));
+    let failure = match copied {
+        Ok(copied) if copied == size && input_file_identity(&source)?.1 == size => {
+            return Ok(Some(copied));
+        }
+        Ok(_) => HealthError::Storage("media changed while it was copied".to_string()),
+        Err(error) => media_storage_error("could not copy media", &error),
+    };
+    drop(destination);
+    let _ = unlinkat(&dest_parent, file_name, rustix::fs::AtFlags::empty());
+    Err(failure)
+}
+
+#[cfg(not(unix))]
+fn copy_media_portable(
+    root: &Path,
+    relative: &Path,
+    dest_root: &Path,
+    max_bytes: u64,
+) -> HealthResult<Option<u64>> {
+    let mut source_path = root.to_path_buf();
+    for component in relative.components() {
+        source_path.push(component);
+        match fs::symlink_metadata(&source_path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(HealthError::Storage(
+                    "refusing to copy through a media link".to_string(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(media_storage_error("could not inspect media", &error)),
+        }
+    }
+    let bytes = read_bounded_regular_file(&source_path, max_bytes)?;
+    let mut dest_path = dest_root.to_path_buf();
+    let mut components = relative.components().peekable();
+    while let Some(component) = components.next() {
+        dest_path.push(component);
+        if components.peek().is_none() {
+            break;
+        }
+        match fs::create_dir(&dest_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(media_storage_error("could not create backup dir", &error)),
+        }
+        if !fs::symlink_metadata(&dest_path)
+            .map_err(|error| media_storage_error("could not inspect backup dir", &error))?
+            .is_dir()
+        {
+            return Err(HealthError::Storage(
+                "refusing to copy through a backup link".to_string(),
+            ));
+        }
+    }
+    let mut destination = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&dest_path)
+        .map_err(|error| media_storage_error("could not create the media backup", &error))?;
+    destination
+        .write_all(&bytes)
+        .and_then(|()| destination.sync_all())
+        .map_err(|error| media_storage_error("could not copy media", &error))?;
+    Ok(Some(bytes.len() as u64))
 }
 
 /// Reads one regular, non-link file through the same handle used for validation.
