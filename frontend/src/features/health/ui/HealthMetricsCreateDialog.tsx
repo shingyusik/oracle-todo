@@ -61,9 +61,9 @@ function HealthMetricsCreateDialogContent({
 
   React.useEffect(() => {
     mountedRef.current = true;
-    dialogRef.current?.querySelector<HTMLElement>(
-      'form input:not([disabled]), form select:not([disabled]), form textarea:not([disabled]), form button:not([disabled])',
-    )?.focus();
+    // Focus the dialog itself, not its first field: focusing the date/time input opens the
+    // native picker on mobile before the user taps it. Tab still reaches that field first.
+    dialogRef.current?.focus();
     return () => {
       mountedRef.current = false;
       if (returnFocusRef?.current?.isConnected) returnFocusRef.current.focus();
