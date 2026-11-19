@@ -294,6 +294,41 @@ describe("Health Journal forms", () => {
   });
 
   it.each([
+    ["Add diet entry", "Time", "Open diet", (onClose: () => void) =>
+      <DietDialogHarness health={controller()} onClose={onClose} />],
+    ["Add bowel entry", "Time", "Open bowel", (onClose: () => void) =>
+      <BowelDialogHarness health={controller()} onClose={onClose} />],
+    ["Add medication entry", "Taken at", "Add medication entry", (onClose: () => void) =>
+      <MedicationDialogHarness health={controller()} onClose={onClose} />],
+    ["Add health metrics", "Date", "Add health metrics", (onClose: () => void) =>
+      <MetricsDialogHarness health={controller()} onClose={onClose} />],
+  ])("opens %s without focusing its date/time field so no native picker opens", async (
+    name,
+    dateLabel,
+    trigger,
+    renderDialog,
+  ) => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(renderDialog(onClose));
+    const dialog = screen.getByRole("dialog", { name });
+    const dateField = within(dialog).getByLabelText(dateLabel);
+
+    expect(dateField.getAttribute("type")).toMatch(/^(date|datetime-local|month|time)$/);
+    expect(dialog.querySelectorAll(
+      'input[type="datetime-local"], input[type="date"], input[type="month"], input[type="time"]',
+    )).not.toContain(document.activeElement);
+    expect(dialog).toHaveFocus();
+
+    await user.tab();
+    expect(dateField).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name })).toBeNull();
+    expect(screen.getByRole("button", { name: trigger })).toHaveFocus();
+  });
+
+  it.each([
     ["Add diet entry", () => <DietDialogHarness health={controller()} />],
     ["Add bowel entry", () => <BowelDialogHarness health={controller()} />],
     ["Add medication entry", () => <MedicationDialogHarness health={controller()} />],
@@ -655,6 +690,8 @@ describe("Health Journal forms", () => {
     render(<BowelDialogHarness health={controller()} onClose={onClose} />);
     const firstField = screen.getByLabelText("Time");
     const retrylessSave = screen.getByRole("button", { name: "Save" });
+    expect(screen.getByRole("dialog", { name: "Add bowel entry" })).toHaveFocus();
+    await user.tab();
     expect(firstField).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(retrylessSave).toHaveFocus();
@@ -976,6 +1013,8 @@ describe("Health Journal forms", () => {
     const firstField = screen.getByLabelText("Time");
     const save = screen.getByRole("button", { name: "Save" });
 
+    expect(screen.getByRole("dialog", { name: "Add diet entry" })).toHaveFocus();
+    await user.tab();
     expect(firstField).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(save).toHaveFocus();
@@ -1148,7 +1187,8 @@ describe("Health Journal forms", () => {
     expect(view.container).toHaveAttribute("aria-hidden", "true");
     expect(view.container).toHaveAttribute("inert");
     expect(document.body.style.overflow).toBe("hidden");
-    expect(screen.getByLabelText("Taken at")).toHaveFocus();
+    expect(dialog).toHaveFocus();
+    expect(screen.getByLabelText("Taken at")).not.toHaveFocus();
     const form = screen.getByRole("form", { name: "Medication entry" });
     const controls = ["Taken at", "Medication name", "Dose", "Unit", "Note"]
       .map((label) => within(form).getByLabelText(label));
@@ -1304,6 +1344,8 @@ describe("Health Journal forms", () => {
     const firstField = screen.getByLabelText("Taken at");
     const close = screen.getByRole("button", { name: "Close Add medication entry" });
     const save = screen.getByRole("button", { name: "Save" });
+    expect(screen.getByRole("dialog", { name: "Add medication entry" })).toHaveFocus();
+    await user.tab();
     expect(firstField).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(save).toHaveFocus();
@@ -1592,6 +1634,8 @@ describe("Health Journal forms", () => {
     expect(view.container).toHaveAttribute("inert");
     expect(document.body.style.overflow).toBe("hidden");
     const firstField = screen.getByLabelText("Date");
+    expect(dialog).toHaveFocus();
+    await user.tab();
     expect(firstField).toHaveFocus();
     const save = screen.getByRole("button", { name: "Save" });
     await user.keyboard("{Shift>}{Tab}{/Shift}");

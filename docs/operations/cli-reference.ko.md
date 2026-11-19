@@ -17,7 +17,8 @@ Windows에서 `HOME`이 없거나 비어 있으면 `%USERPROFILE%/.raven`을 사
 help는 데이터 홈 없이 실행되며 저장소나 로그를 초기화하지 않습니다.
 
 `--error-format json`은 stderr에 구조화된 오류 문서 하나를 출력하고 콘솔 로그를 억제합니다.
-성공 출력은 명령별 출력 형식을 따릅니다. `raven --version`은 실행 파일 버전을 출력합니다.
+성공 출력은 명령별 출력 형식을 따릅니다. `raven --version`은 태그에서 컴파일한 릴리스 버전(`RAVEN_RELEASE_VERSION`)을 출력합니다.
+이 값 없이 빌드한 경우(`cargo run` 등)는 `<crate 버전>-dev`를 출력합니다.
 
 조회·수정·재시도 흐름은 [AI CLI 사용 가이드](ai-cli-usage.ko.md)를 참고하세요.
 
@@ -33,6 +34,10 @@ help는 데이터 홈 없이 실행되며 저장소나 로그를 초기화하지
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | 루프백 UI와 쿠키 인증 API 실행 |
 
 `--ui-path`가 없으면 `RAVEN_UI_PATH`에서 UI 파일 경로를 읽습니다.
+
+npm wrapper로 실행한 `raven ui`는 `POST /api/v1/system/update`를 수락하면 종료 코드 `75`로 끝납니다.
+wrapper가 번들을 업데이트하고 UI를 다시 실행합니다. `75`는 이 절차에서만 쓰는 내부 코드입니다.
+자세한 내용은 [Setup](setup.md#updating-from-the-ui)을 참고하세요.
 
 MCP에는 `--public-origin`·`--access-issuer`·`--access-audience` 또는 환경 변수
 `RAVEN_MCP_PUBLIC_ORIGIN`·`RAVEN_MCP_ACCESS_ISSUER`·`RAVEN_MCP_ACCESS_AUDIENCE`가 필요합니다.

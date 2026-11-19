@@ -51,10 +51,11 @@ in error responses.
 Exact `GET /healthz` is the only unauthenticated route:
 
 ```json
-{"status":"ok"}
+{"status":"ok","version":"x.y.z"}
 ```
 
-`/healthz/` and descendants are not health probes.
+`version` is the running engine version, resolved as in [System version and
+update](#system-version-and-update). `/healthz/` and descendants are not health probes.
 
 ## Shared error contract
 
@@ -614,6 +615,70 @@ safe UUID `record_id` when available. Refresh the saved record; do not repeat cr
 Domain reads open existing stores read-only and do not create or migrate data homes.
 
 Legacy stored workspace preferences remain readable through the canonical key.
+
+## System version and update
+
+These routes exist only on the `raven ui` listener, not on standalone `raven api`. They use
+the Raven session cookie like other `/api/v1` routes and work from both the local origin and
+the configured `RAVEN_UI_PUBLIC_ORIGIN`.
+
+`GET /api/v1/system/version[?refresh=1]` returns:
+
+```json
+{
+  "current_version": "x.y.z",
+  "ui_version": "x.y.z",
+  "latest_version": "x.y.w",
+  "update_available": true,
+  "update_supported": true,
+  "checked_at": "2026-11-19T01:00:00Z",
+  "check_error": null,
+  "release_url": "https://github.com/shingyusik/oracle-todo/releases/tag/vx.y.w"
+}
+```
+
+- `current_version` is `RAVEN_BUNDLE_VERSION` when set, otherwise the compile-time
+  `RAVEN_RELEASE_VERSION` (`<crate version>-dev` for builds without it). `ui_version` is
+  `RAVEN_UI_VERSION` or `null`.
+- `update_supported` is true only when `RAVEN_UPDATE_SUPERVISOR=1`, which the npm wrapper sets.
+- `latest_version` comes from GitHub `repos/shingyusik/oracle-todo/releases/latest`
+  (User-Agent `raven`, optional `Authorization: Bearer` from `RAVEN_GITHUB_TOKEN`, 5 s timeout,
+  ETag revalidation). The result is cached for 6 hours; `refresh=1` forces a re-check at most
+  once per minute. `checked_at` is RFC 3339 or `null`; `latest_version` and `release_url` may
+  be `null`.
+- `update_available` is true only when `latest_version` is semver-greater than
+  `current_version` and the release has `raven-<v>-<host target>.tar.gz` (or `.zip`),
+  `raven-ui-<v>.tar.gz`, and `SHA256SUMS`. A version at or below the installed one is never
+  offered.
+- A failed check sets `check_error` to `"unavailable"`.
+
+`POST /api/v1/system/update` starts a supervised update:
+
+```http
+POST /api/v1/system/update
+Origin: <exact UI origin>
+X-Raven-Update: 1
+Content-Type: application/json
+
+{"target_version":"x.y.w"}
+```
+
+The exact `Origin` is required even on the local origin, together with `X-Raven-Update: 1` and
+the session cookie. Only one update runs at a time.
+
+| Status | Code / body | Meaning |
+| --- | --- | --- |
+| `202` | `{"status":"restarting","target_version":"x.y.w"}` | Accepted; the server exits with code `75` about 300 ms later |
+| `403` | — | Missing or mismatched `Origin` or `X-Raven-Update` |
+| `409` | `update_in_progress` | Another update is already running |
+| `422` | `update_not_available` | `target_version` is not the cached newer latest release |
+| `501` | `update_unsupported` | Not running under the npm wrapper supervisor |
+
+The request is logged as `ui_update_requested` with versions only. Exit code `75` tells the npm
+wrapper to update the bundle (only to a newer version than installed), restart the launchd
+labels listed in `RAVEN_UPDATE_RESTART_LABELS`, and relaunch `raven ui` with the new UI path.
+A failed update is logged and the old version is relaunched. The wrapper writes each attempt to
+`<cacheRoot>/update-status.json` (`at`, `from`, `to`, `ok`, `error`).
 
 ## UI static boundary
 

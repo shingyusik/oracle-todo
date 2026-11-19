@@ -331,6 +331,10 @@ async fn authenticated_http_negotiates_and_lists_typed_tools_without_ui_cookie()
         .unwrap();
     let result: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(result["result"]["serverInfo"]["name"], "raven");
+    assert_eq!(
+        result["result"]["serverInfo"]["version"],
+        crate::version::RELEASE_VERSION
+    );
     let response = rpc(&app, Some(&token), "tools/list", json!({})).await;
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)

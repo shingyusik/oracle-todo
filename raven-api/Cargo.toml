@@ -29,7 +29,7 @@ sha2 = "0.10"
 rusqlite = "0.32"
 subtle = "2.6"
 thiserror = "2"
-time = { version = "0.3", features = ["parsing", "serde"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 todo-engine = { path = "../todo-engine" }
 tokio = { version = "1", features = ["net", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1"

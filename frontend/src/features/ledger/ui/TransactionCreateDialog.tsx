@@ -112,7 +112,8 @@ function TransactionCreateDialogContent({
         </header>
         {notice ? <p role="status" className="items-message">{notice}</p> : null}
         <ReferenceDataBoundary load={controller.ensureTransactionFormReferences} onCancel={close} cancelLabel={closeLabel}>
-        <InitialFieldFocus selector={record ? undefined : `button[aria-label="${closeLabel}"]`} />
+        {/* Editing keeps focus on the dialog: its first field is the Date input, whose native picker would open on mobile. */}
+        {record ? null : <InitialFieldFocus selector={`button[aria-label="${closeLabel}"]`} />}
         <TransactionForm
           controller={controller}
           record={record}

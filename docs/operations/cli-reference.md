@@ -18,7 +18,8 @@ Help does not require a data home and does not initialize stores or logging.
 `--error-format json` emits one structured error document on stderr and suppresses
 console tracing. Successful command output still follows that command's output contract.
 Place global options before the domain command, especially for delegated ToDo commands.
-`raven --version` prints the native executable version.
+`raven --version` prints the release version compiled from the tag (`RAVEN_RELEASE_VERSION`);
+builds without it, such as `cargo run`, print `<crate version>-dev`.
 
 See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry workflow.
 
@@ -34,6 +35,10 @@ See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry work
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | Serve loopback UI and cookie-authenticated API |
 
 `RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
+
+Under the npm wrapper, `raven ui` exits with code `75` after an accepted
+`POST /api/v1/system/update`; the wrapper updates the bundle and relaunches the UI. Exit `75`
+is internal to that handshake. See [Setup](setup.md#updating-from-the-ui).
 
 MCP requires `--public-origin`, `--access-issuer` and `--access-audience`, or their
 `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER` and `RAVEN_MCP_ACCESS_AUDIENCE` environment

@@ -2098,6 +2098,29 @@ describe("LedgerPanel", () => {
     await waitFor(() => expect(row).toHaveFocus());
   });
 
+  it("opens the transaction edit popup without focusing its Date field", async () => {
+    const user = userEvent.setup();
+    render(<LedgerPanel controller={controller({
+      ...loadedState,
+      entries: [transactionEntry("expense-1", "Lunch")],
+    })} />);
+    const row = screen.getByRole("button", { name: "Open details for Lunch, 2026-07-30, Cash" });
+    await user.click(row);
+    const dialog = await screen.findByRole("dialog", { name: "Edit transaction" });
+    const date = within(dialog).getByLabelText("Date");
+    expect(date).toHaveAttribute("type", "date");
+    expect(date).not.toHaveFocus();
+    expect(dialog).toHaveFocus();
+
+    await user.tab();
+    expect(within(dialog).getByRole("tab", { name: "Expense" })).toHaveFocus();
+    await user.tab();
+    expect(date).toHaveFocus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit transaction" })).toBeNull());
+    await waitFor(() => expect(row).toHaveFocus());
+  });
+
   it("opens the transaction edit popup from Enter and Space on a focused row", async () => {
     const user = userEvent.setup();
     render(<LedgerPanel controller={controller({

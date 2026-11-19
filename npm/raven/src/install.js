@@ -14,6 +14,7 @@ async function fetchRequestedRelease(options, env) {
     repository: options.repository || GITHUB_REPOSITORY,
     version: env.RAVEN_VERSION,
     token: env.RAVEN_GITHUB_TOKEN,
+    apiUrl: env.RAVEN_GITHUB_API_URL,
     fetchImpl: options.fetchImpl,
   });
 }
@@ -40,6 +41,14 @@ async function updateBundle(options = {}) {
   const metadata = await readMetadata(cacheRoot);
   const release = await fetchRequestedRelease(options, env);
   const version = normalizeVersion(release.tag_name);
+
+  if (
+    options.requireNewer
+    && metadata?.installedVersion
+    && compareVersions(version, metadata.installedVersion) <= 0
+  ) {
+    return { ...metadata, status: "up-to-date", latestVersion: version };
+  }
 
   if (
     metadata
@@ -87,6 +96,7 @@ async function installEngine(options = {}) {
     repository: options.repository || GITHUB_REPOSITORY,
     version: requestedVersion,
     token: env.RAVEN_GITHUB_TOKEN,
+    apiUrl: env.RAVEN_GITHUB_API_URL,
     fetchImpl: options.fetchImpl,
   });
 
@@ -107,6 +117,7 @@ async function updateEngine(options = {}) {
     repository: options.repository || GITHUB_REPOSITORY,
     version: env.RAVEN_VERSION,
     token: env.RAVEN_GITHUB_TOKEN,
+    apiUrl: env.RAVEN_GITHUB_API_URL,
     fetchImpl: options.fetchImpl,
   });
   const version = normalizeVersion(release.tag_name);

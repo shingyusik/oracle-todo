@@ -139,6 +139,20 @@ describe("Bowel table workflow", () => {
     return { health, view, dialog: screen.getByRole("dialog", { name: "Edit bowel entry" }) };
   }
 
+  it("opens the Edit popup without focusing its Time field", async () => {
+    const user = userEvent.setup();
+    const { dialog } = await openEdit(user);
+    const time = within(dialog).getByLabelText("Time");
+    expect(time).toHaveAttribute("type", "datetime-local");
+    expect(time).not.toHaveFocus();
+    expect(dialog).toHaveFocus();
+    await user.tab();
+    expect(time).toHaveFocus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("row", { name: rowName })).toHaveFocus());
+  });
+
   it("opens the Add popup in edit mode, pre-filled, from click, Enter, and Space", async () => {
     const user = userEvent.setup();
     const { dialog, health } = await openEdit(user);

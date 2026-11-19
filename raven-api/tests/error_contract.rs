@@ -176,7 +176,10 @@ async fn router_creation_has_no_filesystem_side_effects() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(body(response).await, json!({"status": "ok"}));
+    assert_eq!(
+        body(response).await,
+        json!({"status": "ok", "version": raven_api::version::RELEASE_VERSION})
+    );
     assert!(!home.exists());
 }
 

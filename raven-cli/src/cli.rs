@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     name = "raven",
     about = "Raven unified personal engine",
     arg_required_else_help = true,
-    version
+    version = raven_api::version::RELEASE_VERSION
 )]
 pub struct Cli {
     #[arg(long, value_enum, default_value_t)]

@@ -445,7 +445,7 @@ fn segment(value: &str) -> String {
 impl ServerHandler for McpAdapter {
     fn get_info(&self) -> ServerConfig {
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build());
-        info.server_info = Implementation::new("raven", env!("CARGO_PKG_VERSION"));
+        info.server_info = Implementation::new("raven", crate::version::RELEASE_VERSION);
         info.instructions = Some("Raven personal engine. Read tool input schemas and choices before acting. Search existing records, select exact IDs, then read the record before editing. ToDo options(id) provides current UI status actions and edit fields. Follow pagination. Never guess dynamic choices. Preserve expected_updated_at for guarded mutations. Regular creates accept request_key for durable identical retries; without a key, search after a lost response. Pending receipts never re-execute. Transfers reuse operation_key. Daily metrics use health_daily_upsert only. Permanent account-category purge requires user authorization and preview confirmation.".into());
         info
     }

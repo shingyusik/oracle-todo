@@ -244,7 +244,14 @@ the exact configured origin. The UI index and extensionless SPA routes issue a `
 HTTP-only Raven session cookie; `/api/v1/*` routes still require that cookie. API tokens, Access
 assertions, and Raven session cookies must not be logged.
 
-Only exact `/healthz` is unauthenticated. API errors use a stable
+When `raven ui` runs through the npm wrapper, the sidebar footer shows the installed version
+and an `Update to v<latest>` button when a newer GitHub Release exists. It works on the local
+and public origins; see [Setup](docs/operations/setup.md#updating-from-the-ui) and
+`/api/v1/system/version` and `/api/v1/system/update` in the
+[API reference](docs/operations/api-reference.md#system-version-and-update).
+
+Only exact `/healthz` is unauthenticated; it returns `{"status":"ok","version":"<version>"}`.
+API errors use a stable
 `{code,message,fields,request_id}` object and do not expose storage details.
 
 ## Import

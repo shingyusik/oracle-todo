@@ -54,3 +54,45 @@ test("selects matching release assets", () => {
 test("reports missing release assets", () => {
   assert.throws(() => selectAsset({ assets: [] }, "missing.tar.gz"), /Release asset not found: missing\.tar\.gz/);
 });
+
+test("honors a loopback RAVEN_GITHUB_API_URL override without sending the token", async () => {
+  for (const apiUrl of ["http://127.0.0.1:3025", "http://localhost:3025/", "http://[::1]:3025/api"]) {
+    const calls = [];
+    await fetchRelease({
+      repository: "owner/repo",
+      token: "secret",
+      apiUrl,
+      fetchImpl: async (url, options) => {
+        calls.push({ url, options });
+        return { ok: true, status: 200, json: async () => ({ tag_name: "v0.2.0", assets: [] }) };
+      },
+    });
+    assert.equal(calls[0].url, `${apiUrl.replace(/\/$/, "")}/repos/owner/repo/releases/latest`);
+    assert.equal(calls[0].options.headers.Authorization, undefined);
+  }
+});
+
+test("ignores non-loopback or non-http RAVEN_GITHUB_API_URL overrides", async () => {
+  for (const apiUrl of [
+    "https://127.0.0.1:3025",
+    "http://example.com",
+    "http://127.0.0.1.example.com",
+    "http://user:pass@127.0.0.1:3025",
+    "http://10.0.0.1",
+    "not a url",
+    "",
+  ]) {
+    const calls = [];
+    await fetchRelease({
+      repository: "owner/repo",
+      token: "secret",
+      apiUrl,
+      fetchImpl: async (url, options) => {
+        calls.push({ url, options });
+        return { ok: true, status: 200, json: async () => ({ tag_name: "v0.2.0", assets: [] }) };
+      },
+    });
+    assert.equal(calls[0].url, "https://api.github.com/repos/owner/repo/releases/latest", apiUrl);
+    assert.equal(calls[0].options.headers.Authorization, "Bearer secret");
+  }
+});
