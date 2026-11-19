@@ -269,6 +269,12 @@ All routes below use prefix `/api/v1/ledger`.
 | Table views | `POST /table/query`, `GET /table/lookups?scope=<scope>` |
 | Reads | `GET /account-balances`, `/audit/:record_type/:record_id`, `/reports/summary`, `/reports/categories`, `/reports/compare`, `/reports/trend` |
 
+Account objects include `purpose`: optional free text describing what the account is used
+for, or `null`. `POST /accounts` accepts an optional `purpose`; `PATCH /accounts/:id` keeps it
+when omitted and clears it for `null` or blank text. The service trims it and rejects more
+than 500 characters with `validation_error` on field `purpose`. The `ledger.accounts` table
+scope supports `purpose` as a text filter and sort field.
+
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
 offset `0`, limit `100`; limits are bounded. Reports accept `from`+`to`; comparison and trend reads use the UI period contract. Comparison derives the preceding equal-length period; trend granularity is chosen by the service.
 

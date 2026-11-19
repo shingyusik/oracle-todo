@@ -94,6 +94,7 @@ pub enum TransactionTableFilterField {
 #[serde(rename_all = "snake_case")]
 pub enum AccountTableFilterField {
     Name,
+    Purpose,
     AccountType,
     Currency,
     CurrentBalance,
@@ -149,6 +150,7 @@ pub enum TransactionTableSortField {
 #[serde(rename_all = "snake_case")]
 pub enum AccountTableSortField {
     Name,
+    Purpose,
     AccountType,
     Currency,
     CurrentBalance,
@@ -459,7 +461,7 @@ impl TransactionTableFilterField {
 impl AccountTableFilterField {
     const fn field_type(self) -> FilterType {
         match self {
-            Self::Name => FilterType::Text,
+            Self::Name | Self::Purpose => FilterType::Text,
             Self::CurrentBalance => FilterType::Number,
             Self::AccountType | Self::Currency => FilterType::Relation,
         }

@@ -162,6 +162,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: category.id().to_string(),
             currency: currency.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -171,6 +172,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: category.id().to_string(),
             currency: currency.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();

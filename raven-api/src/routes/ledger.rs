@@ -165,6 +165,7 @@ enum TableFilterField {
     Currency,
     Amount,
     Name,
+    Purpose,
     AccountType,
     CurrentBalance,
     Kind,
@@ -242,6 +243,7 @@ enum TableSortField {
     Amount,
     Updated,
     Name,
+    Purpose,
     AccountType,
     Currency,
     CurrentBalance,
@@ -499,6 +501,7 @@ fn table_filter(
         LedgerTableScope::Accounts => LedgerTableFilter::Accounts {
             field: match body.field {
                 TableFilterField::Name => AccountTableFilterField::Name,
+                TableFilterField::Purpose => AccountTableFilterField::Purpose,
                 TableFilterField::AccountType => AccountTableFilterField::AccountType,
                 TableFilterField::Currency => AccountTableFilterField::Currency,
                 TableFilterField::CurrentBalance => AccountTableFilterField::CurrentBalance,
@@ -538,6 +541,7 @@ fn table_sort(scope: LedgerTableScope, body: TableSortBody) -> Result<LedgerTabl
         LedgerTableScope::Accounts => LedgerTableSort::Accounts {
             field: match body.field {
                 TableSortField::Name => AccountTableSortField::Name,
+                TableSortField::Purpose => AccountTableSortField::Purpose,
                 TableSortField::AccountType => AccountTableSortField::AccountType,
                 TableSortField::Currency => AccountTableSortField::Currency,
                 TableSortField::CurrentBalance => AccountTableSortField::CurrentBalance,
@@ -876,6 +880,7 @@ async fn create_account(
             category: body.category,
             currency: body.currency,
             opening_balance,
+            purpose: body.purpose,
             actor: "raven-api".into(),
         })
     })
@@ -908,6 +913,7 @@ async fn update_account(
                 category: body.category,
                 currency: body.currency,
                 opening_balance,
+                purpose: body.purpose.optional(),
                 active: body.active,
                 actor: "raven-api".into(),
                 reason: None,

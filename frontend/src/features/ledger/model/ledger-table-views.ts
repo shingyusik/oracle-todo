@@ -41,7 +41,7 @@ const filterFields: Record<LedgerTableScopeId, readonly PlannerFilterField[]> = 
     "currency",
     "amount",
   ],
-  "ledger.accounts": ["name", "account_type", "currency", "current_balance"],
+  "ledger.accounts": ["name", "purpose", "account_type", "currency", "current_balance"],
   "ledger.categories": ["name", "kind", "parent"],
 };
 

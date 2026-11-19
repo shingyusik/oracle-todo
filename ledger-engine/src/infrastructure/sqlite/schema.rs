@@ -8,7 +8,7 @@ use super::audit_json::{self, AUDIT_JSON_MAX_BYTES};
 use super::is_busy_error;
 use crate::application::error::{LedgerError, LedgerResult};
 
-pub(super) const SCHEMA_VERSION: i64 = 2;
+pub(super) const SCHEMA_VERSION: i64 = 3;
 const LEGACY_UNKNOWN_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 const TIMESTAMP_MIGRATION_BATCH_SIZE: i64 = 256;
 const AUDIT_JSON_VALIDATION_BATCH_SIZE: i64 = 256;
@@ -132,6 +132,7 @@ fn create_missing_tables(connection: &Connection) -> LedgerResult<()> {
                     typeof(opening_balance_minor) = 'integer'
                 ),
                 active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+                purpose TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 deleted_at TEXT
@@ -1073,6 +1074,8 @@ const ACCOUNT_COLUMNS: &[ColumnSpec] = &[
         false,
         Some("active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))"),
     ),
+    // Schema version 3: optional free-text account purpose.
+    column("purpose", "TEXT", false, false, Some("purpose TEXT")),
     column(
         "created_at",
         "TEXT",
@@ -1428,12 +1431,16 @@ const PERSISTED_TABLES: &[PersistedTableSpec] = &[
     PersistedTableSpec {
         name: "accounts",
         required_nonblank_text: &["id", "name", "account_category_id", "currency_id"],
-        optional_nonblank_text: &[],
+        optional_nonblank_text: &["purpose"],
         required_text: &[],
         optional_text: &[],
         booleans: &["active"],
         timestamps: ACCOUNT_TIMESTAMPS,
-        extra_invalid: &["typeof(opening_balance_minor) <> 'integer'"],
+        extra_invalid: &[
+            "typeof(opening_balance_minor) <> 'integer'",
+            // Mirrors `Account::MAX_PURPOSE_CHARS`.
+            "purpose IS NOT NULL AND length(purpose) > 500",
+        ],
     },
     PersistedTableSpec {
         name: "transaction_categories",
@@ -1656,7 +1663,7 @@ mod tests {
                 "BEGIN IMMEDIATE;
                  CREATE TABLE future_marker (value TEXT NOT NULL);
                  INSERT INTO future_marker (value) VALUES ('future-data');
-                 PRAGMA user_version = 3;",
+                 PRAGMA user_version = 4;",
             )
             .unwrap();
 
@@ -1686,7 +1693,7 @@ mod tests {
             verification
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
         assert_eq!(
             verification
@@ -1699,7 +1706,7 @@ mod tests {
     }
 
     #[test]
-    fn version_two_open_never_downgrades_a_concurrent_future_commit() {
+    fn current_version_open_never_downgrades_a_concurrent_future_commit() {
         let _test_lock = INTERLEAVING_TEST_LOCK.lock().unwrap();
         BUSY_HANDLER_REACHED.store(false, Ordering::Release);
         let directory = tempfile::tempdir().unwrap();
@@ -1714,7 +1721,7 @@ mod tests {
                 "BEGIN IMMEDIATE;
                  CREATE TABLE future_marker (value TEXT NOT NULL);
                  INSERT INTO future_marker (value) VALUES ('future-data');
-                 PRAGMA user_version = 3;",
+                 PRAGMA user_version = 4;",
             )
             .unwrap();
 
@@ -1752,7 +1759,7 @@ mod tests {
             verification
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
         assert_eq!(
             verification

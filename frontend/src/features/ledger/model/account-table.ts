@@ -100,6 +100,7 @@ function accountFilterValue(
   field: PlannerFilterField,
 ): string | string[] | number | null {
   if (field === "name") return row.name;
+  if (field === "purpose") return row.account.purpose ?? "";
   if (field === "account_type") return [row.accountTypeId, row.accountTypeLabel];
   if (field === "currency") return [row.currencyId, row.currencyCode];
   if (field === "current_balance") return displayedCurrentBalance(row);
@@ -129,6 +130,7 @@ function compareAccountRows(
 
 function accountSortValue(row: AccountRow, field: PlannerSortBy): string | number {
   if (field === "name") return row.name;
+  if (field === "purpose") return row.account.purpose ?? "";
   if (field === "account_type") return row.accountTypeLabel;
   if (field === "currency") return row.currencyCode;
   if (field === "current_balance") return displayedCurrentBalance(row);

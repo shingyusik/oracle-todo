@@ -732,6 +732,7 @@ fn sqlite_table_query_uses_displayed_major_units_for_money_filters_and_sorts() {
             category: "Cash".into(),
             currency: "USD".into(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".into(),
         })
         .unwrap();
@@ -1447,6 +1448,7 @@ fn table_service_with_repository(
                 category: "Cash".into(),
                 currency: "KRW".into(),
                 opening_balance: Money::from_minor_units(0),
+                purpose: None,
                 actor: "test".into(),
             })
             .unwrap();

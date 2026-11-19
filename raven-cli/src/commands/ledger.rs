@@ -426,6 +426,7 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
                 category: input.category,
                 currency: input.currency,
                 opening_balance: parse_money(&input.opening_balance, precision, "opening_balance")?,
+                purpose: input.purpose,
                 actor: DEFAULT_ACTOR.to_string(),
             })?;
             print_json(&AccountOutput::from(&account))
@@ -450,6 +451,7 @@ fn account(service: &mut Service, command: AccountCommand) -> LedgerResult<()> {
                     category: input.category,
                     currency: input.currency,
                     opening_balance,
+                    purpose: optional_clear(input.purpose, input.clear_purpose, "purpose")?,
                     active: input.active,
                     actor: DEFAULT_ACTOR.to_string(),
                     reason: None,
@@ -565,16 +567,19 @@ fn list_accounts(service: &Service, args: MasterListArgs) -> LedgerResult<()> {
     match args.page.format {
         OutputFormat::Json => print_json(&output),
         OutputFormat::Table => {
-            println!("ID\tNAME\tACCOUNT_CATEGORY_ID\tCURRENCY_ID\tOPENING_BALANCE_MINOR\tACTIVE");
+            println!(
+                "ID\tNAME\tACCOUNT_CATEGORY_ID\tCURRENCY_ID\tOPENING_BALANCE_MINOR\tACTIVE\tPURPOSE"
+            );
             for value in output.items {
                 println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                     table_cell(&value.id),
                     table_cell(&value.name),
                     table_cell(&value.account_category_id),
                     table_cell(&value.currency_id),
                     value.opening_balance_minor,
-                    value.active
+                    value.active,
+                    table_cell(value.purpose.as_deref().unwrap_or(""))
                 );
             }
             Ok(())
@@ -1292,6 +1297,7 @@ struct AccountCreateInput {
     category: String,
     currency: String,
     opening_balance: String,
+    purpose: Option<String>,
 }
 
 fn account_create_input(args: AccountCreateArgs) -> LedgerResult<AccountCreateInput> {
@@ -1300,7 +1306,8 @@ fn account_create_input(args: AccountCreateArgs) -> LedgerResult<AccountCreateIn
         args.name.is_some()
             || args.category.is_some()
             || args.currency.is_some()
-            || args.opening_balance.is_some(),
+            || args.opening_balance.is_some()
+            || args.purpose.is_some(),
     )?;
     if let Some(json) = args.json {
         return json_input(&json);
@@ -1310,6 +1317,7 @@ fn account_create_input(args: AccountCreateArgs) -> LedgerResult<AccountCreateIn
         category: required(args.category, "category")?,
         currency: required(args.currency, "currency")?,
         opening_balance: required(args.opening_balance, "opening_balance")?,
+        purpose: args.purpose,
     })
 }
 
@@ -1320,6 +1328,9 @@ struct AccountUpdateInput {
     category: Option<String>,
     currency: Option<String>,
     opening_balance: Option<String>,
+    purpose: Option<String>,
+    #[serde(default)]
+    clear_purpose: bool,
     active: Option<bool>,
 }
 
@@ -1330,6 +1341,8 @@ fn account_update_input(args: AccountUpdateArgs) -> LedgerResult<AccountUpdateIn
             || args.category.is_some()
             || args.currency.is_some()
             || args.opening_balance.is_some()
+            || args.purpose.is_some()
+            || args.clear_purpose
             || args.active.is_some(),
     )?;
     if let Some(json) = args.json {
@@ -1340,6 +1353,8 @@ fn account_update_input(args: AccountUpdateArgs) -> LedgerResult<AccountUpdateIn
         category: args.category,
         currency: args.currency,
         opening_balance: args.opening_balance,
+        purpose: args.purpose,
+        clear_purpose: args.clear_purpose,
         active: args.active,
     })
 }
@@ -1544,6 +1559,7 @@ struct AccountOutput {
     currency_id: String,
     opening_balance_minor: i64,
     active: bool,
+    purpose: Option<String>,
 }
 
 impl From<&Account> for AccountOutput {
@@ -1555,6 +1571,7 @@ impl From<&Account> for AccountOutput {
             currency_id: value.currency_id().to_string(),
             opening_balance_minor: value.opening_balance().minor_units(),
             active: value.is_active(),
+            purpose: value.purpose().map(str::to_string),
         }
     }
 }

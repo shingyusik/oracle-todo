@@ -46,6 +46,8 @@ pub struct CreateAccount {
     pub category: String,
     pub currency: String,
     pub opening_balance: Money,
+    /// Free-text usage note; trimmed, blank becomes `None`, at most 500 characters.
+    pub purpose: Option<String>,
     pub actor: String,
 }
 
@@ -55,6 +57,8 @@ pub struct UpdateAccount {
     pub category: Option<String>,
     pub currency: Option<String>,
     pub opening_balance: Option<Money>,
+    /// `None` preserves; `Some(None)` or a blank value clears.
+    pub purpose: Option<Option<String>>,
     pub active: Option<bool>,
     pub actor: String,
     pub reason: Option<String>,

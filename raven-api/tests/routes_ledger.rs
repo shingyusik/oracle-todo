@@ -39,6 +39,7 @@ fn app() -> (tempfile::TempDir, axum::Router) {
             category: account_category.id().into(),
             currency: currency.id().into(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".into(),
         })
         .unwrap();
@@ -48,6 +49,7 @@ fn app() -> (tempfile::TempDir, axum::Router) {
             category: account_category.id().into(),
             currency: currency.id().into(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".into(),
         })
         .unwrap();
@@ -1165,4 +1167,144 @@ async fn confirmed_account_category_purge_commits_through_a_writable_store() {
         .map(|item| item["name"].clone())
         .collect();
     assert_eq!(names, [json!("Cash")]);
+}
+
+async fn patch_json(app: &axum::Router, path: &str, value: Value) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::patch(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(value.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn account_purpose_round_trips_through_create_update_clear_and_reads() {
+    let (_temp, app) = app();
+    let created = post_json(
+        &app,
+        "/api/v1/ledger/accounts",
+        json!({
+            "name":"Groceries card", "category":"Cash", "currency":"KRW",
+            "opening_balance":"0", "purpose":"  Weekly groceries  "
+        }),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = body(created).await;
+    assert_eq!(created["purpose"], "Weekly groceries");
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let omitted = post_json(
+        &app,
+        "/api/v1/ledger/accounts",
+        json!({"name":"Plain", "category":"Cash", "currency":"KRW", "opening_balance":"0"}),
+    )
+    .await;
+    assert_eq!(omitted.status(), StatusCode::CREATED);
+    assert_eq!(body(omitted).await["purpose"], Value::Null);
+
+    let renamed = patch_json(
+        &app,
+        &format!("/api/v1/ledger/accounts/{id}"),
+        json!({"name":"Food card"}),
+    )
+    .await;
+    assert_eq!(renamed.status(), StatusCode::OK);
+    assert_eq!(body(renamed).await["purpose"], "Weekly groceries");
+
+    let changed = patch_json(
+        &app,
+        &format!("/api/v1/ledger/accounts/{id}"),
+        json!({"purpose":"Groceries and household"}),
+    )
+    .await;
+    assert_eq!(changed.status(), StatusCode::OK);
+    assert_eq!(body(changed).await["purpose"], "Groceries and household");
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/ledger/accounts?query=Food")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    assert_eq!(
+        body(list).await["items"][0]["purpose"],
+        "Groceries and household"
+    );
+
+    let mut query = table_query("ledger.accounts");
+    query["filters"] = json!([{
+        "field":"purpose", "operator":"contains", "value":{"text":"household"}
+    }]);
+    let table = post_json(&app, "/api/v1/ledger/table/query", query).await;
+    assert_eq!(table.status(), StatusCode::OK);
+    let table = body(table).await;
+    let items = table["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0]["record"]["account"]["purpose"],
+        "Groceries and household"
+    );
+
+    let cleared = patch_json(
+        &app,
+        &format!("/api/v1/ledger/accounts/{id}"),
+        json!({"purpose":null}),
+    )
+    .await;
+    assert_eq!(cleared.status(), StatusCode::OK);
+    assert_eq!(body(cleared).await["purpose"], Value::Null);
+
+    patch_json(
+        &app,
+        &format!("/api/v1/ledger/accounts/{id}"),
+        json!({"purpose":"again"}),
+    )
+    .await;
+    let blank = patch_json(
+        &app,
+        &format!("/api/v1/ledger/accounts/{id}"),
+        json!({"purpose":"   "}),
+    )
+    .await;
+    assert_eq!(blank.status(), StatusCode::OK);
+    assert_eq!(body(blank).await["purpose"], Value::Null);
+}
+
+#[tokio::test]
+async fn account_purpose_over_500_characters_is_a_safe_validation_error() {
+    let (_temp, app) = app();
+    let too_long = "x".repeat(501);
+    let created = post_json(
+        &app,
+        "/api/v1/ledger/accounts",
+        json!({
+            "name":"Long", "category":"Cash", "currency":"KRW",
+            "opening_balance":"0", "purpose": too_long
+        }),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::BAD_REQUEST);
+    let error = body(created).await;
+    assert_eq!(error["code"], "validation_error");
+    assert_eq!(error["fields"], json!({"purpose":["invalid"]}));
+
+    let wrong_type = post_json(
+        &app,
+        "/api/v1/ledger/accounts",
+        json!({
+            "name":"Typed", "category":"Cash", "currency":"KRW",
+            "opening_balance":"0", "purpose": 7
+        }),
+    )
+    .await;
+    assert_eq!(wrong_type.status(), StatusCode::BAD_REQUEST);
 }

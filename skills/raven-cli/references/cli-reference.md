@@ -205,6 +205,12 @@ Entry source, actor, and written timestamp are assigned by the adapter. Adjustme
 records remain readable; creation and conversion to adjustment types are rejected.
 Manual entry add/update type choices are `expense` and `income`; create transfers through
 `ledger transfer`. Read filters also support historical transfer and adjustment types.
+Accounts have an optional free-text purpose. `account create --purpose <text>` and
+`account update --purpose <text>` set it (trimmed, at most 500 characters); an empty value or
+`account update --clear-purpose` clears it. Strict JSON accepts `purpose` on create and
+`purpose` or `clear_purpose: true` on update. `account list` prints a trailing `PURPOSE`
+column, and JSON output includes `purpose` (`null` when unset).
+
 Currency, account-category, account, and category lists accept `--query <text>` and
 `--include-inactive`. Name/code search uses Unicode case folding and filters before
 pagination; inactive records remain available for recovery without becoming active choices.

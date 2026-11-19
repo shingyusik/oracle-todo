@@ -380,6 +380,10 @@ project/goal/routine/task/event. Routine creation and update accept `future_occu
 `ledger_entry_list` supports date, type, account, category, currency, content and archived
 filters. `ledger_entry_get(include_archived=true)` reads recovery records. Master lists
 accept `query` and `include_inactive`, applying name/code matching before paging.
+`ledger_account_create` and `ledger_account_update` accept an optional `purpose` (free text,
+trimmed, at most 500 characters); on update, omit it to keep the value and send `null` or
+blank text to clear it. Account results include `purpose`, and `ledger_search` on
+`ledger.accounts` can filter and sort by `purpose`.
 `ledger_doctor` performs bounded read-only diagnostics; `ledger_export` returns a structured
 snapshot without a file destination. Both accept positive `max_records`/`max_bytes` budgets;
 MCP input byte budgets are at most 8 MiB and all responses remain capped at 8 MiB. Large

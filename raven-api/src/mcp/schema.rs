@@ -30,6 +30,9 @@ pub(super) fn array(items: Value) -> Value {
 pub(super) fn nullable(value: Value) -> Value {
     json!({"anyOf":[value,{"type":"null"}]})
 }
+pub(super) fn account_purpose() -> Value {
+    json!({"anyOf":[{"type":"string","maxLength":500},{"type":"null"}],"description":"Free text describing what the account is used for. Trimmed; at most 500 characters. On update, null or blank clears it."})
+}
 pub(super) fn id() -> Value {
     json!({"type":"string","minLength":1,"maxLength":256,"description":"Exact record ID from a search or choices result."})
 }
@@ -321,6 +324,7 @@ pub(super) fn table(domain: &str) -> Value {
                 "currency",
                 "amount",
                 "name",
+                "purpose",
                 "account_type",
                 "current_balance",
                 "kind",
@@ -493,8 +497,20 @@ pub(super) fn table_for_scope(scope: &str) -> Value {
             ],
         ),
         "ledger.accounts" => (
-            &["name", "account_type", "currency", "current_balance"],
-            &["name", "account_type", "currency", "current_balance"],
+            &[
+                "name",
+                "purpose",
+                "account_type",
+                "currency",
+                "current_balance",
+            ],
+            &[
+                "name",
+                "purpose",
+                "account_type",
+                "currency",
+                "current_balance",
+            ],
             &["none", "account_type", "currency"],
         ),
         "ledger.categories" => (

@@ -242,6 +242,7 @@ fn unreferenced_currency_precision_and_account_currency_can_change() {
             category: fixture.account_category_id.clone(),
             currency: fixture.krw_id.clone(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".to_string(),
         })
         .unwrap();
@@ -657,6 +658,7 @@ fn master_fixture_with(repository: SqliteLedgerRepository) -> MasterFixture {
             category: account_category.id().to_string(),
             currency: krw.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".to_string(),
         })
         .unwrap();

@@ -140,6 +140,7 @@ fn every_master_create_writes_an_audit_event() {
             category: account_category.id().to_string(),
             currency: currency.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -195,6 +196,7 @@ fn every_master_partial_update_writes_before_and_after_audit() {
             category: account_category.id().to_string(),
             currency: currency.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -297,6 +299,7 @@ fn seeded_service() -> LedgerService<SqliteLedgerRepository> {
             category: account_category.id().to_string(),
             currency: currency.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();

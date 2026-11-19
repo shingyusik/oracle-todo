@@ -44,6 +44,7 @@ export type PlannerFilterField =
   | "category"
   | "amount"
   | "name"
+  | "purpose"
   | "account_type"
   | "currency"
   | "current_balance"
@@ -158,6 +159,7 @@ export const plannerFilterFieldTypes: Record<PlannerFilterField, PlannerFilterTy
   category: "relation",
   amount: "number",
   name: "text",
+  purpose: "text",
   account_type: "relation",
   currency: "relation",
   current_balance: "number",

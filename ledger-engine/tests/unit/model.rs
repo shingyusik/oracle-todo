@@ -246,3 +246,78 @@ fn entry_record(date: &str, amount: Money) -> LedgerEntryRehydration {
         deleted_at: None,
     }
 }
+
+fn purpose_account() -> Account {
+    Account::new(
+        "acc-cash",
+        "Cash",
+        "cat-assets",
+        "cur-krw",
+        Money::from_minor_units(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn account_purpose_defaults_to_none_and_is_trimmed() {
+    assert_eq!(purpose_account().purpose(), None);
+
+    let account = purpose_account()
+        .with_purpose(Some("  Daily spending  ".to_string()))
+        .unwrap();
+
+    assert_eq!(account.purpose(), Some("Daily spending"));
+}
+
+#[test]
+fn account_purpose_normalizes_blank_text_to_none() {
+    for blank in ["", "   ", "\t\n"] {
+        let account = purpose_account()
+            .with_purpose(Some(blank.to_string()))
+            .unwrap();
+        assert_eq!(account.purpose(), None, "blank purpose {blank:?}");
+    }
+    assert_eq!(
+        purpose_account().with_purpose(None).unwrap().purpose(),
+        None
+    );
+}
+
+#[test]
+fn account_purpose_accepts_500_characters_and_rejects_more() {
+    let max = "가".repeat(Account::MAX_PURPOSE_CHARS);
+    let account = purpose_account().with_purpose(Some(max.clone())).unwrap();
+    assert_eq!(account.purpose(), Some(max.as_str()));
+
+    let padded = format!("  {max}  ");
+    assert_eq!(
+        purpose_account()
+            .with_purpose(Some(padded))
+            .unwrap()
+            .purpose(),
+        Some(max.as_str())
+    );
+
+    assert_eq!(
+        purpose_account().with_purpose(Some("a".repeat(Account::MAX_PURPOSE_CHARS + 1))),
+        Err(ValidationError::TooLong {
+            field: "account.purpose",
+            max: Account::MAX_PURPOSE_CHARS,
+        })
+    );
+}
+
+#[test]
+fn account_purpose_serializes_as_nullable_field() {
+    let without = serde_json::to_value(purpose_account()).unwrap();
+    assert_eq!(without["purpose"], serde_json::Value::Null);
+    assert!(without.as_object().unwrap().contains_key("purpose"));
+
+    let with = serde_json::to_value(
+        purpose_account()
+            .with_purpose(Some("Bills".to_string()))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(with["purpose"], "Bills");
+}

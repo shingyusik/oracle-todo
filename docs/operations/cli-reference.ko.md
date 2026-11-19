@@ -210,6 +210,12 @@ Purge는 account-category만 제공합니다. 먼저 미리보기를 조회하�
 Adjustment 레코드는 조회할 수 있지만 직접 생성하거나 해당 타입으로 변환할 수 없습니다.
 직접 add/update하는 거래 타입은 `expense`, `income`입니다. 이체는 `ledger transfer`로 생성합니다.
 조회 필터는 과거 transfer·adjustment 타입도 지원합니다.
+계정에는 용도를 적는 선택 자유 텍스트 `purpose`가 있습니다. `account create --purpose <text>`,
+`account update --purpose <text>`로 지정하며 앞뒤 공백을 지우고 최대 500자까지 허용합니다. 빈 값이나
+`account update --clear-purpose`는 용도를 지웁니다. Strict JSON은 create에서 `purpose`, update에서
+`purpose` 또는 `clear_purpose: true`를 받습니다. `account list` 표 출력은 마지막에 `PURPOSE` 열을,
+JSON 출력은 `purpose`(없으면 `null`)를 포함합니다.
+
 Currency·account-category·account·category 목록은 `--query <text>`, `--include-inactive`를 지원합니다.
 이름·코드 검색은 Unicode 대소문자 정규화를 사용하며 페이지를 나누기 전에 필터링합니다.
 비활성 레코드는 복구를 위해 조회할 수 있지만 활성 선택 후보로 취급하지 않습니다.

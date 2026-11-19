@@ -24,13 +24,18 @@ type AccountCreateDialogProps = {
 
 type AccountDraft = {
   name: string;
+  purpose: string;
   category: string;
   currency: string;
   openingBalance: string;
 };
 
+/** Matches the Ledger engine's account purpose limit. */
+const MAX_PURPOSE_LENGTH = 500;
+
 const emptyDraft: AccountDraft = {
   name: "",
+  purpose: "",
   category: "",
   currency: "",
   openingBalance: "0",
@@ -103,7 +108,7 @@ function AccountCreateDialogContent({
         const update = accountUpdate(initial, draft);
         if (Object.keys(update).length > 0) await controller.updateAccount(record.id, update);
       } else {
-        await controller.createAccount(draft);
+        await controller.createAccount(accountCreate(draft));
       }
       saved = true;
     } catch (cause) {
@@ -166,6 +171,15 @@ function AccountCreateDialogContent({
               disabled={pending}
               value={draft.name}
               onChange={(event) => field("name", event.target.value)}
+            />
+          </label>
+          <label className="field-label">
+            Purpose
+            <input
+              maxLength={MAX_PURPOSE_LENGTH}
+              disabled={pending}
+              value={draft.purpose}
+              onChange={(event) => field("purpose", event.target.value)}
             />
           </label>
           <label className="field-label">
@@ -241,15 +255,22 @@ function AccountCreateDialogContent({
 function accountDraft(row: AccountRow): AccountDraft {
   return {
     name: row.name,
+    purpose: row.account.purpose ?? "",
     category: row.accountTypeId,
     currency: row.currencyId,
     openingBalance: formatMinorUnits(row.account.openingBalanceMinor, row.decimalPlaces),
   };
 }
 
+function accountCreate({ purpose, ...draft }: AccountDraft): AccountInput {
+  const trimmed = purpose.trim();
+  return trimmed ? { ...draft, purpose: trimmed } : draft;
+}
+
 function accountUpdate(baseline: AccountDraft, draft: AccountDraft): Partial<AccountInput> {
   return {
     ...(draft.name !== baseline.name ? { name: draft.name } : {}),
+    ...(draft.purpose !== baseline.purpose ? { purpose: draft.purpose.trim() || null } : {}),
     ...(draft.category !== baseline.category ? { category: draft.category } : {}),
     ...(draft.currency !== baseline.currency ? { currency: draft.currency, openingBalance: draft.openingBalance } : {}),
     ...(draft.currency === baseline.currency && draft.openingBalance !== baseline.openingBalance

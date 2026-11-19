@@ -365,7 +365,10 @@ ToDo 생성의 `actor`와 루틴 생성·편집의 `future_occurrences`를 지�
 
 `ledger_entry_list`는 날짜·타입·계정·분류·통화·내용·보관 필터를 지원합니다.
 `ledger_entry_get(include_archived=true)`로 보관 거래를 읽습니다. 기준 데이터 목록의
-`query`, `include_inactive`는 페이징 전에 적용됩니다. `ledger_doctor`는 읽기 전용 진단,
+`query`, `include_inactive`는 페이징 전에 적용됩니다. `ledger_account_create`와
+`ledger_account_update`는 선택 필드 `purpose`(계정 용도 자유 텍스트, 앞뒤 공백 제거, 최대 500자)를
+받습니다. update에서 생략하면 유지하고 `null`이나 빈 문자열이면 지웁니다. 계정 결과에는 `purpose`가
+포함되며 `ledger.accounts`의 `ledger_search`는 `purpose`로 필터·정렬할 수 있습니다. `ledger_doctor`는 읽기 전용 진단,
 `ledger_export`는 파일 경로 없이 구조화된 스냅샷을 반환합니다. 양수 `max_records`,
 `max_bytes`를 지정할 수 있으며 MCP 바이트 예산·응답은 최대 8 MiB입니다.
 큰 내보내기는 CLI를 사용합니다. `include_archived=true` 내보내기는 복구 가능한 스냅샷입니다.

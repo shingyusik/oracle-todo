@@ -1,6 +1,8 @@
 use serde::Serialize;
 
-use super::{Money, ValidationError, money::MAX_DECIMAL_PLACES, optional, required};
+use super::{
+    Money, ValidationError, bounded_optional_text, money::MAX_DECIMAL_PLACES, optional, required,
+};
 
 /// A validated currency master record.
 ///
@@ -153,6 +155,7 @@ impl AccountCategory {
 pub struct Account {
     id: String,
     name: String,
+    purpose: Option<String>,
     category_id: String,
     currency_id: String,
     opening_balance: Money,
@@ -160,6 +163,9 @@ pub struct Account {
 }
 
 impl Account {
+    /// Maximum Unicode scalar values in a trimmed account purpose.
+    pub const MAX_PURPOSE_CHARS: usize = 500;
+
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,
@@ -181,6 +187,7 @@ impl Account {
         Ok(Self {
             id: required(id, "account.id")?,
             name: required(name, "account.name")?,
+            purpose: None,
             category_id: required(category_id, "account.category_id")?,
             currency_id: required(currency_id, "account.currency_id")?,
             opening_balance,
@@ -194,6 +201,17 @@ impl Account {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Replaces the free-text purpose: trimmed, blank becomes `None`, and
+    /// at most [`Self::MAX_PURPOSE_CHARS`] characters are accepted.
+    pub fn with_purpose(mut self, purpose: Option<String>) -> Result<Self, ValidationError> {
+        self.purpose = bounded_optional_text(purpose, "account.purpose", Self::MAX_PURPOSE_CHARS)?;
+        Ok(self)
+    }
+
+    pub fn purpose(&self) -> Option<&str> {
+        self.purpose.as_deref()
     }
 
     pub fn category_id(&self) -> &str {

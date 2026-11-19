@@ -117,6 +117,7 @@ pub struct CreateAccountBody {
     pub category: String,
     pub currency: String,
     pub opening_balance: String,
+    pub purpose: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,6 +127,8 @@ pub struct UpdateAccountBody {
     pub category: Option<String>,
     pub currency: Option<String>,
     pub opening_balance: Option<String>,
+    #[serde(default)]
+    pub purpose: Patch<String>,
     pub active: Option<bool>,
 }
 

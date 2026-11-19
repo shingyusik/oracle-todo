@@ -47,6 +47,7 @@ function controller(
           categoryId: "account-category-cash",
           currencyId: "currency-krw",
           openingBalanceMinor: 0,
+          purpose: null,
           active: true,
         },
         {
@@ -55,6 +56,7 @@ function controller(
           categoryId: "account-category-bank",
           currencyId: "currency-usd",
           openingBalanceMinor: 0,
+          purpose: null,
           active: true,
         },
         {
@@ -63,6 +65,7 @@ function controller(
           categoryId: "account-category-bank",
           currencyId: "currency-krw",
           openingBalanceMinor: 0,
+          purpose: null,
           active: true,
         },
       ],

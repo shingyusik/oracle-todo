@@ -284,6 +284,7 @@ pub(super) fn entry_validation(error: ValidationError) -> LedgerError {
         ValidationError::BlankField("ledger_entry.notes") => "notes",
         ValidationError::BlankField(_) => "entry",
         ValidationError::UnsupportedCurrencyPrecision(_) => "currency",
+        ValidationError::TooLong { .. } => "entry",
     };
     domain_validation(field, error)
 }

@@ -257,6 +257,7 @@ fn compatibility_service() -> LedgerService<SqliteLedgerRepository> {
                 category: "Cash".to_string(),
                 currency: currency.to_string(),
                 opening_balance: Money::from_minor_units(0),
+                purpose: None,
                 actor: "test".to_string(),
             })
             .unwrap();

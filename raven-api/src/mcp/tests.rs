@@ -1448,3 +1448,108 @@ async fn direct_read_only_caller_is_limited_and_denials_log_no_credentials() {
         }
     }
 }
+
+#[test]
+fn ledger_account_tools_accept_optional_bounded_purpose() {
+    let tools = catalog::build();
+    let find = |name: &str| tools.iter().find(|spec| spec.tool.name == name).unwrap();
+    let create = find("ledger_account_create");
+    let base = json!({"name":"Wallet","category":"Cash","currency":"KRW","opening_balance":"0"});
+    assert!(create.validator.is_valid(&base));
+    let mut with_purpose = base.clone();
+    with_purpose["purpose"] = json!("Daily spending");
+    assert!(create.validator.is_valid(&with_purpose));
+    with_purpose["purpose"] = json!("x".repeat(500));
+    assert!(create.validator.is_valid(&with_purpose));
+    with_purpose["purpose"] = json!("x".repeat(501));
+    assert!(!create.validator.is_valid(&with_purpose));
+    with_purpose["purpose"] = json!(7);
+    assert!(!create.validator.is_valid(&with_purpose));
+
+    let update = find("ledger_account_update");
+    assert!(
+        update
+            .validator
+            .is_valid(&json!({"id":"account-1","purpose":"Bills"}))
+    );
+    assert!(
+        update
+            .validator
+            .is_valid(&json!({"id":"account-1","purpose":null}))
+    );
+    let schema = serde_json::to_value(&*update.tool.input_schema).unwrap();
+    assert!(
+        schema["properties"]["purpose"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("null")
+    );
+    assert!(
+        update
+            .tool
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("purpose")
+    );
+}
+
+#[tokio::test]
+async fn ledger_account_purpose_round_trips_through_mcp_tools() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg = config(&temp);
+    ledger_engine::infrastructure::sqlite::SqliteLedgerRepository::open(&cfg.ledger_db).unwrap();
+    let adapter = McpAdapter::new(cfg).unwrap();
+    for (name, args) in [
+        (
+            "ledger_currency_create",
+            json!({"code":"KRW","name":"Won","symbol":"W","decimal_places":0}),
+        ),
+        ("ledger_account_category_create", json!({"name":"Cash"})),
+    ] {
+        let result = adapter.call(name, args).await;
+        assert_eq!(result.is_error, Some(false), "{result:?}");
+    }
+    let created = adapter
+        .call(
+            "ledger_account_create",
+            json!({"name":"Wallet","category":"Cash","currency":"KRW","opening_balance":"0","purpose":" Lunch money "}),
+        )
+        .await;
+    assert_eq!(created.is_error, Some(false), "{created:?}");
+    let created = created.structured_content.unwrap();
+    assert_eq!(created["purpose"], "Lunch money");
+
+    let search = adapter
+        .call(
+            "ledger_search",
+            json!({"scope":"ledger.accounts","filters":[{"field":"purpose","operator":"contains","value":{"text":"lunch"}}],"sorts":[{"field":"purpose","direction":"asc"}]}),
+        )
+        .await;
+    assert_eq!(search.is_error, Some(false), "{search:?}");
+    let items = search.structured_content.unwrap()["items"].clone();
+    assert_eq!(items.as_array().unwrap().len(), 1);
+    assert_eq!(items[0]["record"]["account"]["purpose"], "Lunch money");
+
+    let cleared = adapter
+        .call(
+            "ledger_account_update",
+            json!({"id":created["id"],"purpose":null}),
+        )
+        .await;
+    assert_eq!(cleared.is_error, Some(false), "{cleared:?}");
+    assert!(cleared.structured_content.unwrap()["purpose"].is_null());
+
+    let listed = adapter
+        .call("ledger_account_list", json!({"query":"Wallet"}))
+        .await;
+    assert_eq!(listed.is_error, Some(false), "{listed:?}");
+    let listed = listed.structured_content.unwrap();
+    assert!(listed["items"][0]["purpose"].is_null());
+    assert!(
+        listed["items"][0]
+            .as_object()
+            .unwrap()
+            .contains_key("purpose")
+    );
+}

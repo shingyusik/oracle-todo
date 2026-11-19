@@ -173,6 +173,7 @@ fn missing_ambiguous_inactive_and_deleted_references_are_distinct() {
             category: "Cash".to_string(),
             currency: "KRW".to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".to_string(),
         })
         .unwrap();
@@ -570,6 +571,7 @@ fn seed_repository(repository: SqliteLedgerRepository) -> TestService {
             category: "Cash".to_string(),
             currency: "KRW".to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".to_string(),
         })
         .unwrap();
@@ -579,6 +581,7 @@ fn seed_repository(repository: SqliteLedgerRepository) -> TestService {
             category: "Cash".to_string(),
             currency: "KRW".to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".to_string(),
         })
         .unwrap();

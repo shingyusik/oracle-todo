@@ -871,14 +871,15 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
             .execute(
                 "INSERT INTO accounts (
                     id, name, account_category_id, currency_id,
-                    opening_balance_minor, active, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+                    opening_balance_minor, active, purpose, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     account_category_id = excluded.account_category_id,
                     currency_id = excluded.currency_id,
                     opening_balance_minor = excluded.opening_balance_minor,
                     active = excluded.active,
+                    purpose = excluded.purpose,
                     updated_at = excluded.updated_at",
                 params![
                     account.id(),
@@ -887,6 +888,7 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
                     account.currency_id(),
                     account.opening_balance().minor_units(),
                     account.is_active(),
+                    account.purpose(),
                     changed_at,
                 ],
             )
@@ -1129,7 +1131,7 @@ fn account_balance_sql(predicate: &str) -> String {
     format!(
         "SELECT
                 a.id, a.name, a.account_category_id, a.currency_id,
-                a.opening_balance_minor, a.active,
+                a.opening_balance_minor, a.active, a.purpose,
                 c.code, c.decimal_places,
                 COALESCE(SUM(CASE e.entry_type
                     WHEN 'expense' THEN -e.amount_minor
@@ -1152,22 +1154,22 @@ fn account_balance_sql(predicate: &str) -> String {
              {predicate}
              GROUP BY
                 a.id, a.name, a.account_category_id, a.currency_id,
-                a.opening_balance_minor, a.active, c.code, c.decimal_places"
+                a.opening_balance_minor, a.active, a.purpose, c.code, c.decimal_places"
     )
 }
 
 fn row_to_account_balance_record(row: &rusqlite::Row<'_>) -> LedgerResult<AccountBalanceRecord> {
     let account = row_to_account(row)?;
-    let decimal_places = row.get::<_, i64>(7).map_err(storage_error)?;
+    let decimal_places = row.get::<_, i64>(8).map_err(storage_error)?;
     let decimal_places = u8::try_from(decimal_places).map_err(|_| {
         LedgerError::Storage("invalid account balance currency precision".to_string())
     })?;
-    let mismatch_count = row.get::<_, i64>(9).map_err(storage_error)?;
+    let mismatch_count = row.get::<_, i64>(10).map_err(storage_error)?;
     Ok(AccountBalanceRecord {
         account,
-        currency_code: row.get(6).map_err(storage_error)?,
+        currency_code: row.get(7).map_err(storage_error)?,
         decimal_places,
-        movement_minor: row.get(8).map_err(storage_error)?,
+        movement_minor: row.get(9).map_err(storage_error)?,
         currency_mismatch_count: u64::try_from(mismatch_count).map_err(|_| {
             LedgerError::Storage("account balance mismatch count is negative".to_string())
         })?,
@@ -1474,6 +1476,7 @@ fn diagnostic_columns(table: DiagnosticTable) -> &'static [&'static str] {
             "currency_id",
             "opening_balance_minor",
             "active",
+            "purpose",
             "created_at",
             "updated_at",
             "deleted_at",

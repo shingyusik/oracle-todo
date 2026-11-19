@@ -682,6 +682,7 @@ fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
             category: "Cash".to_string(),
             currency: "KRW".to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "tester".to_string(),
         })
     });
@@ -921,6 +922,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: cash.id().to_string(),
             currency: krw.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -930,6 +932,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: cash.id().to_string(),
             currency: krw.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -939,6 +942,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: cash.id().to_string(),
             currency: usd.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();

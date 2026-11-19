@@ -81,6 +81,8 @@ export type AccountCategoryInput = {
 };
 export type AccountInput = {
   name: string; category: string; currency: string; openingBalance: string;
+  /** Omit to keep the current purpose; `null` clears it on update. */
+  purpose?: string | null;
 };
 export type TransactionCategoryInput = {
   name: string; parent?: string | null; kind: TransactionCategoryKind;
@@ -220,6 +222,7 @@ export const ledgerApi = {
       category: input.category,
       currency: input.currency,
       opening_balance: input.openingBalance,
+      purpose: input.purpose,
       })))),
   updateAccount: async (
     id: string,
@@ -230,6 +233,7 @@ export const ledgerApi = {
       category: input.category,
       currency: input.currency,
       opening_balance: input.openingBalance,
+      purpose: input.purpose,
       active: input.active,
         })))),
   listTransactionCategories: (query: PageQuery = {}) =>

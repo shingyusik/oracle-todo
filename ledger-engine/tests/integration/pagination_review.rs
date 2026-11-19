@@ -64,6 +64,7 @@ fn every_reference_surface_exposes_next_page_and_the_101st_record() {
                 category: account_category_id.clone(),
                 currency: currency_id.clone(),
                 opening_balance: Money::from_minor_units(0),
+                purpose: None,
                 actor: "test".to_string(),
             })
             .unwrap();
@@ -211,6 +212,7 @@ fn basic_service() -> LedgerService<SqliteLedgerRepository> {
             category: account_category.id().to_string(),
             currency: currency.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "test".to_string(),
         })
         .unwrap();
