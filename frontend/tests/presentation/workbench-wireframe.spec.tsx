@@ -559,15 +559,12 @@ function reportLedgerController() {
     transfer: vi.fn(),
     updateTransfer: vi.fn(),
     archive: vi.fn(),
-    restore: vi.fn(),
     createAccount: vi.fn(),
     updateAccount: vi.fn(),
     archiveAccount: vi.fn(),
-    restoreAccount: vi.fn(),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     archiveCategory: vi.fn(),
-    restoreCategory: vi.fn(),
     createCurrency: vi.fn(),
     updateCurrency: vi.fn(),
     deactivateCurrency: vi.fn(),
@@ -5675,6 +5672,99 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Choose Weekly date" })).toBeNull();
   });
 
+  it("shows yearly planner period navigation with a year-only picker", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+    const currentYear = new Date().getFullYear();
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Yearly" }));
+
+    const yearlyNavigation = within(
+      screen.getByRole("group", { name: "Planner period navigation" }),
+    );
+    expect(yearlyNavigation.getByRole("button", { name: "Previous year" })).toBeInTheDocument();
+    const trigger = yearlyNavigation.getByRole("button", { name: "Choose Yearly date" });
+    expect(trigger).toHaveTextContent(String(currentYear));
+    expect(yearlyNavigation.getByRole("button", { name: "Now" })).toBeDisabled();
+
+    await user.click(yearlyNavigation.getByRole("button", { name: "Next year" }));
+    expect(trigger).toHaveTextContent(String(currentYear + 1));
+    expect(yearlyNavigation.getByRole("button", { name: "Now" })).toBeEnabled();
+
+    await user.click(yearlyNavigation.getByRole("button", { name: "Now" }));
+    expect(trigger).toHaveTextContent(String(currentYear));
+
+    await user.click(trigger);
+    const picker = screen.getByRole("dialog", { name: "Choose Yearly date" });
+    const yearSelect = within(picker).getByRole("combobox", { name: "Year" });
+    await waitFor(() => expect(yearSelect).toHaveFocus());
+    expect(within(picker).queryByRole("combobox", { name: "Month" })).toBeNull();
+
+    await user.selectOptions(yearSelect, String(currentYear + 2));
+    expect(trigger).toHaveTextContent(String(currentYear + 2));
+    expect(yearlyNavigation.getByRole("button", { name: "Now" })).toBeEnabled();
+  });
+
+  it("focuses planner period picker controls without scrolling the page", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [] })),
+    );
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Planner" }));
+    await user.click(screen.getByRole("button", { name: "Yearly" }));
+
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      for (const view of ["Yearly", "Monthly", "Weekly", "Daily"] as const) {
+        await user.click(screen.getByRole("button", { name: view }));
+        focusSpy.mockClear();
+        await user.click(screen.getByRole("button", { name: `Choose ${view} date` }));
+        const picker = screen.getByRole("dialog", { name: `Choose ${view} date` });
+        await waitFor(() => expect(picker).toContainElement(document.activeElement as HTMLElement));
+
+        const pickerFocusCalls = focusSpy.mock.calls.filter((_, index) =>
+          picker.contains(focusSpy.mock.contexts[index] as Node),
+        );
+        expect(pickerFocusCalls.length).toBeGreaterThan(0);
+        for (const args of pickerFocusCalls) {
+          expect(args).toEqual([{ preventScroll: true }]);
+        }
+        await user.keyboard("{Escape}");
+      }
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
+  it("focuses the monthly day overflow popover without scrolling the page", async () => {
+    const { firstWeekStart, moreButton, user } = await renderMonthlyDayOverflow();
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      await user.click(moreButton);
+      const overflow = screen.getByRole("dialog", { name: `${firstWeekStart} items` });
+      await waitFor(() => expect(overflow).toContainElement(document.activeElement as HTMLElement));
+      const overflowFocusCalls = focusSpy.mock.calls.filter((_, index) =>
+        overflow.contains(focusSpy.mock.contexts[index] as Node),
+      );
+      expect(overflowFocusCalls.length).toBeGreaterThan(0);
+      for (const args of overflowFocusCalls) {
+        expect(args).toEqual([{ preventScroll: true }]);
+      }
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
   it("dismisses the monthly planner picker with Escape and restores trigger focus", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -6417,9 +6507,12 @@ describe("WorkbenchPageClient", () => {
     expect(
       screen.getByRole("region", { name: `${testMonthLabel(monthStart)} goals` }),
     ).toHaveTextContent("Monthly Goal");
-    expect(screen.getByRole("button", { name: "Previous year" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next year" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Now" })).toBeInTheDocument();
+    const yearlyNavigation = within(
+      screen.getByRole("group", { name: "Planner period navigation" }),
+    );
+    expect(yearlyNavigation.getByRole("button", { name: "Previous year" })).toBeInTheDocument();
+    expect(yearlyNavigation.getByRole("button", { name: "Next year" })).toBeInTheDocument();
+    expect(yearlyNavigation.getByRole("button", { name: "Now" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Filter Year Goals" }));
     const yearlyFilter = screen.getByRole("dialog", { name: "Filter Year Goals" });
@@ -6477,8 +6570,11 @@ describe("WorkbenchPageClient", () => {
     await user.click(within(filterDialog).getByRole("checkbox", { name: "focus" }));
     await user.click(screen.getByRole("button", { name: "Filter Year Goals" }));
 
-    await user.click(screen.getByRole("button", { name: "Next year" }));
-    await user.click(screen.getByRole("button", { name: "Next year" }));
+    const yearlyNavigation = within(
+      screen.getByRole("group", { name: "Planner period navigation" }),
+    );
+    await user.click(yearlyNavigation.getByRole("button", { name: "Next year" }));
+    await user.click(yearlyNavigation.getByRole("button", { name: "Next year" }));
 
     const selectedCard = screen
       .getByRole("region", { name: "Year goal carousel" })
@@ -9001,6 +9097,35 @@ describe("WorkbenchPageClient", () => {
     const layout = screen.getByRole("heading", { name: "Write release notes" }).closest(".detail-layout");
     const note = screen.getByLabelText("Markdown note editor");
     expect(layout?.lastElementChild).toBe(note);
+  });
+
+  it("omits the workspace archive browser and the detail history disclosure", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.startsWith("/api/v1/todo/items?type=task")
+            ? [{ id: "task-1", type: "task", title: "Write release notes", status: "active" }]
+            : [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<WorkbenchPageClient />);
+    await user.click(screen.getByRole("button", { name: "ToDo" }));
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    const row = await screen.findByRole("cell", { name: "Write release notes" });
+
+    expect(screen.queryByRole("button", { name: "Browse archive" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "ToDo archive" })).toBeNull();
+
+    await user.click(row);
+    expect(await screen.findByRole("heading", { name: "Write release notes" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "History" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Item history" })).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/history"))).toBe(false);
   });
 
   it("places the Markdown note after all detail properties", async () => {

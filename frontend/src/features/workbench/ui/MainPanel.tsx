@@ -90,7 +90,6 @@ import {
   workspaceSortFieldsForScope,
 } from "@/features/workbench/model/workspace-table-views";
 import { PlannerTableTabs } from "@/features/workbench/ui/PlannerTableTabs";
-import { TodoItemHistory } from "@/features/workbench/ui/TodoItemHistory";
 import { MarkdownNoteEditor } from "@/features/workbench/ui/MarkdownNoteEditor";
 import {
   type PlannerFilterOptionSet,
@@ -102,7 +101,6 @@ import {
 import { TableViewTabs } from "@/features/workbench/ui/TableViewTabs";
 import { WorkspaceGroupedRows } from "@/features/workbench/ui/WorkspaceGroupedRows";
 import { InfiniteTableFooter } from "@/features/workbench/ui/InfiniteTableFooter";
-import { TodoArchive } from "@/features/workbench/ui/TodoArchive";
 import { DestructiveConfirmationDialog } from "@/features/workbench/ui/DestructiveConfirmationDialog";
 import {
   formatTags,
@@ -790,7 +788,6 @@ function DetailView({
             ))}
           </section>
         ) : null}
-        <TodoItemHistory itemId={item.id} version={item.updated_at} />
         <section className="detail-note" aria-label="Markdown note editor">
           {isTerminalTodo(item) ? <p style={{ whiteSpace: "pre-wrap" }}>{draft.note || "No note"}</p> : <MarkdownNoteEditor
             value={draft.note}
@@ -1400,7 +1397,7 @@ function MonthlyDayItems({
       popoverRef.current?.querySelector<HTMLElement>(
         "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
       );
-    firstInteractiveItem?.focus();
+    firstInteractiveItem?.focus({ preventScroll: true });
 
     function closeAndRestoreFocus() {
       onOpenChange(null);
@@ -1742,31 +1739,12 @@ function PlannerControlToolbar({
 }: {
   controller: WorkbenchController;
 }) {
-  const nowDisabled = plannerPeriodMatchesToday(controller);
-  const showPeriodNavigation =
-    controller.panel.id === "monthly" ||
-    controller.panel.id === "weekly" ||
-    controller.panel.id === "daily";
-
   return (
     <div className="planner-view-controls">
       <div className="planner-view-control-bar">
         <div className="planner-view-leading">
           <div className="planner-view-pill">{controller.panel.title}</div>
-          {showPeriodNavigation ? <PlannerPeriodNavigation controller={controller} /> : null}
-        </div>
-        <div className="planner-view-actions">
-          {showPeriodNavigation ? null : (
-            <button
-              className="items-toolbar-button"
-              type="button"
-              aria-label="Now"
-              disabled={nowDisabled}
-              onClick={controller.resetPlannerPeriodToToday}
-            >
-              Now
-            </button>
-          )}
+          <PlannerPeriodNavigation controller={controller} />
         </div>
       </div>
     </div>
@@ -1859,19 +1837,16 @@ function PlannerTableHeader({
 }
 
 function PlannerPeriodNavigation({ controller }: { controller: WorkbenchController }) {
-  const isMonthly = controller.panel.id === "monthly";
-  if (!isMonthly && controller.panel.id !== "weekly" && controller.panel.id !== "daily") {
-    return null;
-  }
+  const panelId = controller.panel.id;
+  const unit = panelId === "yearly" ? "year"
+    : panelId === "monthly" ? "month"
+      : panelId === "weekly" ? "week"
+        : panelId === "daily" ? "day" : null;
+  if (!unit) return null;
 
-  const isWeekly = controller.panel.id === "weekly";
-  const previousLabel = isMonthly ? "Previous month" : isWeekly ? "Previous week" : "Previous day";
-  const nextLabel = isMonthly ? "Next month" : isWeekly ? "Next week" : "Next day";
-  const dialogLabel = isMonthly
-    ? "Choose Monthly date"
-    : isWeekly
-      ? "Choose Weekly date"
-      : "Choose Daily date";
+  const previousLabel = `Previous ${unit}`;
+  const nextLabel = `Next ${unit}`;
+  const dialogLabel = `Choose ${controller.panel.title} date`;
 
   return (
     <div className="planner-period-navigation" role="group" aria-label="Planner period navigation">
@@ -1883,8 +1858,8 @@ function PlannerPeriodNavigation({ controller }: { controller: WorkbenchControll
       >
         <ChevronLeft size={16} aria-hidden="true" />
       </button>
-      {isMonthly ? (
-        <PlannerMonthPicker controller={controller} dialogLabel={dialogLabel} />
+      {unit === "year" || unit === "month" ? (
+        <PlannerMonthPicker controller={controller} dialogLabel={dialogLabel} yearOnly={unit === "year"} />
       ) : (
         <PlannerDatePicker controller={controller} dialogLabel={dialogLabel} />
       )}
@@ -1912,11 +1887,13 @@ function PlannerPeriodNavigation({ controller }: { controller: WorkbenchControll
 function PlannerMonthPicker({
   controller,
   dialogLabel,
+  yearOnly = false,
 }: {
   controller: WorkbenchController;
   dialogLabel: string;
+  yearOnly?: boolean;
 }) {
-  const selected = monthStart(controller.planner.date);
+  const selected = yearOnly ? yearStart(controller.planner.date) : monthStart(controller.planner.date);
   const [year, month] = selected.slice(0, 7).split("-");
   const controlRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -1969,7 +1946,7 @@ function PlannerMonthPicker({
       return;
     }
 
-    popoverRef.current?.querySelector<HTMLElement>("select")?.focus();
+    popoverRef.current?.querySelector<HTMLElement>("select")?.focus({ preventScroll: true });
   }, [isOpen]);
 
   function close(restoreFocus: boolean) {
@@ -1993,7 +1970,7 @@ function PlannerMonthPicker({
         onClick={() => (isOpen ? close(false) : setIsOpen(true))}
       >
         <CalendarDays size={16} aria-hidden="true" />
-        <span>{monthLabel(selected)}</span>
+        <span>{yearOnly ? year : monthLabel(selected)}</span>
       </button>
 
       {isOpen
@@ -2023,7 +2000,7 @@ function PlannerMonthPicker({
                     ))}
                   </select>
                 </label>
-                <label className="field-label">
+                {yearOnly ? null : <label className="field-label">
                   Month
                   <select value={month} onChange={(event) => commit(year, event.target.value)}>
                     {Array.from({ length: 12 }, (_, index) => {
@@ -2035,7 +2012,7 @@ function PlannerMonthPicker({
                       );
                     })}
                   </select>
-                </label>
+                </label>}
               </div>
             </div>,
             document.body,
@@ -2123,7 +2100,7 @@ function PlannerDatePicker({
     const fallbackChoice = popoverRef.current?.querySelector<HTMLElement>(
       "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
     );
-    (activeChoice ?? fallbackChoice)?.focus();
+    (activeChoice ?? fallbackChoice)?.focus({ preventScroll: true });
   }, [isOpen, mode, selectedDate]);
 
   function close(restoreFocus: boolean) {
@@ -3710,7 +3687,7 @@ function GoalPeriodControl({
 
   useEffect(() => {
     if (commitError) {
-      errorConfirmButtonRef.current?.focus();
+      errorConfirmButtonRef.current?.focus({ preventScroll: true });
       return;
     }
 
@@ -3730,7 +3707,7 @@ function GoalPeriodControl({
       "button, input, select, textarea, [tabindex]:not([tabindex='-1'])",
     );
     const focusTarget = activeChoice ?? fallbackChoice;
-    focusTarget?.focus();
+    focusTarget?.focus({ preventScroll: true });
   }, [candidateHorizon, commitError, isOpen]);
 
   function close(restoreFocus: boolean) {
@@ -4765,7 +4742,6 @@ function WorkspaceItemsTableContent({ controller }: MainPanelProps) {
   return (
     <section className="items-section">
       <header className="workspace-table-header">
-        <TodoArchive onOpen={controller.openDetailView} />
         <div className="workspace-table-header-row">
           <TableViewControls adapter={controlsAdapter} />
           <button

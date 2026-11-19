@@ -878,6 +878,8 @@ textarea::placeholder {
 }
 
 .planner-period-popover {
+  /* Fixed before JS positions it, so it never lengthens the page. */
+  position: fixed;
   z-index: 20;
   width: min(320px, calc(100vw - 32px));
   border: 1px solid var(--color-shade-30);
@@ -1314,6 +1316,8 @@ textarea::placeholder {
 }
 
 .monthly-day-popover {
+  /* Fixed before JS positions it, so it never lengthens the page. */
+  position: fixed;
   z-index: 50;
   width: min(320px, calc(100vw - 32px));
   border: 1px solid var(--color-hairline-light);
@@ -3326,6 +3330,8 @@ textarea::placeholder {
 }
 
 .goal-period-popover {
+  /* Fixed before JS positions it, so it never lengthens the page. */
+  position: fixed;
   z-index: 20;
   display: grid;
   width: min(320px, calc(100vw - 32px));

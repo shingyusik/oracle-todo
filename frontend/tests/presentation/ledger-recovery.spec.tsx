@@ -41,26 +41,16 @@ it("shows paged audit before and after snapshots", async () => {
   expect(String(fetch.mock.calls[0][0])).toContain("/audit/currency/old?offset=0&limit=50");
 });
 
-it.each(["accounts", "categories", "account-types"] as const)("recovers inactive %s through its lifecycle operation", async (kind) => {
+it.each(["account-types"] as const)("recovers inactive %s through its lifecycle operation", async (kind) => {
   const user = userEvent.setup();
-  if (kind === "accounts") vi.spyOn(ledgerApi, "listAccounts").mockResolvedValue({ items: [
-    { id: "old", name: "Inactive record", categoryId: "type", currencyId: "currency", openingBalanceMinor: 0, active: false },
-  ], nextOffset: null });
-  else if (kind === "categories") vi.spyOn(ledgerApi, "listTransactionCategories").mockResolvedValue({ items: [
-    { id: "old", name: "Inactive record", parentId: null, kind: "expense", active: false },
-  ], nextOffset: null });
-  else vi.spyOn(ledgerApi, "listAccountCategories").mockResolvedValue({ items: [
+  vi.spyOn(ledgerApi, "listAccountCategories").mockResolvedValue({ items: [
     { id: "old", name: "Inactive record", parentId: null, liability: false, active: false },
   ], nextOffset: null });
-  const restoreAccount = vi.fn().mockResolvedValue(undefined);
-  const restoreCategory = vi.fn().mockResolvedValue(undefined);
   const updateAccountCategory = vi.fn().mockResolvedValue(undefined);
-  const controller = { restoreAccount, restoreCategory, updateAccountCategory } as unknown as LedgerController;
+  const controller = { updateAccountCategory } as unknown as LedgerController;
   render(<LedgerRecovery kind={kind} controller={controller} />);
   await user.click(screen.getByText(`Inactive ${kind}`));
   await screen.findByText(/Inactive record/);
   await user.click(screen.getByRole("button", { name: "Restore" }));
-  if (kind === "accounts") expect(restoreAccount).toHaveBeenCalledWith("old");
-  else if (kind === "categories") expect(restoreCategory).toHaveBeenCalledWith("old");
-  else expect(updateAccountCategory).toHaveBeenCalledWith("old", { active: true });
+  expect(updateAccountCategory).toHaveBeenCalledWith("old", { active: true });
 });
