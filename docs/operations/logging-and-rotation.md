@@ -64,6 +64,20 @@ A Ledger read that upgrades an older schema emits `ledger_schema_upgraded`
 Ledger writes emit `ledger_busy_retry` (per retry: `operation`, `attempt`, `max_attempts`,
 `backoff_ms`) and `ledger_busy_exhausted` (`operation`, `attempts`) warnings.
 
+The retention purge (scheduler, API, and CLI runs alike) logs under `raven_api` with run IDs,
+domains, kinds, counts, and durations only, never record IDs, titles, paths, or SQL:
+
+| Event | Fields |
+| --- | --- |
+| `retention_run_started` | `run_id`, `trigger` (`scheduled`, `api`, `cli`), `retention_days` |
+| `retention_skipped` | `reason`: `locked`, `clock_regressed`, `insufficient_disk`, or, from the scheduler, `env_disabled`/`settings_unavailable` |
+| `retention_backup_created` | `domain` (`todo`, `ledger`, `health`, `health_media`), `bytes`, `elapsed_ms` |
+| `retention_domain_purged` | `domain`, `counts` (`kind=n ...`) |
+| `retention_domain_failed` (`warn`) | `domain`, `error_kind` (for example `storage`, `busy`, `backup_io`) |
+| `retention_media_cleanup_pending` (`warn`) | `count` |
+| `retention_backup_pruned` | `removed`; `warn` with `error_kind` when rotation fails |
+| `retention_run_completed` | `run_id`, `outcome`, `totals` (`purged=… skipped=… media_cleanup_pending=…`), `elapsed_ms` |
+
 The composed API creates its own request IDs for sanitized errors. Secrets, raw bearer
 tokens, UI session values, database paths in API errors, and Health image bytes must never
 be logged.

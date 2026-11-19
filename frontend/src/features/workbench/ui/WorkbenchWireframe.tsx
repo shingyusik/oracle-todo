@@ -1,3 +1,4 @@
+import { IconDatabase } from "@tabler/icons-react";
 import React from "react";
 
 import { workbenchCopy } from "@/design/copy";
@@ -11,6 +12,7 @@ import {
   TableViewTabConfirmationDialog,
   type TableViewTabConfirmationDialogAdapter,
 } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
+import { RetentionSettingsDialog } from "@/features/workbench/ui/RetentionSettingsDialog";
 import { SidebarVersion } from "@/features/workbench/ui/SidebarVersion";
 import { TreeSidebar } from "@/features/workbench/ui/TreeSidebar";
 import {
@@ -27,6 +29,9 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   const mobile = useMobileNavigation();
   const navigationRef = React.useRef<HTMLElement>(null);
   const navigationToggleRef = React.useRef<HTMLButtonElement>(null);
+  const [retentionOpen, setRetentionOpen] = React.useState(false);
+  const retentionButtonRef = React.useRef<HTMLButtonElement>(null);
+  const retentionReturnFocusRef = React.useRef<HTMLElement | null>(null);
   useModalIsolation(navigationRef, mobile && navigationOpen, "shell");
   const confirmationAdapter: TableViewTabConfirmationDialogAdapter<TableViewTarget> = {
     confirmation: controller.tableViewTabConfirmation,
@@ -51,6 +56,16 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
     if (restoreFocus) {
       requestAnimationFrame(() => navigationToggleRef.current?.focus());
     }
+  }
+
+  function openRetention() {
+    // The drawer traps focus, so close it before the dialog takes over and return focus to
+    // the drawer toggle afterwards.
+    retentionReturnFocusRef.current = mobile
+      ? navigationToggleRef.current
+      : retentionButtonRef.current;
+    if (mobile) closeNavigation(false);
+    setRetentionOpen(true);
   }
 
   function handleNavigationKeyDown(event: React.KeyboardEvent<HTMLElement>) {
@@ -137,9 +152,26 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           ariaLabel={workbenchCopy.navigation.shellLabel}
           onNavigate={mobile ? () => closeNavigation() : undefined}
         />
-        <SidebarVersion />
+        <div className="sidebar-footer">
+          <button
+            ref={retentionButtonRef}
+            type="button"
+            className="sidebar-footer-item"
+            onClick={openRetention}
+          >
+            <IconDatabase size={14} aria-hidden="true" />
+            Data retention
+          </button>
+          <SidebarVersion />
+        </div>
       </aside>
       <MainPanel controller={controller} />
+      {retentionOpen ? (
+        <RetentionSettingsDialog
+          returnFocusRef={retentionReturnFocusRef}
+          onClose={() => setRetentionOpen(false)}
+        />
+      ) : null}
       <TableViewTabConfirmationDialog adapter={confirmationAdapter} />
     </div>
   );

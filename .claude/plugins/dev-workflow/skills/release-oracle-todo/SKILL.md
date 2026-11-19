@@ -52,6 +52,8 @@ git status --short --branch
 
 For an engine behavior change, use `verify-todo-engine` with a `mktemp -d` data home and a non-live API port. Never point tests or smoke checks at the live data home (`~/.raven`).
 
+Retention purge: exercise `raven maintenance purge --apply` and `POST /api/v1/maintenance/retention/run` only against a `mktemp -d` home. Never run `--apply` or the run route against the live home during release checks; they back up and then permanently delete records.
+
 ## 3. Preflight and publish
 
 Require an authenticated GitHub CLI session. Merge the release PR first:
@@ -94,6 +96,12 @@ gh run watch <release-run-id> --exit-status
 ```
 
 If either run fails, stop, inspect the run logs, and do not update the local installation as if the release succeeded.
+
+For the first release that contains the automatic retention purge (and any release that changes its defaults), add this warning to the GitHub Release notes before updating the Mac mini, for example with `gh release edit v<engine-version> --notes-file <file>`:
+
+> Raven now purges old archived data automatically. About 5 minutes after `raven ui` (or `raven api`) starts, the first scheduled run takes a backup in `backups/retention/` and then permanently deletes ToDo items archived, dropped, or cancelled, and Ledger and Health records archived, more than 30 days ago, including their history and Health photos. Backups rotate after 3 runs. Set `RAVEN_RETENTION=off` before starting, or turn retention off under **Data retention** in the UI, to prevent it.
+
+The release workflow does not write release notes itself.
 
 ## 4. Verify publication, update the Mac mini, and restart the UI (com.raven.ui)
 
@@ -141,6 +149,8 @@ Require:
 - `lsof`: a listener pid different from the one recorded before the restart;
 - `ps` on the listener pid: `--ui-path .../ui/<engine-version>`;
 - `{"status":"ok","version":"<engine-version>"}` from `/healthz` (confirmed to return 200 on the Mac mini) and matching hashes.
+
+Verify retention on the live UI only with read-only requests: `GET /api/v1/maintenance/retention` and `GET /api/v1/maintenance/retention/preview` from the signed-in UI (the **Data retention** dialog and its **Preview** button issue exactly these). Require `settings` as expected, `env_override` `null` and `schedule.scheduler_active: true` unless `com.raven.ui` sets `RAVEN_RETENTION=off`, and preview domains `ok`. `raven maintenance retention show` and `raven maintenance purge --dry-run` are read-only CLI equivalents. Never click **Run now**, call `POST .../run`, or run `raven maintenance purge --apply` against the live home as a check.
 
 UNVERIFIED: it is not confirmed whether `launchctl kickstart -k` also restarts the child listener. That is why the listener pid and its `--ui-path` are checked separately. If the old child survives, stop and report; do not kill it by broad matching.
 
@@ -339,6 +349,7 @@ Before claiming completion, use `verification-before-completion` and freshly ver
 - GitHub Release has all expected assets;
 - `com.raven.ui` is running with a new wrapper pid, the `3001` listener has a new pid whose `ps` args show `--ui-path .../ui/<engine-version>`, `/healthz` returns ok with `"version":"<engine-version>"`, and the served UI hash matches `ui/<engine-version>/index.html`;
 - `9eeac76` (and any other relied-on Ledger fix) is an ancestor of `v<engine-version>`;
+- retention was checked only through `GET /api/v1/maintenance/retention` and the preview endpoint (no live `--apply` or run), and the first-run deletion warning is in the release notes when required;
 - `com.raven.mcp` is running from `versions/<engine-version>/raven` (or, after the migration, `bin/raven` reporting `<engine-version>`) per filtered `launchctl print`, PlistBuddy `ProgramArguments`, and `ps`, the `lsof` listener on `3003` has the same pid, the unauthenticated `/mcp` probe returns `421`, and `ledger_audit` on an existing entry returns events;
 - evidence contains only filtered `launchctl print` lines, PlistBuddy `ProgramArguments`, and env key names; no full `plutil -p` or `launchctl print` output;
 - `HEAD`, `origin/main` (the release PR merge commit), `v<engine-version>`, and `npm-v<wrapper-version>` resolve to the same commit;
@@ -348,6 +359,7 @@ Report the release PR URL, the release URL, the Actions URLs, versions, test res
 
 ## Known gaps
 
+- The retention scheduler in `com.raven.ui` makes its first check about 5 minutes after every restart and purges when 24 hours have passed since the last run. A restart or update can therefore trigger a purge; only `RAVEN_RETENTION=off` in the plist environment or the UI setting prevents it.
 - The `com.raven.ui` and `com.raven.mcp` plists live only on the Mac mini; the repo has no templates or install scripts for them.
 - The MCP listener has no health or version endpoint. Version comes from the plist and process command line, or `<binary> --version` for releases built with `RAVEN_RELEASE_VERSION`.
 - Releases built before `RAVEN_RELEASE_VERSION` still report the crate version `0.1.0` from native `raven --version`; local builds report `<crate version>-dev`.

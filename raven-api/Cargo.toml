@@ -50,5 +50,6 @@ windows-sys = { version = "0.61", features = [
 [dev-dependencies]
 http-body-util = "0.1"
 tempfile = "3"
+tracing-subscriber = { version = "0.3", features = ["fmt", "json"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }

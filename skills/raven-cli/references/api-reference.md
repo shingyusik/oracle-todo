@@ -73,6 +73,7 @@ Raven errors are:
 | --- | --- |
 | `400` | `validation_error` |
 | `401` | `unauthorized` |
+| `403` | `forbidden` |
 | `404` | `not_found` |
 | `409` | `conflict` |
 | `413` | `payload_too_large` |
@@ -569,6 +570,104 @@ Domain reads open existing stores read-only and do not create or initialize data
 A Ledger read first upgrades an initialized store with an older supported schema.
 
 Legacy stored workspace preferences remain readable through the canonical key.
+
+## Maintenance retention
+
+These routes control the [retention purge](../architecture/data-model.md#retention-purge).
+They exist on both the `raven ui` listener (session cookie) and standalone `raven api`
+(bearer token), never on MCP. Successful responses carry `Cache-Control: no-store`.
+Unreadable settings or state return `500 internal_error`.
+
+| Method | Route | Behavior |
+| --- | --- | --- |
+| `GET` | `/api/v1/maintenance/retention` | Settings, scheduler status, and last run |
+| `PUT` | `/api/v1/maintenance/retention` | Update settings; returns the `GET` document |
+| `GET` | `/api/v1/maintenance/retention/preview[?limit=1..200]` | Read-only plan of what a run would delete |
+| `POST` | `/api/v1/maintenance/retention/run` | Back up, then purge now |
+
+`GET /api/v1/maintenance/retention`:
+
+```json
+{
+  "settings": {"enabled": true, "retention_days": 30, "backup_keep": 3},
+  "env_override": null,
+  "schedule": {"interval_hours": 24, "scheduler_active": true, "next_run_at": "2026-11-20T00:05:00Z"},
+  "last_run": {
+    "run_id": "uuid-hex",
+    "trigger": "scheduled",
+    "started_at": "2026-11-19T00:05:00Z",
+    "finished_at": "2026-11-19T00:05:02Z",
+    "outcome": "ok",
+    "domains": {
+      "todo": {"status": "ok", "purged": {"todo_item": 12}, "skipped": {"referenced": 1}},
+      "ledger": {"status": "nothing_due", "purged": {}, "skipped": {}},
+      "health": {"status": "ok", "purged": {"health_diet": 3, "health_media": 2}, "skipped": {}}
+    },
+    "backup": {"name": "20261119T000500Z"},
+    "media_cleanup_pending": 0
+  }
+}
+```
+
+- `env_override` is `"disabled"` when the process started with `RAVEN_RETENTION=off`, which
+  stops only the scheduler. The UI then disables its controls and **Run now**; API and CLI
+  runs remain possible.
+- `scheduler_active` is true only in a process whose scheduler is running. The scheduler
+  checks 5 minutes after start and then hourly, and runs when `enabled` is true and at least
+  24 hours have passed since the last run finished. `next_run_at` is the first such check, or
+  `null` when no scheduled run will happen.
+- `last_run` is `null` before the first run. `trigger` is `scheduled`, `api`, or `cli`.
+  `outcome` is `ok`, `partial` (some domains failed), `failed`, `nothing_due` (no backup was
+  taken), or `insufficient_disk` (nothing deleted). Domain `status` is `ok`, `failed`,
+  `nothing_due` (also for an uninitialized store), or `unavailable`. `purged` counts by kind;
+  `skipped` counts by reason, summing plan-time and apply-time skips. Zero counts are omitted.
+  `backup` is `null` when no backup was created.
+
+`PUT /api/v1/maintenance/retention` accepts `{"enabled":true,"retention_days":30,"backup_keep":3}`.
+`enabled` and `retention_days` (`7..=3650`) are required, `backup_keep` (`1..=30`) is optional,
+and unknown fields are rejected with `400 validation_error`.
+
+`GET /api/v1/maintenance/retention/preview` (default `limit=50`; any other query parameter or
+out-of-range value is `400 validation_error` on `limit`) never writes or creates stores:
+
+```json
+{
+  "cutoff": "2026-10-20T00:00:00Z",
+  "retention_days": 30,
+  "domains": {
+    "todo": {
+      "status": "ok",
+      "counts": {"todo_item": 12},
+      "skipped": {"routine_anchor": 1},
+      "items": [{"kind": "todo_item", "id": "...", "label": "...", "archived_at": "2026-09-01T00:00:00Z"}],
+      "truncated": false
+    }
+  }
+}
+```
+
+Domain `status` is `ok`, `unavailable`, or `not_initialized`. `items` lists at most `limit`
+candidates per domain, and `truncated` reports whether more exist.
+
+`POST /api/v1/maintenance/retention/run` takes no body and requires exactly one `Origin` and
+`X-Raven-Maintenance: 1`. On `raven ui` the Origin must equal the served UI origin (local or
+`RAVEN_UI_PUBLIC_ORIGIN`) and the session cookie is required. On bearer `raven api` the Origin
+must equal `http://<Host>` from the request's single `Host` header, for example:
+
+```bash
+curl -X POST -H "Authorization: Bearer $RAVEN_API_TOKEN" \
+  -H 'Origin: http://127.0.0.1:3002' -H 'X-Raven-Maintenance: 1' \
+  http://127.0.0.1:3002/api/v1/maintenance/retention/run
+```
+
+A manual run ignores the schedule, `enabled`, and `RAVEN_RETENTION`.
+
+| Status | Body / code | Meaning |
+| --- | --- | --- |
+| `200` | `{"last_run":{...},"skipped":null}` | Run recorded; inspect `last_run.outcome` |
+| `200` | `{"last_run":<previous or null>,"skipped":"clock_regressed"}` | System clock is earlier than the last run's finish; nothing ran |
+| `403` | `forbidden` | Missing or mismatched `Origin` or `X-Raven-Maintenance` |
+| `409` | `retention_in_progress` | Another run holds `maintenance/retention.lock` |
 
 ## UI static boundary
 

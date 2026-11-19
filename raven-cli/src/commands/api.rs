@@ -1,6 +1,7 @@
 use std::env;
 use std::net::{IpAddr, SocketAddr};
 
+use raven_api::retention::SchedulerTiming;
 use raven_api::{AuthMode, RavenApiConfig, ServerBind};
 use thiserror::Error;
 use time::macros::offset;
@@ -49,16 +50,25 @@ pub fn run(paths: &RavenPaths) -> anyhow::Result<()> {
 
     raven_api::validate_bind(bind.addr, bind.allow_unsafe_cleartext)
         .map_err(|_| ApiCommandError::Bind)?;
+    let retention = raven_api::Retention::from_config(&config);
     let runtime =
         tokio::runtime::Runtime::new().map_err(|error| ApiCommandError::Server(error.into()))?;
-    runtime
-        .block_on(async {
-            let listener = tokio::net::TcpListener::bind(bind.addr).await?;
-            let actual = listener.local_addr()?;
-            println!("Raven API listening on http://{actual}");
-            raven_api::serve_listener(config, listener, bind.allow_unsafe_cleartext).await
-        })
-        .map_err(ApiCommandError::Server)?;
+    let result = runtime.block_on(async {
+        let listener = tokio::net::TcpListener::bind(bind.addr).await?;
+        let actual = listener.local_addr()?;
+        println!("Raven API listening on http://{actual}");
+        retention.spawn_scheduler(SchedulerTiming::default());
+        raven_api::serve_listener_with_retention(
+            config,
+            listener,
+            bind.allow_unsafe_cleartext,
+            retention.clone(),
+        )
+        .await
+    });
+    // Never block exit on an in-flight scheduled purge; its transactions are atomic.
+    runtime.shutdown_background();
+    result.map_err(ApiCommandError::Server)?;
     Ok(())
 }
 

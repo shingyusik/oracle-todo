@@ -1553,3 +1553,39 @@ async fn ledger_account_purpose_round_trips_through_mcp_tools() {
             .contains_key("purpose")
     );
 }
+
+#[tokio::test]
+async fn mcp_exposes_no_retention_maintenance_routes_or_tools() {
+    let temp = tempfile::tempdir().unwrap();
+    let adapter = McpAdapter::new(config(&temp)).unwrap();
+    assert!(
+        adapter
+            .catalog
+            .iter()
+            .all(|spec| !spec.path.contains("maintenance"))
+    );
+    for (method, uri) in [
+        ("GET", "/api/v1/maintenance/retention"),
+        ("GET", "/api/v1/maintenance/retention/preview"),
+        ("POST", "/api/v1/maintenance/retention/run"),
+    ] {
+        let response = adapter
+            .api
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header(
+                        axum::http::header::AUTHORIZATION,
+                        adapter.authorization.clone(),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+    }
+    assert!(!temp.path().join("maintenance").exists());
+}

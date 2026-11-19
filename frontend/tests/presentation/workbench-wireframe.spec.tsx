@@ -1648,6 +1648,50 @@ describe("WorkbenchPageClient", () => {
     expect(screen.queryByRole("button", { name: "Quick Add" })).toBeNull();
   });
 
+  it("opens Data retention from the sidebar footer and restores focus on close", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const footerItem = screen.getByRole("button", { name: "Data retention" });
+    const version = screen.getByRole("contentinfo", { name: "Raven version" });
+    expect(footerItem.compareDocumentPosition(version) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url)))
+      .not.toContain("/api/v1/maintenance/retention");
+
+    await user.click(footerItem);
+
+    const dialog = await screen.findByRole("dialog", { name: "Data retention" });
+    expect(within(dialog).getByText("Loading retention settings…")).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url)))
+      .toContain("/api/v1/maintenance/retention");
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Data retention" })).toBeNull();
+    await waitFor(() => expect(footerItem).toHaveFocus());
+  });
+
+  it("opens Data retention from the mobile navigation drawer", async () => {
+    useMobileViewport();
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const trigger = screen.getByRole("button", { name: "Open Raven navigation" });
+    await user.click(trigger);
+    const drawer = screen.getByRole("dialog", { name: "Raven navigation drawer" });
+    await user.click(within(drawer).getByRole("button", { name: "Data retention" }));
+
+    expect(screen.queryByRole("dialog", { name: "Raven navigation drawer" })).toBeNull();
+    const dialog = await screen.findByRole("dialog", { name: "Data retention" });
+    expect(dialog).not.toHaveAttribute("inert");
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Data retention" })).toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).not.toHaveAttribute("inert");
+  });
+
   it("opens the mobile navigation as a modal drawer and restores focus on Escape", async () => {
     useMobileViewport();
     const user = userEvent.setup();

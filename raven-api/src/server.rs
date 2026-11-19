@@ -15,7 +15,8 @@ use thiserror::Error;
 
 use crate::system::ResolvedUiOrigin;
 use crate::{
-    GithubReleases, RavenApiConfig, ServerBind, UiSessionToken, UiUpdates, UpdateSettings,
+    GithubReleases, RavenApiConfig, Retention, ServerBind, UiSessionToken, UiUpdates,
+    UpdateSettings,
 };
 
 const MAX_UI_FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -58,8 +59,18 @@ pub async fn serve_listener(
     listener: tokio::net::TcpListener,
     allow_unsafe_cleartext: bool,
 ) -> anyhow::Result<()> {
+    let retention = Retention::from_config(&config);
+    serve_listener_with_retention(config, listener, allow_unsafe_cleartext, retention).await
+}
+
+pub async fn serve_listener_with_retention(
+    config: RavenApiConfig,
+    listener: tokio::net::TcpListener,
+    allow_unsafe_cleartext: bool,
+    retention: Retention,
+) -> anyhow::Result<()> {
     validate_bind(listener.local_addr()?, allow_unsafe_cleartext)?;
-    let app = crate::router(config)?;
+    let app = crate::router_with_retention(config, retention)?;
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -85,6 +96,28 @@ pub fn ui_router_with_updates(
     authority: SocketAddr,
     public_origin: Option<&str>,
     updates: UiUpdates,
+) -> anyhow::Result<Router> {
+    let retention = Retention::from_config(&config);
+    ui_router_with_retention(
+        config,
+        artifact,
+        session,
+        authority,
+        public_origin,
+        updates,
+        retention,
+    )
+}
+
+/// UI router sharing a retention runtime (and its scheduler status) with the caller.
+pub fn ui_router_with_retention(
+    config: RavenApiConfig,
+    artifact: UiArtifact,
+    session: UiSessionToken,
+    authority: SocketAddr,
+    public_origin: Option<&str>,
+    updates: UiUpdates,
+    retention: Retention,
 ) -> anyhow::Result<Router> {
     if !authority.ip().is_loopback() {
         anyhow::bail!("Raven UI authority must be loopback");
@@ -118,6 +151,7 @@ pub fn ui_router_with_updates(
             config,
             updates.current_version(),
             Some(crate::system::router(updates.clone())),
+            Some(retention),
         )?)
         .route("/__raven/session", get(bootstrap))
         .fallback(static_files)

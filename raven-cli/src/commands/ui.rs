@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use raven_api::retention::SchedulerTiming;
 use raven_api::{
     AuthMode, GithubReleases, RavenApiConfig, RestartSignal, UiUpdates, UpdateSettings,
 };
@@ -48,22 +49,26 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     };
     let updates = ui_updates()?;
     let restart = updates.restart_signal();
+    let retention = raven_api::Retention::from_config(&config);
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async move {
+    let result = runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
         validate_public_origin(public_origin.as_deref(), actual)?;
-        let app = raven_api::ui_router_with_updates(
+        let app = raven_api::ui_router_with_retention(
             config,
             artifact,
             session,
             actual,
             public_origin.as_deref(),
             updates,
+            retention.clone(),
         )?;
         tokio::spawn(exit_after_restart(restart, UPDATE_RESTART_DELAY, || {
             std::process::exit(UPDATE_RESTART_EXIT_CODE)
         }));
+        // Detached: the exit-75 update path and shutdown never wait for it.
+        retention.spawn_scheduler(SchedulerTiming::default());
         let (url, session_url) = ui_urls(actual);
         println!("Raven UI listening on {url}");
         println!("Open Raven UI: {session_url}");
@@ -74,7 +79,10 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         }
         axum::serve(listener, app).await?;
         anyhow::Ok(())
-    })
+    });
+    // Never block exit on an in-flight scheduled purge; its transactions are atomic.
+    runtime.shutdown_background();
+    result
 }
 
 fn public_origin_from_env() -> Result<Option<String>, UiCommandError> {

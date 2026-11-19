@@ -5,6 +5,7 @@ use crate::application::error::{HealthError, HealthResult};
 use crate::application::media::validate_media_relative_path;
 use crate::application::queries::HealthRecord;
 use crate::application::reports::ReportRecords;
+use crate::application::retention::RetentionRows;
 use crate::application::table::{HealthTableQuery, HealthTableRow, TableGroupSummary, TablePage};
 use crate::domain::{DietEntry, HealthCategory, HealthEvent, HealthRecordId, MetricKey};
 
@@ -319,6 +320,11 @@ pub(crate) trait HealthTransaction {
     ) -> HealthResult<()>;
     fn update_event(&mut self, event: &HealthEvent, local_date: Date) -> HealthResult<()>;
     fn insert_audit_event(&mut self, event: &AuditEvent) -> HealthResult<()>;
+    /// Deletes a diet entry, its tag links, its audit history, and tags left unused.
+    fn purge_diet(&mut self, id: &str) -> HealthResult<()>;
+    /// Deletes a health event and its audit history.
+    fn purge_event(&mut self, id: &str) -> HealthResult<()>;
+    fn count_diet_media_references(&self, media_id: &str) -> HealthResult<u64>;
     fn commit(self: Box<Self>) -> HealthResult<()>;
     fn rollback(self: Box<Self>) -> HealthResult<()>;
 }
@@ -355,11 +361,14 @@ pub(crate) trait HealthReadRepository: HealthRepository {
         end_inclusive: OffsetDateTime,
         limit: u32,
     ) -> HealthResult<ReportRecords>;
+    fn retention_rows(&self) -> HealthResult<RetentionRows>;
 }
 
 #[allow(dead_code)]
 pub(crate) trait HealthMutationRepository: HealthReadRepository {
     fn begin_transaction(&mut self) -> HealthResult<Box<dyn HealthTransaction + '_>>;
+    /// Enables (or restores from) purge settings: secure_delete, foreign keys, 5s busy timeout.
+    fn set_purge_mode(&mut self, enabled: bool) -> HealthResult<()>;
 }
 
 #[cfg(test)]

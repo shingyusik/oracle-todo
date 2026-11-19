@@ -32,6 +32,7 @@ See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry work
 | `raven api` | Serve bearer-authenticated HTTP API |
 | `raven mcp [--port <u16>]` | Serve Access-authenticated Streamable HTTP MCP at loopback `/mcp`; default port `3003` |
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | Serve loopback UI and cookie-authenticated API |
+| `raven maintenance retention show\|set`, `raven maintenance purge` | Retention purge settings, preview, and manual run; see [Maintenance](#maintenance) |
 
 `RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
 
@@ -92,7 +93,8 @@ raven todo complete <item-id>
 ```
 
 Projects require a non-blank `definition_of_done`; routines require a non-blank RRULE;
-events require `scheduled`. ToDo uses its status lifecycle and does not expose purge.
+events require `scheduled`. ToDo uses its status lifecycle and does not expose purge;
+hidden items are removed only by the [retention purge](#maintenance).
 `postpone --scheduled <date>` accepts today only for work scheduled before today; other
 postpone targets must be later than today.
 Use authenticated `raven api` or `raven ui` for HTTP access.
@@ -196,6 +198,7 @@ raven ledger transfer-update <group-id> --json \
 Entries support `archive <id>` and `restore <id>`. Master data uses
 `update --active <true|false>`. Only account-category purge is exposed; preview first,
 then repeat with `--confirm <confirmation-id>`. Audit history remains available.
+Archived entries and transfers are removed later by the [retention purge](#maintenance).
 `entry list --include-archived` includes archived entries in search results. The list
 contains their complete CLI record; `entry show` reads only non-archived entries.
 `ledger audit --record-type <type> --record-id <id>` accepts `ledger_entry` (alias `entry`),
@@ -258,11 +261,48 @@ Health audit record types are `diet_entry`, `health_event`, and `media_file`. Au
 JSON returns the complete report projection; the table view summarizes record counts.
 
 Health archive/restore accept optional `--expected-updated-at <RFC3339>` for optimistic
-concurrency. The public Health CLI does not expose purge. Archived and legacy records remain
+concurrency. The public Health CLI does not expose purge; archived records are removed only by the
+[retention purge](#maintenance). Archived and legacy records remain
 available for inspection and supported restore operations in the UI.
 Health lists omit archived records and have no `--include-archived` flag. Use the matching
 `diet|bowel|medication|metric show <id> --format json` command to inspect a known archived
 record, and `health audit <record-type> <id> --format json` for its audit history.
+
+## Maintenance
+
+`raven maintenance` manages the [retention purge](../architecture/data-model.md#retention-purge)
+of the selected home. It uses the same core as the `raven ui`/`raven api` scheduler and the
+[maintenance API](api-reference.md#maintenance-retention), including the pre-purge backup.
+
+```text
+raven maintenance retention show [--format table|json]
+raven maintenance retention set [--enabled true|false] [--days <7..=3650>] [--backup-keep <1..=30>] [--format table|json]
+raven maintenance purge (--dry-run|--apply) [--limit <1..=200>] [--format table|json]
+```
+
+- `retention show` prints the settings, `env_override`, and the last run. JSON output is the
+  `GET /api/v1/maintenance/retention` document; from the CLI process `scheduler_active` is
+  `false` and `next_run_at` is `null`. Reading never creates `maintenance/` files.
+- `retention set` requires at least one option; omitted options keep their value. It writes
+  `maintenance/retention.json` and prints the new status.
+- `purge --dry-run` is read-only and prints the preview document (per-domain status, counts by
+  kind, skip reasons, and up to `--limit` items, default `50`).
+- `purge --apply` runs immediately with trigger `cli`, ignoring the 24-hour schedule, the
+  `enabled` setting, and `RAVEN_RETENTION=off`. It backs up the affected databases, then
+  permanently deletes the due records. There is no confirmation step. Never use it on a live
+  home for testing.
+
+Local dates for routine protection use UTC+09:00.
+
+| Exit | `purge --apply` result |
+| --- | --- |
+| `0` | Outcome `ok` or `nothing_due` |
+| `2` | `retention_in_progress` (another run holds the lock; retryable), `clock_regressed` (clock earlier than the last run), or `validation_error` |
+| `1` | Outcome `partial` or `failed` (`retention_failed`), `insufficient_disk`, or `storage_error` |
+
+For `partial`, `failed`, and `insufficient_disk` the run report is printed on stdout before
+the error. `retention set` validation failures exit `2` with the field in `fields`; unreadable
+settings or state exit `1` with `storage_error`.
 
 ## UI table queries and choice lookups
 

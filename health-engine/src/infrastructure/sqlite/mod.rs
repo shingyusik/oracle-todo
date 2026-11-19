@@ -5,6 +5,7 @@ mod mapping;
 mod repository;
 #[cfg(test)]
 mod repository_tests;
+mod retention;
 mod schema;
 mod table_query;
 
@@ -17,6 +18,7 @@ use crate::application::error::{HealthError, HealthResult};
 use crate::application::ports::{AuditActivity, EventQuery, HealthReadRepository, Page};
 use crate::domain::{DietEntry, HealthCategory, HealthEvent};
 
+pub use retention::RETENTION_BUSY_TIMEOUT;
 pub use schema::SCHEMA_VERSION;
 
 pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_millis(250);

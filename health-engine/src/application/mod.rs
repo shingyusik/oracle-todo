@@ -7,5 +7,6 @@ pub mod media;
 pub mod ports;
 pub mod queries;
 pub mod reports;
+pub mod retention;
 pub mod service;
 pub mod table;

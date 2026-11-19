@@ -22,7 +22,7 @@ use super::mapping::{
     TRANSACTION_CATEGORY_COLUMNS, format_time, parse_date, row_to_account, row_to_account_category,
     row_to_audit_event, row_to_currency, row_to_entry, row_to_transaction_category,
 };
-use super::{SqliteLedgerRepository, storage_error};
+use super::{RETENTION_BUSY_TIMEOUT, SQLITE_BUSY_TIMEOUT, SqliteLedgerRepository, storage_error};
 
 impl LedgerRepository for SqliteLedgerRepository {}
 
@@ -302,6 +302,19 @@ impl LedgerReadRepository for SqliteLedgerRepository {
         list_entries_by_transfer_group_on(&self.connection, transfer_group_id, include_archived)
     }
 
+    fn list_archived_entries(&self) -> LedgerResult<Vec<LedgerEntry>> {
+        collect_entries(
+            &self.connection,
+            &format!(
+                "SELECT {ENTRY_COLUMNS}
+                 FROM ledger_entries
+                 WHERE deleted_at IS NOT NULL
+                 ORDER BY id"
+            ),
+            [],
+        )
+    }
+
     fn get_account_balance_record(&self, id: &str) -> LedgerResult<Option<AccountBalanceRecord>> {
         let rows = collect_rows(
             &self.connection,
@@ -433,6 +446,7 @@ impl LedgerReadRepository for SqliteLedgerRepository {
             .prepare(
                 "SELECT occurred_at, action, record_id
                  FROM audit_events
+                 WHERE NOT (action = 'purge' AND reason IS 'retention')
                  ORDER BY occurred_at DESC, record_id, action, rowid
                  LIMIT ?1",
             )
@@ -591,6 +605,25 @@ impl LedgerMutationRepository for SqliteLedgerRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
         Ok(Box::new(SqliteLedgerTransaction { transaction }))
+    }
+
+    fn begin_retention_transaction(&mut self) -> LedgerResult<Box<dyn LedgerTransaction + '_>> {
+        self.connection
+            .busy_timeout(RETENTION_BUSY_TIMEOUT)
+            .map_err(storage_error)?;
+        self.connection
+            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;")
+            .map_err(storage_error)?;
+        self.begin_transaction()
+    }
+
+    fn end_retention_session(&mut self) -> LedgerResult<()> {
+        self.connection
+            .execute_batch("PRAGMA secure_delete = OFF;")
+            .map_err(storage_error)?;
+        self.connection
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+            .map_err(storage_error)
     }
 }
 
@@ -1079,6 +1112,44 @@ impl LedgerTransaction for SqliteLedgerTransaction<'_> {
             )
             .map_err(storage_error)?;
         Ok(())
+    }
+
+    fn delete_entries(&mut self, ids: &[&str]) -> LedgerResult<u64> {
+        let mut statement = self
+            .transaction
+            .prepare_cached("DELETE FROM ledger_entries WHERE id = ?1")
+            .map_err(storage_error)?;
+        let mut deleted = 0;
+        for id in ids {
+            deleted += statement.execute([id]).map_err(storage_error)? as u64;
+        }
+        Ok(deleted)
+    }
+
+    fn delete_audit_history(&mut self, record_type: &str, record_id: &str) -> LedgerResult<u64> {
+        self.transaction
+            .execute(
+                "DELETE FROM audit_events WHERE record_type = ?1 AND record_id = ?2",
+                [record_type, record_id],
+            )
+            .map(|deleted| deleted as u64)
+            .map_err(storage_error)
+    }
+
+    fn delete_transfer_operation_for_group(
+        &mut self,
+        transfer_group_id: &str,
+    ) -> LedgerResult<u64> {
+        self.transaction
+            .execute(
+                "DELETE FROM transfer_operations
+                 WHERE CASE WHEN json_valid(result_json)
+                       THEN json_extract(result_json, '$.transfer_group_id')
+                       END = ?1",
+                [transfer_group_id],
+            )
+            .map(|deleted| deleted as u64)
+            .map_err(storage_error)
     }
 
     fn commit(self: Box<Self>) -> LedgerResult<()> {

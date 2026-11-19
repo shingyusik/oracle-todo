@@ -58,6 +58,68 @@ pub enum Command {
     Ui(UiArgs),
     /// Serve remote MCP through Cloudflare Access and Tunnel.
     Mcp(McpArgs),
+    /// Data maintenance: retention settings and purge.
+    Maintenance {
+        #[command(subcommand)]
+        command: MaintenanceCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MaintenanceCommand {
+    /// Show or change the retention purge settings.
+    Retention {
+        #[command(subcommand)]
+        command: RetentionCommand,
+    },
+    /// Preview (--dry-run) or run (--apply, with backup) the retention purge.
+    Purge(RetentionPurgeArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RetentionCommand {
+    /// Show settings, environment override and the last run.
+    Show(RetentionShowArgs),
+    /// Change settings; omitted options keep their value.
+    Set(RetentionSetArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct RetentionShowArgs {
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["enabled", "days", "backup_keep"])))]
+pub struct RetentionSetArgs {
+    /// Enable or disable the daily scheduled purge.
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub enabled: Option<bool>,
+    /// Days after archive/delete before a record is purged (7..=3650).
+    #[arg(long)]
+    pub days: Option<u32>,
+    /// Number of retention backups to keep (1..=30).
+    #[arg(long)]
+    pub backup_keep: Option<u32>,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("mode").required(true).args(["dry_run", "apply"])))]
+pub struct RetentionPurgeArgs {
+    /// Plan only; never writes.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Back up the affected stores, then purge.
+    #[arg(long)]
+    pub apply: bool,
+    /// Maximum preview items per domain for --dry-run (1..=200).
+    #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u16).range(1..=200))]
+    pub limit: u16,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Args)]
@@ -978,6 +1040,7 @@ impl Command {
             Self::Api => "api",
             Self::Ui(_) => "ui",
             Self::Mcp(_) => "mcp",
+            Self::Maintenance { .. } => "maintenance",
         }
     }
 
@@ -989,7 +1052,12 @@ impl Command {
             | Self::Todo { .. } => "todo",
             Self::Ledger { .. } => "ledger",
             Self::Health { .. } => "health",
-            Self::Init | Self::HealthCheck | Self::Api | Self::Ui(_) | Self::Mcp(_) => "raven",
+            Self::Init
+            | Self::HealthCheck
+            | Self::Api
+            | Self::Ui(_)
+            | Self::Mcp(_)
+            | Self::Maintenance { .. } => "raven",
         }
     }
 }

@@ -32,6 +32,7 @@ enum ErrorKind {
     Unauthorized,
     Forbidden,
     UpdateInProgress,
+    RetentionInProgress,
     UpdateNotAvailable,
     UpdateUnsupported,
     Validation { field: Option<&'static str> },
@@ -67,6 +68,12 @@ impl ApiError {
     pub(crate) fn update_in_progress() -> Self {
         Self {
             kind: ErrorKind::UpdateInProgress,
+        }
+    }
+
+    pub(crate) fn retention_in_progress() -> Self {
+        Self {
+            kind: ErrorKind::RetentionInProgress,
         }
     }
 
@@ -156,6 +163,12 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "update_in_progress",
                 "An update is already in progress.",
+                Map::new(),
+            ),
+            ErrorKind::RetentionInProgress => (
+                StatusCode::CONFLICT,
+                "retention_in_progress",
+                "A retention run is already in progress.",
                 Map::new(),
             ),
             ErrorKind::UpdateNotAvailable => (

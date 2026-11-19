@@ -91,6 +91,7 @@ impl HealthReadRepository for SqliteHealthRepository {
             .prepare(
                 "SELECT occurred_at, action, record_id
                  FROM audit_events
+                 WHERE NOT (action = 'purge' AND COALESCE(reason, '') = 'retention')
                  ORDER BY occurred_at DESC, record_id, action, rowid
                  LIMIT ?1",
             )
@@ -136,6 +137,10 @@ impl HealthReadRepository for SqliteHealthRepository {
     ) -> HealthResult<ReportRecords> {
         report_records_on(&self.connection, start_inclusive, end_inclusive, limit)
     }
+
+    fn retention_rows(&self) -> HealthResult<crate::application::retention::RetentionRows> {
+        super::retention::retention_rows(&self.connection)
+    }
 }
 
 impl HealthMutationRepository for SqliteHealthRepository {
@@ -145,6 +150,10 @@ impl HealthMutationRepository for SqliteHealthRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
         Ok(Box::new(SqliteHealthTransaction { transaction }))
+    }
+
+    fn set_purge_mode(&mut self, enabled: bool) -> HealthResult<()> {
+        super::retention::set_purge_mode(&self.connection, enabled)
     }
 }
 
@@ -445,6 +454,18 @@ impl HealthTransaction for SqliteHealthTransaction<'_> {
             )
             .map_err(storage_error)?;
         Ok(())
+    }
+
+    fn purge_diet(&mut self, id: &str) -> HealthResult<()> {
+        super::retention::purge_diet(&self.transaction, id)
+    }
+
+    fn purge_event(&mut self, id: &str) -> HealthResult<()> {
+        super::retention::purge_event(&self.transaction, id)
+    }
+
+    fn count_diet_media_references(&self, media_id: &str) -> HealthResult<u64> {
+        super::retention::count_diet_media_references(&self.transaction, media_id)
     }
 
     fn commit(self: Box<Self>) -> HealthResult<()> {
