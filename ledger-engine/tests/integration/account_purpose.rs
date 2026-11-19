@@ -281,6 +281,47 @@ fn version_two_database_migrates_existing_accounts_with_null_purpose() {
     assert!(report.healthy, "{:?}", report.issues);
 }
 
+// Regression: v0.4.40 opened every read through `open_read_only`, which rejected an
+// existing version 2 store instead of upgrading it, so the migration never ran.
+#[test]
+fn read_only_open_upgrades_an_existing_version_two_database() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    {
+        let mut service = seeded_service(SqliteLedgerRepository::open(&database).unwrap());
+        create(&mut service, "Wallet", None);
+        create(&mut service, "Bank", None);
+    }
+    downgrade_to_version_two(&database);
+
+    let repository = SqliteLedgerRepository::open_read_only(&database).unwrap();
+    assert_eq!(repository.schema_version().unwrap(), 3);
+    let service = LedgerService::new(repository);
+    let accounts = service.accounts_page(Page::default()).unwrap().items;
+    assert_eq!(accounts.len(), 2);
+    assert!(accounts.iter().all(|account| account.purpose().is_none()));
+    let report = service.doctor().unwrap();
+    assert!(report.healthy, "{:?}", report.issues);
+}
+
+#[test]
+fn read_only_open_never_initializes_an_uninitialized_database() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch("CREATE TABLE unrelated (value TEXT);")
+        .unwrap();
+
+    assert!(SqliteLedgerRepository::open_read_only(&database).is_err());
+    let connection = Connection::open(&database).unwrap();
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 0);
+    assert!(!column_names(&database, "accounts").contains(&"id".to_string()));
+}
+
 #[test]
 fn health_rejects_blank_or_oversized_persisted_purpose() {
     for invalid in ["'   '", "printf('%.501c', 'x')"] {

@@ -55,6 +55,11 @@ Top-level commands emit `command_started`, `command_completed`, or `command_fail
 - owning engine
 - elapsed milliseconds
 - mapped exit code
+- `error_kind` on `command_failed`: a stable class such as `ledger_migration` or
+  `ledger_storage`, never the error message, path, or record data
+
+A Ledger read that upgrades an older schema emits `ledger_schema_upgraded`
+(`from_version`, `to_version`).
 
 Ledger writes emit `ledger_busy_retry` (per retry: `operation`, `attempt`, `max_attempts`,
 `backoff_ms`) and `ledger_busy_exhausted` (`operation`, `attempts`) warnings.

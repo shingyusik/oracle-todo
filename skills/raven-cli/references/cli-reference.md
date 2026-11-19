@@ -104,7 +104,8 @@ Markdown output includes item IDs. `show` returns the complete item as JSON.
 timestamp from `show`; omitting it keeps unconditional update behavior.
 `today` only reads existing tasks; run `routine materialize` explicitly to generate
 routine occurrences. Materialization returns one JSON array, including `[]` when empty.
-ToDo, Ledger, and Health read commands do not create or migrate databases. Run `raven init`
+ToDo, Ledger, and Health read commands do not create or initialize databases. A Ledger
+read upgrades an existing, initialized store with an older supported schema first. Run `raven init`
 before querying an uninitialized home.
 Run `raven todo --help` and `raven todo <command> --help` for the complete existing flags.
 

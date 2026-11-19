@@ -565,7 +565,8 @@ restore accept optimistic timestamps. Public Health purge routes are absent.
 
 A committed media cleanup failure returns `cleanup_pending`, `committed: true`, and a
 safe UUID `record_id` when available. Refresh the saved record; do not repeat creation.
-Domain reads open existing stores read-only and do not create or migrate data homes.
+Domain reads open existing stores read-only and do not create or initialize data homes.
+A Ledger read first upgrades an initialized store with an older supported schema.
 
 Legacy stored workspace preferences remain readable through the canonical key.
 

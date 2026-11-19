@@ -219,6 +219,52 @@ pub fn describe(error: &anyhow::Error) -> CliError {
         false,
     )
 }
+/// Stable error classification for operational logs; never includes messages or data.
+pub fn diagnostic_kind(error: &anyhow::Error) -> &'static str {
+    if let Some(error) = error.downcast_ref::<ledger_engine::application::error::LedgerError>() {
+        use ledger_engine::application::error::LedgerError::*;
+        return match error {
+            Validation { .. } => "ledger_validation",
+            NotFound(_) => "ledger_not_found",
+            Conflict(_) => "ledger_conflict",
+            Busy(_) => "ledger_busy",
+            Storage(_) => "ledger_storage",
+            Migration(_) => "ledger_migration",
+            ConfirmationMismatch => "ledger_confirmation_mismatch",
+        };
+    }
+    if let Some(error) = error.downcast_ref::<health_engine::application::error::HealthError>() {
+        use health_engine::application::error::HealthError::*;
+        return match error {
+            Validation { .. } => "health_validation",
+            NotFound(_) => "health_not_found",
+            Conflict(_) => "health_conflict",
+            Busy(_) => "health_busy",
+            Storage(_) => "health_storage",
+            Migration(_) => "health_migration",
+            UnsupportedMedia => "health_unsupported_media",
+            MediaTooLarge => "health_media_too_large",
+            Cleanup { .. } => "health_cleanup",
+            CleanupPending { .. } => "health_cleanup_pending",
+        };
+    }
+    if let Some(error) = error.downcast_ref::<todo_engine::application::error::TodoError>() {
+        return error.api_code();
+    }
+    if let Some(error) = error.downcast_ref::<CliError>() {
+        return match error.code.as_str() {
+            "validation_error" => "validation_error",
+            "not_found" => "not_found",
+            "conflict" => "conflict",
+            _ => "cli_error",
+        };
+    }
+    if error.downcast_ref::<clap::Error>().is_some() {
+        return "invalid_arguments";
+    }
+    "internal"
+}
+
 fn validation(field: &str) -> CliError {
     let mut error = CliError::new(
         "validation_error",
