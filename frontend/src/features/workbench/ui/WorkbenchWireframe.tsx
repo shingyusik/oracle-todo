@@ -11,6 +11,7 @@ import {
   TableViewTabConfirmationDialog,
   type TableViewTabConfirmationDialogAdapter,
 } from "@/features/workbench/ui/TableViewTabConfirmationDialog";
+import { SidebarVersion } from "@/features/workbench/ui/SidebarVersion";
 import { TreeSidebar } from "@/features/workbench/ui/TreeSidebar";
 import {
   focusFirst,
@@ -136,6 +137,7 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
           ariaLabel={workbenchCopy.navigation.shellLabel}
           onNavigate={mobile ? () => closeNavigation() : undefined}
         />
+        <SidebarVersion />
       </aside>
       <MainPanel controller={controller} />
       <TableViewTabConfirmationDialog adapter={confirmationAdapter} />

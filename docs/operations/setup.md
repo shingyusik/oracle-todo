@@ -41,6 +41,38 @@ is activated only after both archives pass checksum verification and extraction;
 a download failure for a newer version leaves the active bundle unchanged.
 The `npx` launcher itself may still need npm access to obtain the wrapper package.
 
+### Updating from the UI
+
+When `raven ui` runs through the npm wrapper, the sidebar footer shows `Raven v<version>`.
+Raven checks GitHub every 6 hours (also on page load, plus a `Check now` action); the browser
+never calls GitHub itself. When a newer release is available, the footer shows
+`Update to v<latest>`. After confirmation the UI calls `POST /api/v1/system/update`, shows an
+`Updating to v<latest>…` overlay, and polls `/healthz` every 1.5 s for up to 3 minutes. When
+the server answers again, the page reopens `/__raven/session` and reports `Updated to v<latest>`
+or `Update failed, still on v<current>`. A few seconds of downtime are expected. The button works
+on both the local origin and the Cloudflare Access public origin.
+
+The native server exits with code `75`; the wrapper then updates the bundle (never to a version
+at or below the installed one), restarts the launchd labels listed in
+`RAVEN_UPDATE_RESTART_LABELS`, and relaunches `raven ui` with the new UI path. If the update
+fails, the wrapper logs it and relaunches the old version. If you passed `--ui-path` yourself,
+the wrapper keeps it. Each attempt is recorded in `<cacheRoot>/update-status.json`.
+
+Without the wrapper (for example `cargo run -p raven-cli -- ui`), the footer shows the version
+and a disabled update button: "Restart Raven through the npm wrapper to enable updates".
+
+| Variable | Set by | Purpose |
+| --- | --- | --- |
+| `RAVEN_RELEASE_VERSION` | `release.yml` at build time | Release version compiled into `raven`; builds without it report `<crate version>-dev` |
+| `RAVEN_UPDATE_SUPERVISOR` | wrapper (`1`) | Enables `POST /api/v1/system/update` |
+| `RAVEN_BUNDLE_VERSION` | wrapper | Installed engine version reported by the UI and `/healthz` |
+| `RAVEN_UI_VERSION` | wrapper | Installed UI version |
+| `RAVEN_UPDATE_RESTART_LABELS` | operator, optional | Comma-separated launchd labels (for example `com.raven.mcp`) restarted with `launchctl kickstart -k gui/<uid>/<label>` after a successful update; macOS only, failures are logged and never fatal |
+| `RAVEN_GITHUB_TOKEN` | operator, optional | Bearer token for the GitHub release check; keep it out of logs and evidence |
+| `RAVEN_GITHUB_API_URL` | tests only | Replaces `https://api.github.com` for the Rust release check and the npm wrapper (for example a local fake release server). Only plain-`http` loopback URLs (`127.0.0.1`, `localhost`, `[::1]`) are honored; other values are ignored. `RAVEN_GITHUB_TOKEN` is never sent to it |
+
+Do not set the wrapper-owned variables by hand.
+
 ## Source build
 
 ```bash

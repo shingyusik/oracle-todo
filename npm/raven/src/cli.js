@@ -30,7 +30,7 @@ async function main(args, options = {}) {
   }
 
   if (command === "ui") {
-    return ui(args, { env, installBundle: installAll, log });
+    return ui(args, { env, installBundle: installAll, updateBundle: updateAll, log });
   }
 
   if (command === "version") {

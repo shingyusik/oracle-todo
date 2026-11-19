@@ -36,7 +36,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
-        self.retry_busy("create_currency", |service| service.create_currency_once(command.clone()))
+        self.retry_busy("create_currency", |service| {
+            service.create_currency_once(command.clone())
+        })
     }
 
     fn create_currency_once(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
@@ -216,7 +218,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_account(&mut self, command: CreateAccount) -> LedgerResult<Account> {
-        self.retry_busy("create_account", |service| service.create_account_once(command.clone()))
+        self.retry_busy("create_account", |service| {
+            service.create_account_once(command.clone())
+        })
     }
 
     fn create_account_once(&mut self, command: CreateAccount) -> LedgerResult<Account> {
@@ -309,7 +313,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         &mut self,
         command: CreateTransactionCategory,
     ) -> LedgerResult<TransactionCategory> {
-        self.retry_busy("create_category", |service| service.create_category_once(command.clone()))
+        self.retry_busy("create_category", |service| {
+            service.create_category_once(command.clone())
+        })
     }
 
     fn create_category_once(

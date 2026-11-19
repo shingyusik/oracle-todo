@@ -53,16 +53,21 @@ CI does not run `cargo fmt --check`, `cargo clippy`, `npm --prefix npm/raven tes
 release build. These are candidates for additional jobs. The frontend has no lint
 script or ESLint config, so there is no lint step.
 
-## Recommended `main` protection
+## `main` protection
 
-Not applied. The repository owner creates the two rulesets below manually.
+Applied. Both rulesets below are active on `main` (created 2026-10-22, per
+`gh api repos/shingyusik/oracle-todo/rulesets`). A change reaches `main` only through a pull
+request with passing `frontend` and `rust` checks; a direct push to `main` is rejected.
 
-Release commits (`[RELEASE] ...`) are pushed directly to `main` and then tagged; see
-`.codex/skills/release-oracle-todo/SKILL.md`. Admins must therefore keep direct-push
-access, so the merge-gate ruleset has an admin bypass.
+Release commits (`[RELEASE] ...`) therefore also go through a pull request to `main`; the
+release tags point at the merge commit. See `.codex/skills/release-oracle-todo/SKILL.md`.
 
-Apply protection only after `CI` has run at least once on GitHub, so the `frontend` and
-`rust` check contexts exist.
+UNVERIFIED: the active `main-merge-gate` ruleset still lists the repository Admin role as a
+bypass actor, yet direct pushes to `main` have been rejected in practice. Do not rely on the
+bypass; use a pull request.
+
+If the rulesets are ever recreated, apply them only after `CI` has run at least once on
+GitHub, so the `frontend` and `rust` check contexts exist.
 
 Tag pushes that trigger `release.yml` and `npm-publish.yml` are not affected by `main`
 branch protection.
@@ -115,8 +120,8 @@ JSON
 
 - `required_approving_review_count: 0` requires a pull request but no approval. A solo
   maintainer cannot approve their own pull request.
-- `actor_id: 5` is the repository Admin role. `bypass_mode: "always"` lets admins push
-  release commits directly to `main`.
+- `actor_id: 5` is the repository Admin role with `bypass_mode: "always"`. Releases do not
+  use this bypass; see the UNVERIFIED note above.
 - `15368` is the app id of the GitHub Actions app (`gh api /apps/github-actions`).
 - To require branches to be up to date with `main` before merging, set
   `"strict_required_status_checks_policy": true`.
@@ -141,7 +146,7 @@ JSON
 ```
 
 - `bypass_actors: []` means nobody, including admins, can force-push to or delete
-  `main`. Fast-forward release pushes remain allowed.
+  `main`.
 
 ### Verify and roll back
 
@@ -164,3 +169,4 @@ source issue. Times are KST.
 - 요약: main push·PR CI와 브랜치 보호를 추가하라는 권고. 이후 기록과 어긋나는 점이 있음.
 - 권고(10/16 운영 검토): main push·PR 때 프런트 테스트, 타입 검사, 빌드, `cargo test`를 돌리는 CI와 main 브랜치 보호 + PR 필수 체크. 당시 워크플로는 태그 push 때만 돌았음. SHI-159는 이 이슈의 중복.
 - 알려진 불일치: SHI-188은 10/22 Done이지만, 10/23 SHI-455·SHI-456 구현 기록에 "oracle-todo에는 PR에서 도는 워크플로가 없다(release와 npm-publish뿐). gateway에는 워크플로가 없다"고 적혀 있음. (확인 필요: SHI-188은 Done인데 10/23 기록은 PR CI가 없다고 적음. 이 문서는 `ci.yml`과 "Recommended `main` protection: Not applied"를 적고 있으므로 실제 GitHub 워크플로 실행과 브랜치 보호 적용 상태 확인 필요)
+- 해소(2026-11-19 확인): `ci.yml`이 있고, `main-merge-gate`·`main-history` 룰셋이 2026-10-22부터 `main`에 활성 상태다(`gh api .../rulesets`). 위 "확인 필요"의 "Not applied" 문구는 더 이상 이 문서에 없다.

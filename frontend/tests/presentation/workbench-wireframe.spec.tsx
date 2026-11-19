@@ -1683,7 +1683,7 @@ describe("WorkbenchPageClient", () => {
     expect(close).toHaveFocus();
 
     await user.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(within(drawer).getByRole("button", { name: "Health Journal" })).toHaveFocus();
+    expect(within(drawer).getByRole("button", { name: "Check now" })).toHaveFocus();
     await user.tab();
     expect(close).toHaveFocus();
 
