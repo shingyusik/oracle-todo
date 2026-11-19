@@ -447,6 +447,7 @@ function reportLedgerController() {
         categoryId: "account-category-cash",
         currencyId: "currency-krw",
         openingBalanceMinor: 0,
+        purpose: null,
         active: true,
       },
       currencyCode: "KRW",

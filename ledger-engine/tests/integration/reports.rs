@@ -2030,6 +2030,7 @@ fn seed_repository(repository: SqliteLedgerRepository) -> TestService {
                 category: category.id().to_string(),
                 currency: currency.to_string(),
                 opening_balance: Money::from_minor_units(0),
+                purpose: None,
                 actor: "test".to_string(),
             })
             .unwrap();
@@ -2169,6 +2170,7 @@ fn account_balance_reads_one_id_after_fifty_duplicates_and_keeps_balance_policy(
                     category: "Cash".into(),
                     currency: "KRW".into(),
                     opening_balance: Money::from_minor_units(100),
+                    purpose: None,
                     actor: "test".into(),
                 })
                 .unwrap()

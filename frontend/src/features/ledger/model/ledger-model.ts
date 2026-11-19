@@ -97,6 +97,8 @@ export type Account = {
   categoryId: string;
   currencyId: string;
   openingBalanceMinor: number;
+  /** Free-text note on what the account is used for. */
+  purpose: string | null;
   active: boolean;
 };
 export type TransactionCategory = {
@@ -292,6 +294,7 @@ export function mapAccount(value: unknown): Account {
     categoryId: id(wire.category_id, "account.category_id"),
     currencyId: id(wire.currency_id, "account.currency_id"),
     openingBalanceMinor: safeInteger(wire.opening_balance, "account.opening_balance"),
+    purpose: wire.purpose === undefined ? null : nullableString(wire.purpose, "account.purpose"),
     active: boolean(wire.active, "account.active"),
   };
 }

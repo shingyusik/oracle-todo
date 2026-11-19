@@ -288,6 +288,7 @@ fn validation_detail(field: &str, message: &str) -> CliError {
             _ if field == "amount" || field == "opening_balance" => {
                 "Use a decimal amount within the currency precision and supported range."
             }
+            _ if field == "purpose" => "Use at most 500 characters.",
             _ => "Invalid or missing value.",
         };
         (field, detail)

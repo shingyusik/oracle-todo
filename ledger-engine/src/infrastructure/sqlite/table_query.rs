@@ -275,7 +275,7 @@ fn transaction_base(group: LedgerTableGroup) -> (String, String, String) {
 }
 
 fn account_base(group: LedgerTableGroup, include_balances: bool) -> (String, String, String) {
-    let base = "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.account_category_id AS account_type_id,
+    let base = "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.purpose, a.account_category_id AS account_type_id,
         ac.name AS account_type_name, a.currency_id, c.code AS currency_code,
         a.opening_balance_minor + COALESCE(SUM(CASE e.entry_type
           WHEN 'expense' THEN -e.amount_minor WHEN 'income' THEN e.amount_minor
@@ -302,7 +302,7 @@ fn account_base(group: LedgerTableGroup, include_balances: bool) -> (String, Str
     let base = if include_balances {
         base.to_string()
     } else {
-        "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.account_category_id AS account_type_id,
+        "SELECT a.id AS logical_id, a.id, NULL AS pair_id, a.name, a.purpose, a.account_category_id AS account_type_id,
          ac.name AS account_type_name, a.currency_id, c.code AS currency_code
          FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id
          JOIN currencies c ON c.id=a.currency_id WHERE a.active=1 AND a.deleted_at IS NULL".into()
@@ -386,6 +386,7 @@ fn one_filter_sql(
         } => {
             let expressions: &[&str] = match field {
                 AccountTableFilterField::Name => &["name"],
+                AccountTableFilterField::Purpose => &["purpose"],
                 AccountTableFilterField::AccountType => &["account_type_id", "account_type_name"],
                 AccountTableFilterField::Currency => &["currency_id", "currency_code"],
                 AccountTableFilterField::CurrentBalance => &["current_balance_sort_key"],
@@ -610,6 +611,7 @@ fn record_order_sql(query: &LedgerTableQuery) -> String {
                 LedgerTableSort::Accounts { field, direction } => (
                     match field {
                         AccountTableSortField::Name => "name",
+                        AccountTableSortField::Purpose => "purpose",
                         AccountTableSortField::AccountType => "account_type_name",
                         AccountTableSortField::Currency => "currency_code",
                         AccountTableSortField::CurrentBalance => "current_balance_sort_key",
@@ -764,7 +766,7 @@ fn load_account_records(
         return Ok(HashMap::new());
     }
     let sql = format!(
-        "SELECT a.id,a.name,a.account_category_id,a.currency_id,a.opening_balance_minor,a.active,a.created_at,a.updated_at,a.deleted_at,ac.name,c.code,c.decimal_places,a.opening_balance_minor+COALESCE(SUM(CASE e.entry_type WHEN 'expense' THEN -e.amount_minor WHEN 'income' THEN e.amount_minor WHEN 'transfer_out' THEN -e.amount_minor WHEN 'transfer_in' THEN e.amount_minor WHEN 'adjustment_out' THEN -e.amount_minor WHEN 'adjustment_in' THEN e.amount_minor ELSE 0 END),0) FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id JOIN currencies c ON c.id=a.currency_id LEFT JOIN ledger_entries e ON e.account_id=a.id AND e.deleted_at IS NULL WHERE a.id IN ({}) GROUP BY a.id",
+        "SELECT a.id,a.name,a.account_category_id,a.currency_id,a.opening_balance_minor,a.active,a.purpose,a.created_at,a.updated_at,a.deleted_at,ac.name,c.code,c.decimal_places,a.opening_balance_minor+COALESCE(SUM(CASE e.entry_type WHEN 'expense' THEN -e.amount_minor WHEN 'income' THEN e.amount_minor WHEN 'transfer_out' THEN -e.amount_minor WHEN 'transfer_in' THEN e.amount_minor WHEN 'adjustment_out' THEN -e.amount_minor WHEN 'adjustment_in' THEN e.amount_minor ELSE 0 END),0) FROM accounts a JOIN account_categories ac ON ac.id=a.account_category_id JOIN currencies c ON c.id=a.currency_id LEFT JOIN ledger_entries e ON e.account_id=a.id AND e.deleted_at IS NULL WHERE a.id IN ({}) GROUP BY a.id",
         vec!["?"; keys.len()].join(",")
     );
     let mut statement = connection.prepare(&sql).map_err(storage_error)?;
@@ -778,11 +780,11 @@ fn load_account_records(
                     id,
                     name: account.name().to_string(),
                     account_type_id: account.category_id().to_string(),
-                    account_type_label: row.get(9)?,
+                    account_type_label: row.get(10)?,
                     currency_id: account.currency_id().to_string(),
-                    currency_code: row.get(10)?,
-                    decimal_places: row.get(11)?,
-                    current_balance_minor: row.get(12)?,
+                    currency_code: row.get(11)?,
+                    decimal_places: row.get(12)?,
+                    current_balance_minor: row.get(13)?,
                     account,
                 }),
             ))

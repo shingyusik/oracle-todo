@@ -80,6 +80,7 @@ const loadedState: LedgerState = {
     categoryId: "account-category-cash",
     currencyId: "currency-krw",
     openingBalanceMinor: 0,
+    purpose: null,
     active: true,
   }],
   categories: [{

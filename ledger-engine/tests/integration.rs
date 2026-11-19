@@ -1,3 +1,5 @@
+#[path = "integration/account_purpose.rs"]
+mod account_purpose;
 #[path = "integration/audit.rs"]
 mod audit;
 #[path = "integration/lifecycle.rs"]

@@ -33,17 +33,23 @@ before/after item JSON.
 
 ## Ledger database
 
-`ledger.sqlite` schema version is `2`.
+`ledger.sqlite` schema version is `3`.
 
 | Table | Canonical content |
 | --- | --- |
 | `currencies` | Code, name, symbol, decimal places, active flag |
 | `account_categories` | Name, optional parent, liability flag, active flag |
-| `accounts` | Category, currency, signed opening balance in minor units, active flag |
+| `accounts` | Name, optional purpose, category, currency, signed opening balance in minor units, active flag |
 | `transaction_categories` | Name, optional parent, `expense`/`income` kind, active flag |
 | `ledger_entries` | Date, written timestamp, content, references, type, positive minor-unit amount, source, notes, lifecycle timestamps |
 | `transfer_operations` | Idempotency key and paired-transfer result |
 | `audit_events` | Immutable mutation history with before/after JSON |
+
+Account `purpose` is optional free text describing what the account is used for. The
+service trims it, stores blank input as `NULL`, and rejects more than 500 characters.
+Schema version 3 added the nullable `accounts.purpose` column; migrating a version 2
+database keeps existing accounts with `NULL` purpose. Version 2 binaries refuse a version 3
+database as a newer schema.
 
 Entry types are `expense`, `income`, `transfer_out`, `transfer_in`, `adjustment_out`, and
 `adjustment_in`. The type supplies balance direction; SQLite `REAL` is not used for money.

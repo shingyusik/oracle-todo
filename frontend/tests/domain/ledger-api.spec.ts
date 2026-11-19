@@ -194,3 +194,49 @@ it("decodes a single entry from the canonical EntryView response", async () => {
   expect(fetchMock).toHaveBeenCalledWith("/api/v1/ledger/entries/entry-1", expect.anything());
   expect(entry).toMatchObject({ id: "entry-1", content: "Lunch", deletedAt: null });
 });
+
+describe("account purpose", () => {
+  const wireAccount = {
+    id: "account-1", name: "Wallet", category_id: "cash", currency_id: "krw",
+    opening_balance: 0, active: true,
+  };
+
+  it("maps a returned purpose and treats a missing or null purpose as null", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ ...wireAccount, purpose: "Lunch money" }))
+      .mockResolvedValueOnce(response({ ...wireAccount, purpose: null }))
+      .mockResolvedValueOnce(response(wireAccount));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await ledgerApi.updateAccount("account-1", { purpose: "Lunch money" })).purpose)
+      .toBe("Lunch money");
+    expect((await ledgerApi.updateAccount("account-1", { purpose: null })).purpose).toBeNull();
+    expect((await ledgerApi.updateAccount("account-1", { name: "Wallet" })).purpose).toBeNull();
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ purpose: "Lunch money" });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ purpose: null });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ name: "Wallet" });
+  });
+
+  it("sends purpose on create only when provided", async () => {
+    const fetchMock = vi.fn()
+      .mockImplementation(async () => response({ ...wireAccount, purpose: "Groceries" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const base = { name: "Wallet", category: "cash", currency: "krw", openingBalance: "0" };
+
+    await ledgerApi.createAccount({ ...base, purpose: "Groceries" });
+    await ledgerApi.createAccount(base);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      name: "Wallet", category: "cash", currency: "krw", opening_balance: "0", purpose: "Groceries",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      name: "Wallet", category: "cash", currency: "krw", opening_balance: "0",
+    });
+  });
+
+  it("rejects a non-string purpose at the boundary", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ ...wireAccount, purpose: 7 })));
+    await expect(ledgerApi.updateAccount("account-1", { name: "Wallet" })).rejects.toThrow(/purpose/);
+  });
+});

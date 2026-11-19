@@ -1220,6 +1220,7 @@ export function tableViewFilterFieldConfigs(
     },
     amount: { field: "amount", label: "Amount", type: "number", options: [] },
     name: { field: "name", label: "Name", type: "text", options: [] },
+    purpose: { field: "purpose", label: "Purpose", type: "text", options: [] },
     account_type: {
       field: "account_type",
       label: "Type",

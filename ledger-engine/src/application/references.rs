@@ -4,6 +4,7 @@ use crate::application::error::{LedgerError, LedgerResult};
 use crate::application::ports::{CandidateMatch, LedgerMutationRepository, LedgerTransaction};
 use crate::domain::{
     Account, AccountCategory, Currency, TransactionCategory, TransactionCategoryKind,
+    ValidationError,
 };
 
 use super::commands::{
@@ -36,7 +37,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_currency(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
-        self.retry_busy("create_currency", |service| service.create_currency_once(command.clone()))
+        self.retry_busy("create_currency", |service| {
+            service.create_currency_once(command.clone())
+        })
     }
 
     fn create_currency_once(&mut self, command: CreateCurrency) -> LedgerResult<Currency> {
@@ -216,7 +219,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     }
 
     pub fn create_account(&mut self, command: CreateAccount) -> LedgerResult<Account> {
-        self.retry_busy("create_account", |service| service.create_account_once(command.clone()))
+        self.retry_busy("create_account", |service| {
+            service.create_account_once(command.clone())
+        })
     }
 
     fn create_account_once(&mut self, command: CreateAccount) -> LedgerResult<Account> {
@@ -232,7 +237,8 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
             currency.id(),
             command.opening_balance,
         )
-        .map_err(|error| domain_validation("account", error))?;
+        .and_then(|account| account.with_purpose(command.purpose))
+        .map_err(account_validation)?;
         transaction.upsert_account(&account, now)?;
         transaction.insert_audit_event(&audit_event(AuditMutation {
             occurred_at: now,
@@ -289,7 +295,14 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
                 .unwrap_or_else(|| before.opening_balance()),
             command.active.unwrap_or(before.is_active()),
         )
-        .map_err(|error| domain_validation("account", error))?;
+        .and_then(|account| {
+            account.with_purpose(
+                command
+                    .purpose
+                    .unwrap_or_else(|| before.purpose().map(str::to_string)),
+            )
+        })
+        .map_err(account_validation)?;
         transaction.upsert_account(&after, now)?;
         transaction.insert_audit_event(&audit_event(AuditMutation {
             occurred_at: now,
@@ -309,7 +322,9 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
         &mut self,
         command: CreateTransactionCategory,
     ) -> LedgerResult<TransactionCategory> {
-        self.retry_busy("create_category", |service| service.create_category_once(command.clone()))
+        self.retry_busy("create_category", |service| {
+            service.create_category_once(command.clone())
+        })
     }
 
     fn create_category_once(
@@ -456,6 +471,17 @@ fn historical_transaction_category(
                 "transaction category hierarchy references missing parent {id}"
             ))
         })
+}
+
+fn account_validation(error: ValidationError) -> LedgerError {
+    let field = match error {
+        ValidationError::TooLong {
+            field: "account.purpose",
+            ..
+        } => "purpose",
+        _ => "account",
+    };
+    domain_validation(field, error)
 }
 
 fn validate_account_category_ancestor_chain(

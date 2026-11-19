@@ -59,7 +59,7 @@ fn schema_initialization_is_idempotent_and_additive() {
     let repository = SqliteLedgerRepository::open(&database).unwrap();
     repository.init_schema().unwrap();
     repository.init_schema().unwrap();
-    assert_eq!(repository.schema_version().unwrap(), 2);
+    assert_eq!(repository.schema_version().unwrap(), 3);
     repository.check_schema().unwrap();
     drop(repository);
 
@@ -90,7 +90,7 @@ fn version_one_migrates_additively_to_transfer_operation_claims_and_pair_uniquen
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
-    assert_eq!(repository.schema_version().unwrap(), 2);
+    assert_eq!(repository.schema_version().unwrap(), 3);
     assert!(
         repository
             .table_exists_for_test("transfer_operations")
@@ -129,7 +129,7 @@ fn version_one_migration_rejects_duplicate_transfer_sides_without_losing_data() 
 }
 
 #[test]
-fn version_two_open_stays_read_only_under_a_concurrent_writer() {
+fn current_version_open_stays_read_only_under_a_concurrent_writer() {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("ledger.sqlite");
     drop(SqliteLedgerRepository::open(&database).unwrap());
@@ -160,7 +160,7 @@ fn version_two_open_stays_read_only_under_a_concurrent_writer() {
     writer.execute_batch("ROLLBACK;").unwrap();
     assert!(
         reopened.is_ok(),
-        "version 2 health unexpectedly requested a writer lock: {:?}",
+        "current-version health unexpectedly requested a writer lock: {:?}",
         reopened.err()
     );
 }
@@ -233,7 +233,7 @@ fn migration_backfills_compatible_partial_table_without_losing_rows() {
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
-    assert_eq!(repository.schema_version().unwrap(), 2);
+    assert_eq!(repository.schema_version().unwrap(), 3);
     let service = ledger_engine::application::service::LedgerService::new(repository);
     assert_eq!(
         service.currencies_page(Page::default()).unwrap().items[0].code(),
@@ -387,7 +387,7 @@ fn migration_adds_missing_nullable_entry_lifecycle_column() {
 
     let repository = SqliteLedgerRepository::open(&database).unwrap();
 
-    assert_eq!(repository.schema_version().unwrap(), 2);
+    assert_eq!(repository.schema_version().unwrap(), 3);
     assert!(column_names(&database, "ledger_entries").contains(&"deleted_at".to_string()));
 }
 
@@ -426,13 +426,13 @@ fn migration_rejects_future_schema_versions_without_touching_the_database() {
         &database,
         "CREATE TABLE future_marker (value TEXT NOT NULL);
          INSERT INTO future_marker (value) VALUES ('keep');
-         PRAGMA user_version = 3;",
+         PRAGMA user_version = 4;",
     );
 
     let error = open_error(&database);
 
     assert!(matches!(error, LedgerError::Migration(_)));
-    assert_eq!(user_version(&database), 3);
+    assert_eq!(user_version(&database), 4);
     assert!(!table_exists(&database, "currencies"));
     assert_eq!(
         Connection::open(&database)
@@ -643,7 +643,7 @@ fn health_rejects_nonpositive_entry_amount_before_repository_reads() {
     assert!(
         matches!(error, LedgerError::Migration(message) if message.contains("persisted scalar"))
     );
-    assert_eq!(user_version(&database), 2);
+    assert_eq!(user_version(&database), 3);
 }
 
 #[test]

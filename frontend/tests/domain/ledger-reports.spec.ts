@@ -207,5 +207,5 @@ function breakdown(referenceId: string, name: string, incomeMinor: number, expen
   return { ...current, referenceId, name, incomeMinor, expenseMinor, netChangeMinor };
 }
 function balance(id: string, name: string, currencyId: string, currentBalanceMinor: number): AccountBalance {
-  return { account: { id, name, categoryId: "account-category-cash", currencyId, openingBalanceMinor: 0, active: true }, currencyCode: currencyId === "currency-usd" ? "USD" : "EUR", decimalPlaces: 2, currentBalanceMinor };
+  return { account: { id, name, categoryId: "account-category-cash", currencyId, openingBalanceMinor: 0, purpose: null, active: true }, currencyCode: currencyId === "currency-usd" ? "USD" : "EUR", decimalPlaces: 2, currentBalanceMinor };
 }

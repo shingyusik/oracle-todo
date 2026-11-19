@@ -306,7 +306,7 @@ Filter fields by scope:
   health.medication: date,medication_name,medication_unit
   health.metrics: date,weight,sleep,crp,calprotectin,condition
   ledger.transactions: date,content,entry_type,account,category,currency,amount
-  ledger.accounts: name,account_type,currency,current_balance
+  ledger.accounts: name,purpose,account_type,currency,current_balance
   ledger.categories: name,kind,parent
 Operators vary by field type: is,is_not,contains,does_not_contain,starts_with,ends_with,is_before,is_after,is_on_or_before,is_on_or_after,is_between,is_relative_to_today,greater_than,less_than,is_empty,is_not_empty.
 Sort fields by scope:
@@ -315,7 +315,7 @@ Sort fields by scope:
   health.medication: date,medication_name,dose,created,updated
   health.metrics: date,weight,sleep,crp,calprotectin,condition
   ledger.transactions: date,content,account,category,amount,updated
-  ledger.accounts: name,account_type,currency,current_balance
+  ledger.accounts: name,purpose,account_type,currency,current_balance
   ledger.categories: name,kind,parent
 Group fields by scope (all accept none):
   health.diet: month,week,day,meal_type,tag,has_photo
@@ -811,7 +811,7 @@ pub struct AccountCategoryUpdateArgs {
 #[derive(Debug, Args)]
 pub struct AccountCreateArgs {
     #[arg(long)]
-    /// Strict object: name, category, currency, opening_balance (decimal string). Example: {"name":"Wallet","category":"Cash","currency":"KRW","opening_balance":"0"}. JSON and field flags cannot be mixed.
+    /// Strict object: name, category, currency, opening_balance (decimal string); optional purpose (free text, at most 500 characters). Example: {"name":"Wallet","category":"Cash","currency":"KRW","opening_balance":"0","purpose":"Daily spending"}. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -821,13 +821,16 @@ pub struct AccountCreateArgs {
     pub currency: Option<String>,
     #[arg(long)]
     pub opening_balance: Option<String>,
+    /// What the account is used for. Trimmed; blank is stored as no purpose; at most 500 characters.
+    #[arg(long)]
+    pub purpose: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct AccountUpdateArgs {
     pub id: String,
     #[arg(long)]
-    /// Strict partial object: name, category, currency, opening_balance (decimal string), active. Omitted fields are preserved. JSON and field flags cannot be mixed.
+    /// Strict partial object: name, category, currency, opening_balance (decimal string), purpose, clear_purpose, active. Omitted fields are preserved. JSON and field flags cannot be mixed.
     pub json: Option<String>,
     #[arg(long)]
     pub name: Option<String>,
@@ -837,6 +840,12 @@ pub struct AccountUpdateArgs {
     pub currency: Option<String>,
     #[arg(long)]
     pub opening_balance: Option<String>,
+    /// What the account is used for. Trimmed; an empty value clears it; at most 500 characters.
+    #[arg(long)]
+    pub purpose: Option<String>,
+    /// Remove the account purpose.
+    #[arg(long, conflicts_with = "purpose")]
+    pub clear_purpose: bool,
     #[arg(long)]
     pub active: Option<bool>,
 }

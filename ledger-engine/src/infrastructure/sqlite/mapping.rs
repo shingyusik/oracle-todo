@@ -31,7 +31,7 @@ pub(super) const ACCOUNT_CATEGORY_COLUMNS: &str = "
 ";
 
 pub(super) const ACCOUNT_COLUMNS: &str = "
-    id, name, account_category_id, currency_id, opening_balance_minor, active
+    id, name, account_category_id, currency_id, opening_balance_minor, active, purpose
 ";
 
 pub(super) const TRANSACTION_CATEGORY_COLUMNS: &str = "
@@ -67,6 +67,7 @@ pub(super) fn row_to_account_category(row: &Row<'_>) -> LedgerResult<AccountCate
 }
 
 pub(super) fn row_to_account(row: &Row<'_>) -> LedgerResult<Account> {
+    let purpose = row_value::<Option<String>>(row, 6)?;
     Account::rehydrate(
         row_value::<String>(row, 0)?,
         row_value::<String>(row, 1)?,
@@ -75,6 +76,7 @@ pub(super) fn row_to_account(row: &Row<'_>) -> LedgerResult<Account> {
         Money::from_minor_units(row_value(row, 4)?),
         row_bool(row, 5)?,
     )
+    .and_then(|account| account.with_purpose(purpose))
     .map_err(persisted_domain_error)
 }
 

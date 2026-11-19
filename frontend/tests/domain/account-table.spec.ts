@@ -16,6 +16,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
     categoryId: "type-asset",
     currencyId: "currency-usd",
     openingBalanceMinor: 0,
+    purpose: null,
     active: true,
     ...overrides,
   };
@@ -312,5 +313,27 @@ describe("deriveAccountGroups", () => {
     expect(rowIds([yen, dollars], balances, accountSettings({
       sortRules: [{ id: "balance", field: "current_balance", direction: "asc" }],
     }))).toEqual(["yen", "dollars"]);
+  });
+
+  it("filters and sorts by purpose with missing purposes treated as empty text", () => {
+    const groceries = account("groceries", { name: "Groceries", purpose: "Food and lunch" });
+    const bills = account("bills", { name: "Bills", purpose: "Utilities" });
+    const spare = account("spare", { name: "Spare" });
+    const accounts = [groceries, bills, spare];
+    const balances = accounts.map((item) => balance(item));
+
+    expect(rowIds(accounts, balances, accountSettings({
+      filterRules: [{
+        id: "purpose", field: "purpose", type: "text", operator: "contains", value: "LUNCH",
+      }],
+    }))).toEqual(["groceries"]);
+    expect(rowIds(accounts, balances, accountSettings({
+      filterRules: [{
+        id: "purpose", field: "purpose", type: "text", operator: "is_empty", value: null,
+      }],
+    }))).toEqual(["spare"]);
+    expect(rowIds(accounts, balances, accountSettings({
+      sortRules: [{ id: "purpose", field: "purpose", direction: "asc" }],
+    }))).toEqual(["spare", "groceries", "bills"]);
   });
 });

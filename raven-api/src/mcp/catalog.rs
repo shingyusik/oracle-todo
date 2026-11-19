@@ -156,6 +156,7 @@ pub(super) fn build() -> Vec<Spec> {
                 ("category", id()),
                 ("currency", id()),
                 ("opening_balance", money()),
+                ("purpose", account_purpose()),
             ],
             vec!["name", "category", "currency", "opening_balance"],
         ),
@@ -175,10 +176,20 @@ pub(super) fn build() -> Vec<Spec> {
         let mut paging = page();
         paging.extend([("include_inactive", boolean()), ("query", text())]);
         tools.push(Spec::new(&format!("ledger_{kind}_list"),"Read master data for selection; inactive values require include_inactive. Follow next_offset for more pages.","GET",&path,object(&paging,&[])));
-        tools.push(Spec::new(&format!("ledger_{kind}_create"),"Create UI master data. Select existing parent, currency or category from current choices/list tools. Use request_key for durable create retries; otherwise inspect before retrying.","POST",&path,object(&fields,&required)));
+        let purpose_note = if kind == "account" {
+            " Optional purpose is free text describing what the account is used for (trimmed, at most 500 characters)."
+        } else {
+            ""
+        };
+        tools.push(Spec::new(&format!("ledger_{kind}_create"),&format!("Create UI master data. Select existing parent, currency or category from current choices/list tools. Use request_key for durable create retries; otherwise inspect before retrying.{purpose_note}"),"POST",&path,object(&fields,&required)));
         let mut updates = fields;
         updates.extend([("id", id()), ("active", boolean())]);
-        tools.push(Spec::new(&format!("ledger_{kind}_update"),"Edit or activate/deactivate UI master data. Existing service validates references and cycles.","PATCH",&format!("{path}/{{id}}"),object(&updates,&["id"])));
+        let purpose_note = if kind == "account" {
+            " Omit purpose to keep it; purpose null or blank clears it."
+        } else {
+            ""
+        };
+        tools.push(Spec::new(&format!("ledger_{kind}_update"),&format!("Edit or activate/deactivate UI master data. Existing service validates references and cycles.{purpose_note}"),"PATCH",&format!("{path}/{{id}}"),object(&updates,&["id"])));
     }
     for (kind, resource, mut fields, mut required) in [
         (

@@ -61,6 +61,7 @@ export function AccountsTable({
               />
             </th>
             <th scope="col">Account</th>
+            <th scope="col">Purpose</th>
             <th scope="col">Account type</th>
             <th scope="col">Current balance</th>
           </tr>
@@ -80,12 +81,14 @@ export function AccountsTable({
           status={page.moreStatus}
           error={page.moreError}
           loadMore={onLoadMore}
-          columnCount={4}
+          columnCount={COLUMN_COUNT}
         />
       </table>
     </section>
   );
 }
+
+const COLUMN_COUNT = 5;
 
 const emptyPage: LedgerTablePageState = {
   items: [], nextOffset: null, moreStatus: "idle", moreError: null, generation: 0,
@@ -111,7 +114,7 @@ function AccountTableBody({
     return (
       <tbody>
         <tr className="workspace-table-empty-row">
-          <td className="items-message workspace-table-empty-cell" colSpan={4}>
+          <td className="items-message workspace-table-empty-cell" colSpan={COLUMN_COUNT}>
             {emptyMessage}
           </td>
         </tr>
@@ -128,7 +131,7 @@ function AccountTableBody({
         >
           {group.label !== null ? (
             <tr className="workspace-group-heading">
-              <th scope="rowgroup" colSpan={4}>{group.label}</th>
+              <th scope="rowgroup" colSpan={COLUMN_COUNT}>{group.label}</th>
             </tr>
           ) : null}
           {group.rows.map((row) => (
@@ -183,6 +186,7 @@ function AccountTableRow({
         />
       </td>
       <td>{row.name}</td>
+      <td>{row.account.purpose ?? ""}</td>
       <td>{row.accountTypeLabel}</td>
       <td>{formatMoney(row.currentBalanceMinor, {
         code: row.currencyCode,

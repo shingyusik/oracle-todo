@@ -180,6 +180,7 @@ describe("AccountCreateDialog", () => {
     expect(screen.getByLabelText("Account name")).toHaveFocus();
     expect(Array.from(dialog.querySelectorAll("input, select"))).toEqual([
       screen.getByLabelText("Account name"),
+      screen.getByLabelText("Purpose"),
       screen.getByLabelText("Account type"),
       screen.getByLabelText("Currency"),
       screen.getByLabelText("Opening balance"),
@@ -212,6 +213,47 @@ describe("AccountCreateDialog", () => {
     }));
     expect(screen.queryByRole("dialog", { name: "Add account" })).toBeNull();
     expect(trigger).toHaveFocus();
+  });
+
+  it("places Purpose after the name and sends a trimmed purpose only when provided", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<AccountCreateHarness ledger={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    const purpose = screen.getByLabelText("Purpose");
+    expect(purpose).toHaveValue("");
+    expect(purpose).toHaveAttribute("maxLength", "500");
+    expect(purpose).not.toBeRequired();
+    await fillDraft(user);
+    await user.type(purpose, "  Groceries and lunch  ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.createAccount).toHaveBeenCalledWith({
+      name: "Wallet",
+      category: "account-type-cash",
+      currency: "currency-krw",
+      openingBalance: "12",
+      purpose: "Groceries and lunch",
+    }));
+  });
+
+  it("omits a blank purpose when creating an account", async () => {
+    const user = userEvent.setup();
+    const ledger = controller();
+    render(<AccountCreateHarness ledger={ledger} />);
+
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    await fillDraft(user);
+    await user.type(screen.getByLabelText("Purpose"), "   ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.createAccount).toHaveBeenCalledWith({
+      name: "Wallet",
+      category: "account-type-cash",
+      currency: "currency-krw",
+      openingBalance: "12",
+    }));
   });
 
   it.each([
@@ -300,6 +342,7 @@ const accountRows: AccountRowGroup[] = [{
       categoryId: "account-type-cash",
       currencyId: "currency-usd",
       openingBalanceMinor: 0,
+      purpose: "Everyday spending",
       active: true,
     },
     name: "Wallet",
@@ -317,6 +360,7 @@ const accountRows: AccountRowGroup[] = [{
       categoryId: "account-type-cash",
       currencyId: "currency-krw",
       openingBalanceMinor: 0,
+      purpose: null,
       active: true,
     },
     name: "Card",
@@ -414,9 +458,18 @@ describe("AccountsTable", () => {
     expect(screen.getAllByRole("columnheader").map(({ textContent }) => textContent)).toEqual([
       "",
       "Account",
+      "Purpose",
       "Account type",
       "Current balance",
     ]);
+    const walletCells = within(screen.getByRole("button", { name: "Open details for Wallet, Cash" }))
+      .getAllByRole("cell")
+      .map(({ textContent }) => textContent);
+    expect(walletCells.slice(1)).toEqual(["Wallet", "Everyday spending", "Cash", "1234.56 USD"]);
+    const cardCells = within(screen.getByRole("button", { name: "Open details for Card, Cash" }))
+      .getAllByRole("cell")
+      .map(({ textContent }) => textContent);
+    expect(cardCells[2]).toBe("");
     expect(screen.getByText("1234.56 USD")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Opening balance" })).toBeNull();
 
@@ -602,6 +655,50 @@ describe("AccountCreateDialog in edit mode", () => {
     }));
     expect(ledger.createAccount).not.toHaveBeenCalled();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it("prefills Purpose and sends only a changed purpose", async () => {
+    const user = userEvent.setup();
+    const ledger = accountsController();
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
+
+    const purpose = await screen.findByLabelText("Purpose");
+    expect(purpose).toHaveValue("Everyday spending");
+    await user.clear(purpose);
+    await user.type(purpose, "Travel budget");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", {
+      purpose: "Travel budget",
+    }));
+  });
+
+  it("clears an existing purpose with an explicit null", async () => {
+    const user = userEvent.setup();
+    const ledger = accountsController();
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[0]!} onClose={vi.fn()} />);
+
+    await user.clear(await screen.findByLabelText("Purpose"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-wallet", {
+      purpose: null,
+    }));
+  });
+
+  it("prefills an empty Purpose for an account without one and omits it when unchanged", async () => {
+    const user = userEvent.setup();
+    const ledger = accountsController();
+    render(<AccountEditDialog controller={ledger} row={accountRows[0]!.rows[1]!} onClose={vi.fn()} />);
+
+    expect(await screen.findByLabelText("Purpose")).toHaveValue("");
+    await user.clear(screen.getByLabelText("Account name"));
+    await user.type(screen.getByLabelText("Account name"), "Debit card");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(ledger.updateAccount).toHaveBeenCalledWith("account-card", {
+      name: "Debit card",
+    }));
   });
 
   it("saves a name-only edit without unavailable current references", async () => {

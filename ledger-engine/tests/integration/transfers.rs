@@ -621,8 +621,9 @@ fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
             },
         )
     });
-    let precision =
-        through_held_lock(&database, 0, || service.resolve_active_currency_precision("KRW"));
+    let precision = through_held_lock(&database, 0, || {
+        service.resolve_active_currency_precision("KRW")
+    });
     assert_eq!(precision, 0);
 
     let mut lunch = lunch_entry();
@@ -661,7 +662,9 @@ fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
             },
         )
     });
-    through_held_lock(&database, 1, || service.archive_entry(&transfer.out_entry_id));
+    through_held_lock(&database, 1, || {
+        service.archive_entry(&transfer.out_entry_id)
+    });
 
     through_held_lock(&database, 1, || {
         service.update_currency(
@@ -679,6 +682,7 @@ fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
             category: "Cash".to_string(),
             currency: "KRW".to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "tester".to_string(),
         })
     });
@@ -710,8 +714,12 @@ fn every_ledger_write_waits_out_a_held_write_lock_and_applies_once() {
             },
         )
     });
-    through_held_lock(&database, 0, || service.purge_account_category_preview(spare.id()));
-    through_held_lock(&database, 1, || service.purge_account_category(spare.id(), spare.id()));
+    through_held_lock(&database, 0, || {
+        service.purge_account_category_preview(spare.id())
+    });
+    through_held_lock(&database, 1, || {
+        service.purge_account_category(spare.id(), spare.id())
+    });
 
     assert_eq!(table_count(&database, "ledger_entries"), 3);
     assert_eq!(table_count(&database, "accounts"), 4);
@@ -914,6 +922,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: cash.id().to_string(),
             currency: krw.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -923,6 +932,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: cash.id().to_string(),
             currency: krw.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();
@@ -932,6 +942,7 @@ fn seed(mut service: TestService) -> Seeded {
             category: cash.id().to_string(),
             currency: usd.id().to_string(),
             opening_balance: Money::from_minor_units(0),
+            purpose: None,
             actor: "seed".to_string(),
         })
         .unwrap();

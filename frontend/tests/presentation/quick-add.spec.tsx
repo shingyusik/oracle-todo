@@ -345,6 +345,7 @@ describe("QuickAddDialog", () => {
         categoryId: "account-category-cash",
         currencyId: "currency-krw",
         openingBalanceMinor: 0,
+        purpose: null,
         active: true,
       }],
       nextOffset: null,

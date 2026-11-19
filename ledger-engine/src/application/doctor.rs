@@ -549,10 +549,12 @@ fn parse_accounts(
         let Some(active) = required_bool(row, "active", "account", &id, issues) else {
             continue;
         };
+        let purpose = optional_text(row, "purpose", "account", &id, issues);
         timestamps(row, "account", &id, issues);
         let snapshot = json!({
             "id": id,
             "name": name,
+            "purpose": purpose,
             "category_id": category_id,
             "currency_id": currency_id,
             "opening_balance": opening_balance,
@@ -1695,6 +1697,9 @@ fn snapshot_error(message: &str) -> AuditSemanticError {
 }
 
 fn audit_snapshots_equal(record_type: &str, left: &Value, right: &Value) -> bool {
+    if record_type == "account" {
+        return account_snapshot(left) == account_snapshot(right);
+    }
     if record_type != "transfer" {
         return left == right;
     }
@@ -1707,6 +1712,16 @@ fn audit_snapshots_equal(record_type: &str, left: &Value, right: &Value) -> bool
         object.remove("operation_id");
     }
     left == right
+}
+
+/// Account audit snapshots written before schema version 3 have no `purpose`
+/// key; that is equivalent to an explicit `null` purpose.
+fn account_snapshot(snapshot: &Value) -> Value {
+    let mut snapshot = snapshot.clone();
+    if let Some(object) = snapshot.as_object_mut() {
+        object.entry("purpose").or_insert(Value::Null);
+    }
+    snapshot
 }
 
 fn audit_transition_issue(audit: &AuditRecord, message: &str, issues: &mut Vec<DoctorIssue>) {
@@ -1757,7 +1772,12 @@ fn validate_current_history(
             Some(record.id.clone()),
             "current record has a terminal purge audit".to_string(),
         ));
-    } else if latest.after.as_deref().map(validated_json).as_ref() != Some(&record.snapshot) {
+    } else if !latest
+        .after
+        .as_deref()
+        .map(validated_json)
+        .is_some_and(|after| audit_snapshots_equal(record.record_type, &after, &record.snapshot))
+    {
         issues.push(issue(
             DoctorSeverity::Error,
             "audit_snapshot_mismatch",

@@ -42,6 +42,7 @@ describe("ledger table views", () => {
     ]);
     expect(ledgerSortFieldsForScope("ledger.accounts")).toEqual([
       "name",
+      "purpose",
       "account_type",
       "currency",
       "current_balance",

@@ -314,6 +314,12 @@ All routes below use prefix `/api/v1/ledger`.
 JSON bodies deny unknown fields and are limited to 128 KiB. List pagination defaults to
 offset `0`, limit `100`; limits are bounded. Reports accept `from`+`to`; comparison and trend reads use the UI period contract. Comparison derives the preceding equal-length period; trend granularity is chosen by the service.
 
+Account objects include `purpose`: optional free text describing what the account is used
+for, or `null`. `POST /accounts` accepts an optional `purpose`; `PATCH /accounts/:id` keeps it
+when omitted and clears it for `null` or blank text. The service trims it and rejects more
+than 500 characters with `validation_error` on field `purpose`. The `ledger.accounts` table
+scope supports `purpose` as a text filter and sort field.
+
 `GET /accounts/:id/balance` returns the same account, currency precision, and current
 balance fields as one `/account-balances` item. It reads only the active account identified
 by UUID, including when names repeat. A missing or inactive account returns `404`.

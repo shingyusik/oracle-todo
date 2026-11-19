@@ -188,7 +188,7 @@ fn init_creates_ledger_and_health_check_is_schema_aware_and_read_only() {
     assert!(
         String::from_utf8(health.stdout)
             .unwrap()
-            .contains("ledger=ok user_version=2")
+            .contains("ledger=ok user_version=3")
     );
 }
 
@@ -1658,4 +1658,156 @@ fn ledger_table_query_and_lookups_share_ui_schema() {
         ],
         2,
     );
+}
+
+#[test]
+fn account_purpose_flags_json_clear_and_list_round_trip() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+
+    let created = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--name",
+            "groceries",
+            "--category",
+            "Cash",
+            "--currency",
+            "KRW",
+            "--opening-balance",
+            "0",
+            "--purpose",
+            "  Weekly groceries  ",
+        ],
+    );
+    assert_eq!(created["purpose"], "Weekly groceries");
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let from_json = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "create",
+            "--json",
+            r#"{"name":"rent","category":"Cash","currency":"KRW","opening_balance":"0","purpose":"Monthly rent"}"#,
+        ],
+    );
+    assert_eq!(from_json["purpose"], "Monthly rent");
+
+    let card = json_success(
+        home.path(),
+        &[
+            "ledger", "account", "list", "--query", "card", "--format", "json",
+        ],
+    );
+    assert_eq!(card["items"][0]["purpose"], Value::Null);
+
+    let renamed = json_success(
+        home.path(),
+        &["ledger", "account", "update", &id, "--name", "food"],
+    );
+    assert_eq!(renamed["purpose"], "Weekly groceries");
+
+    let changed = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "update",
+            &id,
+            "--json",
+            r#"{"purpose":"Food and household"}"#,
+        ],
+    );
+    assert_eq!(changed["purpose"], "Food and household");
+
+    let table = success(
+        home.path(),
+        &[
+            "ledger", "account", "list", "--query", "food", "--format", "table",
+        ],
+    );
+    let stdout = String::from_utf8(table.stdout).unwrap();
+    assert!(
+        stdout.lines().next().unwrap().ends_with("\tPURPOSE"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\tFood and household"), "{stdout}");
+
+    let cleared = json_success(
+        home.path(),
+        &["ledger", "account", "update", &id, "--clear-purpose"],
+    );
+    assert_eq!(cleared["purpose"], Value::Null);
+
+    json_success(
+        home.path(),
+        &["ledger", "account", "update", &id, "--purpose", "again"],
+    );
+    let blank = json_success(
+        home.path(),
+        &["ledger", "account", "update", &id, "--purpose", ""],
+    );
+    assert_eq!(blank["purpose"], Value::Null);
+
+    json_success(
+        home.path(),
+        &["ledger", "account", "update", &id, "--purpose", "again"],
+    );
+    let json_clear = json_success(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "update",
+            &id,
+            "--json",
+            r#"{"clear_purpose":true}"#,
+        ],
+    );
+    assert_eq!(json_clear["purpose"], Value::Null);
+
+    assert_exit(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "update",
+            &id,
+            "--json",
+            r#"{"purpose":"x","clear_purpose":true}"#,
+        ],
+        2,
+    );
+    assert_exit(
+        home.path(),
+        &[
+            "ledger",
+            "account",
+            "update",
+            &id,
+            "--purpose",
+            "x",
+            "--clear-purpose",
+        ],
+        2,
+    );
+    let too_long = "x".repeat(501);
+    let output = assert_exit(
+        home.path(),
+        &["ledger", "account", "update", &id, "--purpose", &too_long],
+        2,
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("purpose"));
+    let unchanged = json_success(
+        home.path(),
+        &[
+            "ledger", "account", "list", "--query", "food", "--format", "json",
+        ],
+    );
+    assert_eq!(unchanged["items"][0]["purpose"], Value::Null);
 }
