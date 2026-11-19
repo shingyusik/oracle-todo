@@ -71,6 +71,10 @@ npm --prefix npm/raven test
   requires exact `RAVEN_API_ALLOW_UNSAFE_CLEARTEXT=true`.
 - UI artifact: `--ui-path` or `RAVEN_UI_PATH`.
 - Public UI origin: optional canonical HTTPS `RAVEN_UI_PUBLIC_ORIGIN`; UI remains loopback-only.
+- Version/update: build-time `RAVEN_RELEASE_VERSION` (else `<crate>-dev`); wrapper-set
+  `RAVEN_UPDATE_SUPERVISOR`, `RAVEN_BUNDLE_VERSION`, `RAVEN_UI_VERSION`; optional
+  `RAVEN_UPDATE_RESTART_LABELS` (launchd labels restarted after an update) and
+  `RAVEN_GITHUB_TOKEN`; test-only loopback `RAVEN_GITHUB_API_URL`. `/api/v1/system/{version,update}` are UI-only; update exits `75`.
 - MCP: loopback port `3003`; requires `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER`
   and `RAVEN_MCP_ACCESS_AUDIENCE`; validates Cloudflare Access JWT signatures and application claims.
   Requires a caller allowlist (`RAVEN_MCP_GATEWAY_CLIENT_ID` + `RAVEN_MCP_GATEWAY_PUBLIC_KEY`

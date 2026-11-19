@@ -110,7 +110,10 @@ async fn exact_bearer_token_passes_and_only_healthz_is_exempt() {
     for uri in ["/healthz", "/healthz?probe=1"] {
         let (status, _, body) = request(Request::get(uri).body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, serde_json::json!({"status":"ok"}));
+        assert_eq!(
+            body,
+            serde_json::json!({"status":"ok","version":raven_api::version::RELEASE_VERSION})
+        );
     }
 
     for uri in ["/healthz/", "/api/v1/healthz"] {
@@ -250,4 +253,29 @@ async fn server_starts_on_an_ephemeral_loopback_listener() {
             .starts_with("HTTP/1.1 200 OK")
     );
     server.abort();
+}
+
+#[tokio::test]
+async fn standalone_api_router_has_no_system_update_routes() {
+    for (method, uri) in [
+        ("GET", "/api/v1/system/version"),
+        ("GET", "/api/v1/system/version?refresh=1"),
+        ("POST", "/api/v1/system/update"),
+    ] {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::ORIGIN, "http://127.0.0.1:3001")
+                    .header("x-raven-update", "1")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"target_version":"9.9.9"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {uri}");
+    }
 }

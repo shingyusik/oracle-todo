@@ -30,6 +30,10 @@ pub struct ApiErrorBody {
 #[derive(Debug)]
 enum ErrorKind {
     Unauthorized,
+    Forbidden,
+    UpdateInProgress,
+    UpdateNotAvailable,
+    UpdateUnsupported,
     Validation { field: Option<&'static str> },
     PayloadTooLarge,
     UriTooLong,
@@ -51,6 +55,30 @@ impl ApiError {
     pub fn unauthorized() -> Self {
         Self {
             kind: ErrorKind::Unauthorized,
+        }
+    }
+
+    pub fn forbidden() -> Self {
+        Self {
+            kind: ErrorKind::Forbidden,
+        }
+    }
+
+    pub(crate) fn update_in_progress() -> Self {
+        Self {
+            kind: ErrorKind::UpdateInProgress,
+        }
+    }
+
+    pub(crate) fn update_not_available() -> Self {
+        Self {
+            kind: ErrorKind::UpdateNotAvailable,
+        }
+    }
+
+    pub(crate) fn update_unsupported() -> Self {
+        Self {
+            kind: ErrorKind::UpdateUnsupported,
         }
     }
 
@@ -116,6 +144,30 @@ impl IntoResponse for ApiError {
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 "Authentication is required.",
+                Map::new(),
+            ),
+            ErrorKind::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "The request is not allowed.",
+                Map::new(),
+            ),
+            ErrorKind::UpdateInProgress => (
+                StatusCode::CONFLICT,
+                "update_in_progress",
+                "An update is already in progress.",
+                Map::new(),
+            ),
+            ErrorKind::UpdateNotAvailable => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "update_not_available",
+                "The requested update is not available.",
+                Map::new(),
+            ),
+            ErrorKind::UpdateUnsupported => (
+                StatusCode::NOT_IMPLEMENTED,
+                "update_unsupported",
+                "Updates require the Raven update supervisor.",
                 Map::new(),
             ),
             ErrorKind::Validation { field } => (

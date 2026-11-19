@@ -30,14 +30,18 @@ impl<R: LedgerMutationRepository> LedgerService<R> {
     ///
     /// A transfer entry always archives together with its validated counterpart.
     pub fn archive_entry(&mut self, id: &str) -> LedgerResult<LedgerEntry> {
-        self.retry_busy("archive_entry", |service| service.set_entry_archived(id, true))
+        self.retry_busy("archive_entry", |service| {
+            service.set_entry_archived(id, true)
+        })
     }
 
     /// Restores an entry. Repeating the request is a no-op without a duplicate audit.
     ///
     /// A transfer entry always restores together with its validated counterpart.
     pub fn restore_entry(&mut self, id: &str) -> LedgerResult<LedgerEntry> {
-        self.retry_busy("restore_entry", |service| service.set_entry_archived(id, false))
+        self.retry_busy("restore_entry", |service| {
+            service.set_entry_archived(id, false)
+        })
     }
 
     pub fn purge_account_category(&mut self, id: &str, confirmation: &str) -> LedgerResult<()> {

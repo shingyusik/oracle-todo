@@ -1,9 +1,13 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
+use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
-use raven_api::{AuthMode, RavenApiConfig};
+use raven_api::{
+    AuthMode, GithubReleases, RavenApiConfig, RestartSignal, UiUpdates, UpdateSettings,
+};
 use time::macros::offset;
 
 use crate::cli::UiArgs;
@@ -42,13 +46,24 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         local_offset: offset!(+9),
         auth: AuthMode::ui_session(&session),
     };
+    let updates = ui_updates()?;
+    let restart = updates.restart_signal();
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
         validate_public_origin(public_origin.as_deref(), actual)?;
-        let app =
-            raven_api::ui_router(config, artifact, session, actual, public_origin.as_deref())?;
+        let app = raven_api::ui_router_with_updates(
+            config,
+            artifact,
+            session,
+            actual,
+            public_origin.as_deref(),
+            updates,
+        )?;
+        tokio::spawn(exit_after_restart(restart, UPDATE_RESTART_DELAY, || {
+            std::process::exit(UPDATE_RESTART_EXIT_CODE)
+        }));
         let (url, session_url) = ui_urls(actual);
         println!("Raven UI listening on {url}");
         println!("Open Raven UI: {session_url}");
@@ -81,6 +96,36 @@ fn validate_public_origin(
             .map_err(|_| UiCommandError::PublicOrigin)?;
     }
     Ok(())
+}
+
+/// Exit code telling the npm supervisor to install the accepted update and relaunch.
+pub const UPDATE_RESTART_EXIT_CODE: i32 = 75;
+const UPDATE_RESTART_DELAY: Duration = Duration::from_millis(300);
+
+fn update_settings(lookup: impl Fn(&str) -> Option<String>) -> UpdateSettings {
+    let compiled = UpdateSettings::compiled();
+    let present = |name: &str| lookup(name).filter(|value| !value.is_empty());
+    UpdateSettings {
+        current_version: present("RAVEN_BUNDLE_VERSION").unwrap_or(compiled.current_version),
+        ui_version: present("RAVEN_UI_VERSION"),
+        supported: lookup("RAVEN_UPDATE_SUPERVISOR").as_deref() == Some("1"),
+        target: compiled.target,
+    }
+}
+
+fn ui_updates() -> anyhow::Result<UiUpdates> {
+    let lookup = |name: &str| std::env::var(name).ok();
+    let source =
+        GithubReleases::from_env(lookup("RAVEN_GITHUB_TOKEN"), lookup("RAVEN_GITHUB_API_URL"))?;
+    Ok(UiUpdates::new(update_settings(lookup), Arc::new(source)))
+}
+
+/// After an accepted update, give the 202 response time to flush, then exit without
+/// waiting for open SSE connections.
+async fn exit_after_restart(signal: RestartSignal, delay: Duration, exit: impl FnOnce()) {
+    signal.requested().await;
+    tokio::time::sleep(delay).await;
+    exit();
 }
 
 fn resolve_ui_path(explicit: Option<PathBuf>) -> anyhow::Result<PathBuf> {
@@ -145,6 +190,61 @@ mod tests {
 
         let status = reap_child(child).join().unwrap().unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn update_settings_read_the_supervisor_environment() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            }
+        };
+        let supervised = update_settings(env(&[
+            ("RAVEN_UPDATE_SUPERVISOR", "1"),
+            ("RAVEN_BUNDLE_VERSION", "0.4.0"),
+            ("RAVEN_UI_VERSION", "0.4.1"),
+        ]));
+        assert_eq!(supervised.current_version, "0.4.0");
+        assert_eq!(supervised.ui_version.as_deref(), Some("0.4.1"));
+        assert!(supervised.supported);
+
+        let standalone = update_settings(env(&[
+            ("RAVEN_UPDATE_SUPERVISOR", "true"),
+            ("RAVEN_BUNDLE_VERSION", ""),
+        ]));
+        assert_eq!(
+            standalone.current_version,
+            raven_api::version::RELEASE_VERSION
+        );
+        assert_eq!(standalone.ui_version, None);
+        assert!(!standalone.supported);
+        assert_eq!(standalone.target, raven_api::version::HOST_TARGET);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn accepted_update_exits_with_code_75_after_the_restart_delay() {
+        let signal = RestartSignal::default();
+        let (sender, mut exited) = tokio::sync::oneshot::channel();
+        let started = tokio::time::Instant::now();
+        let waiter = tokio::spawn(exit_after_restart(
+            signal.clone(),
+            UPDATE_RESTART_DELAY,
+            move || sender.send(UPDATE_RESTART_EXIT_CODE).unwrap(),
+        ));
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        assert!(exited.try_recv().is_err(), "no exit without an update");
+
+        let requested = tokio::time::Instant::now();
+        signal.trigger();
+        tokio::time::sleep(UPDATE_RESTART_DELAY - Duration::from_millis(1)).await;
+        assert!(exited.try_recv().is_err(), "exit waits for the response");
+        assert_eq!(exited.await.unwrap(), 75);
+        assert_eq!(requested.elapsed(), UPDATE_RESTART_DELAY);
+        assert!(started.elapsed() > UPDATE_RESTART_DELAY);
+        waiter.await.unwrap();
     }
 
     #[test]

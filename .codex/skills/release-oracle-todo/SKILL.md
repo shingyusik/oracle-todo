@@ -7,11 +7,11 @@ description: Publish a Raven engine/UI GitHub Release and its npm wrapper throug
 
 Release from the repository root. The flow is:
 
-1. Push tags `v<engine-version>` and `npm-v<wrapper-version>` from a verified `main`.
+1. Merge the release changes into `main` through a pull request, then push tag `v<engine-version>` (and `npm-v<wrapper-version>` when `npm/raven` changed) at the verified merge commit.
 2. GitHub Actions runs `release.yml` and `npm-publish.yml`:
    - `v<engine-version>` builds the multi-platform engine, static UI, checksums, and GitHub Release.
    - `npm-v<wrapper-version>` tests and publishes `@shings/raven`.
-3. On the Mac mini, update the global wrapper and cached bundle, restart `com.raven.ui` (section 4), then repoint and reload `com.raven.mcp` (section 5).
+3. On the Mac mini, update the global wrapper and cached bundle, restart `com.raven.ui` (section 4), then move `com.raven.mcp` to the new release (section 5). After the one-time migration in section 5, the UI sidebar `Update to v<version>` button can do the bundle update and both restarts.
 
 Do not run `npm publish` locally. npm Trusted Publishing uses GitHub Actions OIDC, so no local npm login, OTP, `NPM_TOKEN`, or secret is required.
 
@@ -20,13 +20,13 @@ Do not run `npm publish` locally. npm Trusted Publishing uses GitHub Actions OID
 1. Read `docs/operations/setup.md`, `docs/operations/mcp-reference.md`, `.github/workflows/release.yml`, and `.github/workflows/npm-publish.yml`.
 2. Inspect `git status --short --branch`, unstaged/staged diffs, `git stash list`, recent commits, tags, GitHub releases, and the current npm `latest` version.
 3. Keep unrelated user changes out of the release. Do not tag a mixed or dirty worktree.
-4. Determine the two exact versions before creating tags:
+4. Determine the exact versions before creating tags:
    - engine/UI version: next GitHub Release tag, `v<engine-version>`;
-   - wrapper version: `npm/raven/package.json`, `npm-v<wrapper-version>`.
+   - wrapper version: `npm/raven/package.json`, `npm-v<wrapper-version>`. A wrapper release is needed whenever `npm/raven` changed since the last `npm-v*` tag (compare with `git diff <last-npm-tag>..HEAD -- npm/raven`). The web update feature bumps it to `0.1.37`, so its first release needs both tags. If `npm/raven` did not change, skip the wrapper tag and every wrapper step below.
 5. Confirm that the wrapper package version was committed intentionally. If a version bump or release commit is needed, use the project `structured-commit` skill first.
 6. Do not recreate existing local or remote tags. Stop and report a collision.
 
-This repository (`shingyusik/oracle-todo`) releases accepted `main` commits directly by tag. Do not create a PR just to cut a release when `main` is synchronized and the user explicitly requested deployment.
+`main` of `shingyusik/oracle-todo` is protected by repository rulesets: every change needs a pull request with passing `frontend` and `rust` status checks, and a direct push to `main` is rejected. Do not push release commits directly to `main`. Put the release commit (version bumps) on a branch, open a PR to `main`, wait for both checks, merge it, and tag the merge commit. See `docs/operations/ci.md`.
 
 ## 2. Validate before publishing
 
@@ -54,7 +54,16 @@ For an engine behavior change, use `verify-todo-engine` with a `mktemp -d` data 
 
 ## 3. Preflight and publish
 
-Require an authenticated GitHub CLI session and a clean, synchronized `main` before tagging.
+Require an authenticated GitHub CLI session. Merge the release PR first:
+
+```bash
+git push -u origin <release-branch>
+gh pr create --base main --head <release-branch> --title "[RELEASE] ..." --body "..."
+gh pr checks <pr-number> --watch
+gh pr merge <pr-number> --merge
+```
+
+Require both `frontend` and `rust` checks to pass before merging. Then switch to a clean `main` synchronized with `origin/main` (now at the merge commit) before tagging:
 
 ```bash
 gh --version
@@ -67,7 +76,7 @@ git ls-remote --tags origin refs/tags/v<engine-version> refs/tags/npm-v<wrapper-
 node -p "require('./npm/raven/package.json').version"
 ```
 
-Only proceed when `HEAD` equals `origin/main`, neither intended tag exists locally or remotely, and the `node -p` output equals `<wrapper-version>` in `npm-v<wrapper-version>`. If the versions differ, stop and report. Create lightweight tags at the verified `HEAD` and push them together:
+Only proceed when `HEAD` equals `origin/main` (the merge commit of the release PR), no intended tag exists locally or remotely, and the `node -p` output equals `<wrapper-version>` in `npm-v<wrapper-version>`. If the versions differ, stop and report. Create lightweight tags at the verified merge commit and push them together (omit `npm-v<wrapper-version>` when no wrapper release is needed):
 
 ```bash
 git tag v<engine-version>
@@ -75,7 +84,9 @@ git tag npm-v<wrapper-version>
 git push origin v<engine-version> npm-v<wrapper-version>
 ```
 
-Find the two run IDs using `gh run list`, then wait for both to complete successfully:
+Tag pushes are not blocked by the `main` rulesets. `release.yml` sets `RAVEN_RELEASE_VERSION` from the tag (without `v`) at build time, so the binaries report the release version. Its macOS targets build on `macos-15`; the `macos-14` runner image was retired on 2026-11-02, so never reintroduce `macos-14` labels.
+
+Find the run IDs using `gh run list`, then wait for each to complete successfully:
 
 ```bash
 gh run watch <npm-run-id> --exit-status
@@ -102,7 +113,9 @@ raven version
 raven doctor
 ```
 
-`raven version` must print the wrapper version, `raven <engine-version>`, and `raven-ui <engine-version>`. The cache root is `RAVEN_CACHE_DIR` or `~/.local/share/raven`; it holds `versions/<version>/raven`, the active `bin/raven`, `ui/<version>/index.html`, and `metadata.json`. Do not use native `raven --version` to verify the release; it prints the crate version `0.1.0`.
+`raven version` must print the wrapper version, `raven <engine-version>`, and `raven-ui <engine-version>`. The cache root is `RAVEN_CACHE_DIR` or `~/.local/share/raven`; it holds `versions/<version>/raven`, the active `bin/raven` (replaced atomically), `ui/<version>/index.html`, `metadata.json`, and `update-status.json` (last update attempt: `at`, `from`, `to`, `ok`, `error`). Native `raven --version` now prints the release version (`RAVEN_RELEASE_VERSION`); a locally built binary without it prints `<crate version>-dev`. Releases built before this change still print the crate version `0.1.0`.
+
+Alternative to the CLI update plus restart below: once the release is published, open the Raven UI (local or public origin) and use the sidebar `Update to v<engine-version>` button. The wrapper running `com.raven.ui` downloads and verifies the bundle, restarts the labels in `RAVEN_UPDATE_RESTART_LABELS`, and relaunches the UI on the new version. The UI only offers a version newer than the installed one and may need `Check now` (the check is cached for 6 hours). This updates only the cached bundle, not the global npm wrapper; a wrapper release still needs `npm install -g @shings/raven@<wrapper-version>` and a `com.raven.ui` restart. Run the same verification below either way.
 
 The live UI is the launchd LaunchAgent `com.raven.ui` (`~/Library/LaunchAgents/com.raven.ui.plist`), listening on `127.0.0.1:3001` (confirmed on the Mac mini). Two processes are involved:
 
@@ -127,7 +140,7 @@ Require:
 - `launchctl print`: `state = running` and a new wrapper pid;
 - `lsof`: a listener pid different from the one recorded before the restart;
 - `ps` on the listener pid: `--ui-path .../ui/<engine-version>`;
-- `{"status":"ok"}` from `/healthz` (confirmed to return 200 on the Mac mini) and matching hashes.
+- `{"status":"ok","version":"<engine-version>"}` from `/healthz` (confirmed to return 200 on the Mac mini) and matching hashes.
 
 UNVERIFIED: it is not confirmed whether `launchctl kickstart -k` also restarts the child listener. That is why the listener pid and its `--ui-path` are checked separately. If the old child survives, stop and report; do not kill it by broad matching.
 
@@ -154,11 +167,13 @@ mv ~/Library/LaunchAgents/com.oracle-todo.ui.plist "$BACKUP_DIR/com.oracle-todo.
 chmod 600 "$BACKUP_DIR"/com.oracle-todo.ui.plist.*
 ```
 
-`com.raven.mcp` is a launchd LaunchAgent listening on `127.0.0.1:3003`. Its plist pins a versioned binary, so `raven update` alone does not move it to the new release. Its `ProgramArguments` are:
+`com.raven.mcp` is a launchd LaunchAgent listening on `127.0.0.1:3003`. Until the one-time migration below, its plist pins a versioned binary, so `raven update` alone does not move it to the new release. Its `ProgramArguments` are:
 
 ```text
 ~/.local/share/raven/versions/<version>/raven --home /Users/singyusig/.raven mcp --port 3003
 ```
+
+Target state (one-time migration, see "Migrate to the stable binary" below): `ProgramArguments:0` is the stable `~/.local/share/raven/bin/raven`, and the `com.raven.ui` plist sets `RAVEN_UPDATE_RESTART_LABELS=com.raven.mcp`. Then every update (sidebar button or `raven update`) replaces `bin/raven`, and the MCP picks it up when restarted. After a UI-button update the wrapper restarts it with `launchctl kickstart -k`; after a CLI `raven update`, run `launchctl kickstart -k "gui/$(id -u)/com.raven.mcp"` yourself (the plist is unchanged, so `kickstart` is sufficient). Run the Verify block below after either path, expecting `bin/raven` instead of `versions/<engine-version>/raven`. Check the current `ProgramArguments:0` first to know which state applies.
 
 Confirmed on the Mac mini (the plist itself is not in the repo):
 
@@ -177,7 +192,7 @@ git merge-base --is-ancestor 9eeac76 v<engine-version>
 
 Repeat for any related Ledger fix being relied on. If any check exits non-zero, do not move the MCP service. Keep the hotfix running and report.
 
-Steps:
+Steps (pinned-version repoint; for the one-time migration use the stable `bin/raven` path, see below):
 
 ```bash
 launchctl print "gui/$(id -u)/com.raven.mcp" | grep -E '^[[:space:]]*path = '
@@ -245,6 +260,53 @@ Require a valid, non-empty items page with events present. If the call fails, or
 
 Never put Cloudflare Access credentials, service tokens, or JWTs in commands or evidence.
 
+### Migrate to the stable binary (one time)
+
+**Run only with owner approval, once, after a release that contains the web update feature (wrapper `0.1.37` or later) is installed and verified.** It lets `com.raven.mcp` follow UI and CLI updates instead of staying pinned to `versions/<version>`.
+
+1. Run the pre-move check above (`9eeac76` and other relied-on Ledger fixes) against the installed `v<engine-version>`. If it fails, do not migrate.
+2. Confirm the stable binary is the verified release:
+
+   ```bash
+   NEW="${RAVEN_CACHE_DIR:-$HOME/.local/share/raven}/bin/raven"
+   test -x "$NEW"
+   "$NEW" --version
+   raven version
+   ```
+
+   Require `"$NEW" --version` and `raven version` to report `<engine-version>`.
+3. Run the MCP Steps block above with this `NEW` value (skip its `NEW=` line). It takes the same timestamped backup into `~/raven-launchd-backups` (`700` directory, `600` file), changes only `ProgramArguments:0`, and compares env key names before and after. Then `bootout`/`bootstrap` with the same error handling, run the Verify block expecting `~/.local/share/raven/bin/raven --home /Users/singyusig/.raven mcp --port 3003`, and the `ledger_audit` check. Note the `$BACKUP` path for rollback.
+4. Add `RAVEN_UPDATE_RESTART_LABELS=com.raven.mcp` to the `com.raven.ui` plist, with the same backup and key-name-only checks:
+
+   ```bash
+   launchctl print "gui/$(id -u)/com.raven.ui" | grep -E '^[[:space:]]*path = '
+   UI_PLIST=~/Library/LaunchAgents/com.raven.ui.plist
+   BACKUP_DIR=~/raven-launchd-backups
+   mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
+   UI_BACKUP="$BACKUP_DIR/com.raven.ui.plist.$(date +%Y%m%d-%H%M%S)"
+   cp -p "$UI_PLIST" "$UI_BACKUP"
+   cmp "$UI_PLIST" "$UI_BACKUP"
+   chmod 600 "$UI_BACKUP"
+   /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$UI_PLIST"
+   plutil -extract EnvironmentVariables xml1 -o - "$UI_PLIST" | grep -o '<key>[^<]*</key>'
+   ```
+
+   UNVERIFIED: whether the `com.raven.ui` plist already has an `EnvironmentVariables` dictionary. If the `plutil -extract` command fails because the key is missing, first run `/usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables dict' "$UI_PLIST"`. If `RAVEN_UPDATE_RESTART_LABELS` is already listed, print only that key (`/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:RAVEN_UPDATE_RESTART_LABELS' "$UI_PLIST"`); if it is `com.raven.mcp`, skip the `Add` and reload below, otherwise stop and report instead of overwriting it. Then:
+
+   ```bash
+   /usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables:RAVEN_UPDATE_RESTART_LABELS string com.raven.mcp' "$UI_PLIST"
+   plutil -lint "$UI_PLIST"
+   /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$UI_PLIST"
+   plutil -extract EnvironmentVariables xml1 -o - "$UI_PLIST" | grep -o '<key>[^<]*</key>'
+   ```
+
+   Require `ProgramArguments` unchanged and the key names to differ only by the added `RAVEN_UPDATE_RESTART_LABELS`. Do not list `com.raven.ui` itself in the variable. Because the plist changed, reload with `launchctl bootout` and `launchctl bootstrap "gui/$(id -u)" "$UI_PLIST"` (same error `113`/`3`/`5` handling as the MCP), not `kickstart`. Then re-run the section 4 UI checks.
+5. Report the old and new MCP `ProgramArguments:0`, both backup paths, and the UI env key names.
+
+The UI backup is kept outside `~/Library/LaunchAgents` and is never committed or shared, like the MCP backup. Rollback restores each backup over its plist (`cp -p`), then `bootout`/`bootstrap` that label and re-runs its checks.
+
+`RAVEN_UPDATE_RESTART_LABELS` restarts use `launchctl kickstart -k gui/<uid>/<label>` and run only on macOS. A failed restart is logged and does not fail the update, so always run the MCP Verify block after a UI-button update.
+
 ### MCP rollback
 
 Restore the timestamped `$BACKUP` recorded above over `$PLIST` (`cp -p "$BACKUP" "$PLIST"`), then `bootout` and `bootstrap` with the same error handling. Re-run the full Verify block against the restored path: filtered `launchctl print`, PlistBuddy `ProgramArguments`, `lsof` on `3003`, `ps`, the `421` `curl` probe, and the `ledger_audit` check. Keep `versions/<old-version>` until verification passes; the wrapper does not prune old version directories. Reinstalling the same version deletes and recreates `versions/<version>`, so never repoint the plist at a version you are about to reinstall.
@@ -263,29 +325,36 @@ launchctl kickstart -k "gui/$(id -u)/com.raven.ui"
 
 Then re-run the section 4 UI checks with `<old-engine-version>`. Re-installing a version deletes and recreates `versions/<version>`. Never `RAVEN_VERSION`-reinstall the version the MCP plist is currently pinned to while the MCP is running.
 
+After the stable-binary migration, this rollback also replaces `bin/raven` used by `com.raven.mcp`. Restart it with `launchctl kickstart -k "gui/$(id -u)/com.raven.mcp"` and re-run the MCP Verify block and `ledger_audit` check. The UI button never offers a version at or below the installed one, so rollback always uses this CLI path.
+
 ## 6. Final evidence
 
 Before claiming completion, use `verification-before-completion` and freshly verify:
 
-- `npm/raven/package.json` version matches the `npm-v<wrapper-version>` tag;
+- the release PR merged into `main` with passing `frontend` and `rust` checks;
+- `npm/raven/package.json` version matches the `npm-v<wrapper-version>` tag (when a wrapper release was made);
 - npm `latest` equals the wrapper version, and the global install was pinned to `@shings/raven@<wrapper-version>`;
 - `raven version` shows the expected wrapper, engine, and UI versions, and `raven doctor` passes;
-- both GitHub Actions runs concluded `success`;
+- every triggered GitHub Actions release run concluded `success`;
 - GitHub Release has all expected assets;
-- `com.raven.ui` is running with a new wrapper pid, the `3001` listener has a new pid whose `ps` args show `--ui-path .../ui/<engine-version>`, `/healthz` returns ok, and the served UI hash matches `ui/<engine-version>/index.html`;
+- `com.raven.ui` is running with a new wrapper pid, the `3001` listener has a new pid whose `ps` args show `--ui-path .../ui/<engine-version>`, `/healthz` returns ok with `"version":"<engine-version>"`, and the served UI hash matches `ui/<engine-version>/index.html`;
 - `9eeac76` (and any other relied-on Ledger fix) is an ancestor of `v<engine-version>`;
-- `com.raven.mcp` is running from `versions/<engine-version>/raven` per filtered `launchctl print`, PlistBuddy `ProgramArguments`, and `ps`, the `lsof` listener on `3003` has the same pid, the unauthenticated `/mcp` probe returns `421`, and `ledger_audit` on an existing entry returns events;
+- `com.raven.mcp` is running from `versions/<engine-version>/raven` (or, after the migration, `bin/raven` reporting `<engine-version>`) per filtered `launchctl print`, PlistBuddy `ProgramArguments`, and `ps`, the `lsof` listener on `3003` has the same pid, the unauthenticated `/mcp` probe returns `421`, and `ledger_audit` on an existing entry returns events;
 - evidence contains only filtered `launchctl print` lines, PlistBuddy `ProgramArguments`, and env key names; no full `plutil -p` or `launchctl print` output;
-- `HEAD`, `origin/main`, `v<engine-version>`, and `npm-v<wrapper-version>` resolve to the same commit;
+- `HEAD`, `origin/main` (the release PR merge commit), `v<engine-version>`, and `npm-v<wrapper-version>` resolve to the same commit;
 - worktree is clean.
 
-Report the release URL, both Actions URLs, versions, test results, the MCP binary path before and after, and whether a browser hard refresh may be needed.
+Report the release PR URL, the release URL, the Actions URLs, versions, test results, the MCP binary path before and after, and whether a browser hard refresh may be needed.
 
 ## Known gaps
 
 - The `com.raven.ui` and `com.raven.mcp` plists live only on the Mac mini; the repo has no templates or install scripts for them.
-- The MCP listener has no health or version endpoint. Version comes from the plist and process command line.
-- Native `raven --version` reports the crate version `0.1.0`, not the release version.
+- The MCP listener has no health or version endpoint. Version comes from the plist and process command line, or `<binary> --version` for releases built with `RAVEN_RELEASE_VERSION`.
+- Releases built before `RAVEN_RELEASE_VERSION` still report the crate version `0.1.0` from native `raven --version`; local builds report `<crate version>-dev`.
+- Until the one-time stable-binary migration (section 5) is done, `com.raven.mcp` stays pinned to `versions/<version>/raven`, and neither the UI button nor `raven update` moves it. Whether it is done on the Mac mini is not recorded here; check `ProgramArguments:0` with PlistBuddy.
+- `RAVEN_UPDATE_RESTART_LABELS` works only on macOS, and a failed restart is logged but not reported as an update failure. Check the MCP after every UI-button update.
+- The UI update button works only when `raven ui` runs through the npm wrapper (`RAVEN_UPDATE_SUPERVISOR=1`); it updates the cached bundle, not the global npm wrapper. Rollback is CLI-only.
+- UNVERIFIED: the `main-merge-gate` ruleset still lists an Admin bypass, but direct pushes to `main` are rejected in practice. Always release through a PR.
 - The `com.raven.mcp` plist has no `StandardOutPath` or `StandardErrorPath`, so there are no log files. On failure, use filtered `launchctl print` and `log show --predicate 'process == "raven"' --last 10m`.
 - Legacy `com.oracle-todo.ui` is still loaded on the Mac mini and restart-looping with HTTP 403. Its cleanup (section 5) requires owner approval.
 - `versions/0.4.32-ledger-audit-entry-fix-20261016` was built locally and has no `SHA256SUMS`, so it cannot be checksum-verified. It is the rollback target; do not delete it until the new release passes verification.

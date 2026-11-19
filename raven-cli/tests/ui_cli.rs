@@ -146,3 +146,20 @@ fn ui_validates_public_origin_before_binding_the_listener() {
     assert!(stderr.contains("invalid RAVEN_UI_PUBLIC_ORIGIN"));
     assert!(!stderr.contains(invalid));
 }
+
+#[test]
+fn version_flag_reports_the_release_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_raven"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let expected = match option_env!("RAVEN_RELEASE_VERSION") {
+        Some(version) if !version.is_empty() => version.to_owned(),
+        _ => format!("{}-dev", env!("CARGO_PKG_VERSION")),
+    };
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("raven {expected}\n")
+    );
+}

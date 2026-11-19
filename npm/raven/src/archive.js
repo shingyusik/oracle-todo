@@ -75,19 +75,31 @@ async function findExtractedBinary(directory, binaryName) {
   return null;
 }
 
-async function activateBinary(paths, binaryName) {
-  await fs.mkdir(paths.binDir, { recursive: true });
+// Stages the binary next to bin/raven and renames it into place, so readers
+// (launchd, a restarted MCP service) never observe a partially written file.
+async function activateBinary(paths, binaryName, { fsImpl = fs } = {}) {
+  await fsImpl.mkdir(paths.binDir, { recursive: true });
   let source = paths.versionedBinary;
   try {
-    await fs.access(source);
+    await fsImpl.access(source);
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
     source = await findExtractedBinary(paths.versionDir, binaryName);
     if (!source) throw error;
   }
-  await fs.copyFile(source, paths.activeBinary);
-  if (!binaryName.endsWith(".exe")) {
-    await fs.chmod(paths.activeBinary, 0o755);
+  const staging = path.join(
+    paths.binDir,
+    `.${binaryName}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
+  );
+  try {
+    await fsImpl.copyFile(source, staging);
+    if (!binaryName.endsWith(".exe")) {
+      await fsImpl.chmod(staging, 0o755);
+    }
+    await fsImpl.rename(staging, paths.activeBinary);
+  } catch (error) {
+    await fs.rm(staging, { force: true });
+    throw error;
   }
 }
 

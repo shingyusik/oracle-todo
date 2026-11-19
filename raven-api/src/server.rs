@@ -13,7 +13,10 @@ use axum::response::Response;
 use axum::routing::get;
 use thiserror::Error;
 
-use crate::{RavenApiConfig, ServerBind, UiSessionToken};
+use crate::system::ResolvedUiOrigin;
+use crate::{
+    GithubReleases, RavenApiConfig, ServerBind, UiSessionToken, UiUpdates, UpdateSettings,
+};
 
 const MAX_UI_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_UI_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
@@ -68,6 +71,21 @@ pub fn ui_router(
     authority: SocketAddr,
     public_origin: Option<&str>,
 ) -> anyhow::Result<Router> {
+    let updates = UiUpdates::new(
+        UpdateSettings::compiled(),
+        Arc::new(GithubReleases::new(None)?),
+    );
+    ui_router_with_updates(config, artifact, session, authority, public_origin, updates)
+}
+
+pub fn ui_router_with_updates(
+    config: RavenApiConfig,
+    artifact: UiArtifact,
+    session: UiSessionToken,
+    authority: SocketAddr,
+    public_origin: Option<&str>,
+    updates: UiUpdates,
+) -> anyhow::Result<Router> {
     if !authority.ip().is_loopback() {
         anyhow::bail!("Raven UI authority must be loopback");
     }
@@ -96,7 +114,11 @@ pub fn ui_router(
     let static_files = move |request: Request| serve_static(artifact.clone(), request);
 
     Ok(Router::new()
-        .merge(crate::router(config)?)
+        .merge(crate::build_router(
+            config,
+            updates.current_version(),
+            Some(crate::system::router(updates.clone())),
+        )?)
         .route("/__raven/session", get(bootstrap))
         .fallback(static_files)
         .layer(middleware::from_fn_with_state(
@@ -873,6 +895,9 @@ async fn validate_ui_authority(
     request
         .extensions_mut()
         .insert(ResolvedUiAuthority(authority.kind));
+    request
+        .extensions_mut()
+        .insert(ResolvedUiOrigin(authority.origin.clone()));
     let mut response = next.run(request).await;
     if public_get
         && response.status().is_success()

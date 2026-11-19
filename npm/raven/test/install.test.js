@@ -426,3 +426,72 @@ test("accepts matching checksums when SHA256SUMS is present", async () => {
 
   assert.equal(result.installedVersion, "0.2.0");
 });
+
+test("updateBundle with requireNewer never reinstalls or downgrades", async (t) => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-newer-"));
+  t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));
+  const platformInfo = { target: "aarch64-apple-darwin", extension: ".tar.gz", binaryName: "raven" };
+  const releaseFor = (version) => ({
+    tag_name: `v${version}`,
+    assets: signedAssets(
+      { name: `raven-${version}-aarch64-apple-darwin.tar.gz`, browser_download_url: `https://example.test/engine-${version}` },
+      { name: `raven-ui-${version}.tar.gz`, browser_download_url: `https://example.test/ui-${version}` }
+    ),
+  });
+  const extract = async (archivePath, destination) => {
+    await fs.mkdir(destination, { recursive: true });
+    if (path.basename(archivePath).startsWith("raven-ui-")) {
+      await fs.writeFile(path.join(destination, "index.html"), "<!doctype html>");
+    } else {
+      await fs.writeFile(path.join(destination, "raven"), "#!/bin/sh\n", { mode: 0o755 });
+    }
+  };
+  const base = { cacheRoot, platformInfo, downloadFileImpl: fakeDownload, extractArchiveImpl: extract };
+  await updateBundle({ ...base, fetchReleaseImpl: async () => releaseFor("0.3.0") });
+  const installed = await readMetadata(cacheRoot);
+  const noDownload = async () => { throw new Error("must not download"); };
+
+  for (const version of ["0.3.0", "0.2.9"]) {
+    const result = await updateBundle({
+      ...base,
+      requireNewer: true,
+      downloadFileImpl: noDownload,
+      fetchReleaseImpl: async () => releaseFor(version),
+    });
+    assert.equal(result.status, "up-to-date");
+    assert.equal(result.latestVersion, version);
+    assert.deepEqual(await readMetadata(cacheRoot), installed);
+  }
+
+  const downgraded = await updateBundle({ ...base, fetchReleaseImpl: async () => releaseFor("0.2.9") });
+  assert.equal(downgraded.installedVersion, "0.2.9", "CLI update keeps following the requested release");
+
+  await updateBundle({ ...base, fetchReleaseImpl: async () => releaseFor("0.3.0") });
+  const upgraded = await updateBundle({ ...base, requireNewer: true, fetchReleaseImpl: async () => releaseFor("0.4.0") });
+  assert.equal(upgraded.installedVersion, "0.4.0");
+  assert.equal(upgraded.uiVersion, "0.4.0");
+});
+
+test("passes RAVEN_GITHUB_API_URL to every release lookup", async (t) => {
+  const cacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "raven-api-url-"));
+  t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));
+  const seen = [];
+  const env = { RAVEN_GITHUB_API_URL: "http://127.0.0.1:3025", RAVEN_GITHUB_TOKEN: "secret" };
+  const options = {
+    cacheRoot,
+    env,
+    fetchReleaseImpl: async (args) => {
+      seen.push(args);
+      throw new Error("offline");
+    },
+  };
+
+  await assert.rejects(() => updateBundle(options), /offline/);
+  await assert.rejects(() => installEngine(options), /offline/);
+  await assert.rejects(() => updateEngine(options), /offline/);
+  assert.equal(seen.length, 3);
+  for (const args of seen) {
+    assert.equal(args.apiUrl, "http://127.0.0.1:3025");
+    assert.equal(args.token, "secret");
+  }
+});
