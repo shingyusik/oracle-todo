@@ -107,7 +107,8 @@ Markdown 출력에도 항목 ID가 포함됩니다. `show`는 전체 항목을 J
 `show`의 타임스탬프를 사용합니다. 생략하면 버전 비교 없이 수정합니다.
 `today`는 기존 Task만 조회합니다. Routine 발생 항목을 생성하려면 `routine materialize`를 실행합니다.
 생성 결과는 JSON 배열 하나이며, 결과가 없으면 `[]`입니다.
-ToDo·Ledger·Health 조회 명령은 데이터베이스를 생성하거나 마이그레이션하지 않습니다.
+ToDo·Ledger·Health 조회 명령은 데이터베이스를 생성하거나 초기화하지 않습니다. Ledger
+조회는 이미 초기화된 저장소의 스키마가 지원되는 이전 버전이면 먼저 업그레이드합니다.
 초기화되지 않은 홈은 먼저 `raven init`을 실행합니다.
 전체 옵션은 `raven todo --help`, `raven todo <command> --help`로 확인합니다.
 

@@ -86,6 +86,7 @@ where
             engine,
             duration_ms,
             exit_code = exit_code(error),
+            error_kind = errors::diagnostic_kind(error),
             "command failed"
         ),
     }

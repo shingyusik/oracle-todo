@@ -1308,3 +1308,45 @@ async fn account_purpose_over_500_characters_is_a_safe_validation_error() {
     .await;
     assert_eq!(wrong_type.status(), StatusCode::BAD_REQUEST);
 }
+
+// Regression: v0.4.40 returned 500 for every Ledger read on an existing version 2 store.
+#[tokio::test]
+async fn ledger_reads_upgrade_an_existing_version_two_store() {
+    let (temp, app) = app();
+    let ledger = temp.path().join("ledger.sqlite");
+    rusqlite::Connection::open(&ledger)
+        .unwrap()
+        .execute_batch(
+            "ALTER TABLE accounts DROP COLUMN purpose;
+             UPDATE audit_events
+                SET after_json = json_remove(after_json, '$.purpose')
+              WHERE record_type = 'account' AND after_json IS NOT NULL;
+             UPDATE audit_events
+                SET before_json = json_remove(before_json, '$.purpose')
+              WHERE record_type = 'account' AND before_json IS NOT NULL;
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+
+    let list = app
+        .oneshot(
+            Request::get("/api/v1/ledger/accounts")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let items = body(list).await["items"].as_array().unwrap().clone();
+    assert_eq!(items.len(), 2);
+    assert!(
+        items
+            .iter()
+            .all(|account| account["purpose"] == Value::Null)
+    );
+    let version: i64 = rusqlite::Connection::open(&ledger)
+        .unwrap()
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 3);
+}

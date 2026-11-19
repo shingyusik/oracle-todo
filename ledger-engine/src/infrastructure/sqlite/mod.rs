@@ -134,8 +134,22 @@ impl SqliteLedgerRepository {
             .map_err(storage_error)
     }
 
+    /// Opens an existing store for reads. An initialized store with an older supported
+    /// schema is upgraded first, so a newer binary can read it; an uninitialized or
+    /// missing store is never created or initialized.
     pub fn open_read_only(path: impl AsRef<Path>) -> LedgerResult<Self> {
-        let repository = Self::open_read_only_connection(path.as_ref())?;
+        let path = path.as_ref();
+        let version = Self::open_read_only_connection(path)?.schema_version()?;
+        if (1..schema::SCHEMA_VERSION).contains(&version) {
+            Self::open(path)?;
+            tracing::info!(
+                event = "ledger_schema_upgraded",
+                from_version = version,
+                to_version = schema::SCHEMA_VERSION,
+                "ledger schema upgraded"
+            );
+        }
+        let repository = Self::open_read_only_connection(path)?;
         repository.check_schema()?;
         Ok(repository)
     }

@@ -771,6 +771,75 @@ fn ledger_storage_failures_map_to_exit_one_and_log_no_paths() {
     assert!(!log.contains("unable to open"));
 }
 
+// Regression: v0.4.40 read commands rejected an existing version 2 store, and the
+// read-only open never ran the migration, so every Ledger command failed.
+#[test]
+fn ledger_read_commands_upgrade_an_existing_version_two_store() {
+    let home = tempfile::tempdir().unwrap();
+    init_and_seed(home.path());
+    let seeded = json_success(
+        home.path(),
+        &["ledger", "account", "list", "--format", "json"],
+    )["items"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert!(seeded > 0);
+    let database = home.path().join("ledger.sqlite");
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "ALTER TABLE accounts DROP COLUMN purpose;
+             UPDATE audit_events
+                SET after_json = json_remove(after_json, '$.purpose')
+              WHERE record_type = 'account' AND after_json IS NOT NULL;
+             UPDATE audit_events
+                SET before_json = json_remove(before_json, '$.purpose')
+              WHERE record_type = 'account' AND before_json IS NOT NULL;
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+
+    let accounts = json_success(
+        home.path(),
+        &["ledger", "account", "list", "--format", "json"],
+    );
+    let items = accounts["items"].as_array().unwrap();
+    assert_eq!(items.len(), seeded);
+    assert!(
+        items
+            .iter()
+            .all(|account| account["purpose"] == Value::Null)
+    );
+    let version: i64 = rusqlite::Connection::open(&database)
+        .unwrap()
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 3);
+    let doctor = json_success(home.path(), &["ledger", "doctor", "--format", "json"]);
+    assert_eq!(doctor["healthy"], true);
+}
+
+#[test]
+fn ledger_failures_log_a_safe_error_kind() {
+    let home = tempfile::tempdir().unwrap();
+    success(home.path(), &["init"]);
+    rusqlite::Connection::open(home.path().join("ledger.sqlite"))
+        .unwrap()
+        .execute_batch("PRAGMA user_version = 999;")
+        .unwrap();
+
+    assert_exit(
+        home.path(),
+        &["ledger", "account", "list", "--format", "json"],
+        1,
+    );
+    let log = std::fs::read_to_string(home.path().join("logs/raven.log.jsonl")).unwrap();
+    assert!(log.contains(r#""error_kind":"ledger_migration""#), "{log}");
+    assert!(!log.contains("newer than supported"));
+    assert!(!log.contains(home.path().to_str().unwrap()));
+}
+
 #[test]
 fn ledger_health_rejects_future_schema_without_changing_database_bytes() {
     let home = tempfile::tempdir().unwrap();

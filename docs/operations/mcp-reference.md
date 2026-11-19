@@ -38,7 +38,8 @@ no credentials, path, query or fragment, no explicit default port. Configuration
 `2`; startup failures exit `1`, without exposing configuration values or storage paths.
 Without a valid caller allowlist `raven mcp` refuses to start (exit `2`, field
 `caller_allowlist`); it never serves MCP with unrestricted callers.
-Signing keys must be reachable at startup. Reads never initialize or migrate domain stores.
+Signing keys must be reachable at startup. Reads never create or initialize domain stores; a Ledger read upgrades an initialized
+store with an older supported schema.
 
 ## Cloudflare Tunnel and Access
 

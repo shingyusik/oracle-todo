@@ -105,4 +105,5 @@ create or migrate missing databases.
 `raven init` initializes all three stores and `media/health`. ToDo initialization is
 additive and normalizes supported legacy statuses. Ledger and Health migrations run under
 their own schema-version checks and reject future versions. Initialization never drops a
-production database.
+production database. Ledger read paths upgrade an initialized store with an older
+supported schema before reading, so a schema-bumping release needs no manual `raven init`.
