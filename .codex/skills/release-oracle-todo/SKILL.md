@@ -112,18 +112,89 @@ npm view @shings/raven version dist-tags --json
 gh release view v<engine-version> --json tagName,url,publishedAt,assets
 ```
 
-Require `SHA256SUMS`, `raven-ui-<engine-version>.tar.gz`, and all four `raven-<engine-version>-<target>` archives. Then, on the Mac mini, update the global wrapper and cached bundle:
+Require `SHA256SUMS`, `raven-ui-<engine-version>.tar.gz`, and all four `raven-<engine-version>-<target>` archives.
+
+### Preflight: install into the npm prefix launchd runs
+
+The Mac mini has more than one global npm (`which -a npm`: `~/.local/bin/npm` with prefix `~/.local`, then `/opt/homebrew/bin/npm` with prefix `/opt/homebrew`). `com.raven.ui` runs `/opt/homebrew/bin/raven` -> `/opt/homebrew/lib/node_modules/@shings/raven/bin/raven.js`, so a plain `npm install -g` in the shell can update a wrapper launchd never runs. Derive the prefix from the job itself:
 
 ```bash
-npm install -g @shings/raven@<wrapper-version>
-raven update
-raven version
-raven doctor
+UI_PLIST=~/Library/LaunchAgents/com.raven.ui.plist
+LD_BIN=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$UI_PLIST")
+launchctl print "gui/$(id -u)/com.raven.ui" | grep -E '^[[:space:]]program = '   # must equal $LD_BIN
+LD_REAL=$(realpath "$LD_BIN")                         # .../lib/node_modules/@shings/raven/bin/raven.js
+LD_PKG=${LD_REAL%/bin/raven.js}                       # .../lib/node_modules/@shings/raven
+LD_PREFIX=${LD_PKG%/lib/node_modules/@shings/raven}   # e.g. /opt/homebrew
+echo "launchd prefix: $LD_PREFIX  shell npm prefix: $(npm prefix -g)"
 ```
 
-`raven version` must print the wrapper version, `raven <engine-version>`, and `raven-ui <engine-version>`. The cache root is `RAVEN_CACHE_DIR` or `~/.local/share/raven`; it holds `versions/<version>/raven`, the active `bin/raven` (replaced atomically), `ui/<version>/index.html`, `metadata.json`, and `update-status.json` (last update attempt: `at`, `from`, `to`, `ok`, `error`). Native `raven --version` now prints the release version (`RAVEN_RELEASE_VERSION`); a locally built binary without it prints `<crate version>-dev`. Releases built before this change still print the crate version `0.1.0`.
+Mismatch check. It fails loudly when the given npm prefix is not the launchd prefix or (when a version is given) the launchd wrapper package is not the intended version:
 
-Alternative to the CLI update plus restart below: once the release is published, open the Raven UI (local or public origin) and use the sidebar `Update to v<engine-version>` button. The wrapper running `com.raven.ui` downloads and verifies the bundle, restarts the labels in `RAVEN_UPDATE_RESTART_LABELS`, and relaunches the UI on the new version. The UI only offers a version newer than the installed one and may need `Check now` (the check is cached for 6 hours). This updates only the cached bundle, not the global npm wrapper; a wrapper release still needs `npm install -g @shings/raven@<wrapper-version>` and a `com.raven.ui` restart. Run the same verification below either way.
+```bash
+raven_prefix_check() {  # <launchd wrapper path> <npm prefix -g to compare> [<wrapper-version>]
+  local real pkg prefix have rc=0
+  real=$(realpath "$1") || { echo "MISMATCH: cannot resolve $1"; return 1; }
+  pkg=${real%/bin/raven.js}; prefix=${pkg%/lib/node_modules/@shings/raven}
+  [ "$pkg" != "$real" ] && [ "$prefix" != "$pkg" ] || { echo "MISMATCH: $real is not an @shings/raven wrapper"; return 1; }
+  have=$(node -p 'require(process.argv[1]).version' "$pkg/package.json") || have=missing
+  [ "$2" = "$prefix" ] || { echo "MISMATCH: npm prefix $2 != launchd prefix $prefix (use $prefix/bin/npm)"; rc=1; }
+  [ -z "$3" ] || [ "$have" = "$3" ] || { echo "MISMATCH: launchd wrapper $pkg is $have, want $3"; rc=1; }
+  [ "$rc" = 0 ] && echo "OK: launchd prefix $prefix, wrapper $have"
+  return "$rc"
+}
+raven_prefix_check "$LD_BIN" "$(npm prefix -g)"                      # shell npm
+raven_prefix_check "$LD_BIN" "$("$LD_PREFIX/bin/npm" prefix -g)"     # explicit launchd npm
+```
+
+Install only with an npm whose check prints `OK`. If the shell npm reports `MISMATCH`, use `"$LD_PREFIX/bin/npm"` (or `npm install -g --prefix "$LD_PREFIX"`); never a bare `npm`.
+
+### Before/after snapshot
+
+Record this before the update and again after the restarts below, for both services. Print only these filtered lines:
+
+```bash
+U=$(id -u)
+for L in com.raven.ui com.raven.mcp; do
+  B=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' ~/Library/LaunchAgents/$L.plist)
+  echo "== $L ProgramArguments:0=$B real=$(realpath "$B")"
+  launchctl print "gui/$U/$L" | grep -E '^[[:space:]](state|pid|program) ='
+done
+node -p 'require(process.argv[1]).version' "$LD_PKG/package.json"   # launchd wrapper package version
+"$LD_BIN" version                                                    # via the launchd wrapper, not the shell's raven
+UI_PID=$(lsof -nP -iTCP:3001 -sTCP:LISTEN -t); ps -o ppid=,args= -p "$UI_PID"
+curl -fsS http://127.0.0.1:3001/healthz; echo
+MCP_PID=$(lsof -nP -iTCP:3003 -sTCP:LISTEN -t); ps -o args= -p "$MCP_PID"
+MCP_BIN=$(ps -o args= -p "$MCP_PID" | awk '{print $1}')
+"$MCP_BIN" --version; stat -f '%Sm' "$MCP_BIN"
+```
+
+`GET /api/v1/system/version` returns `401` without a session. Take the loopback session cookie from `GET /__raven/session` first (the cookie jar is a temp file, deleted right after):
+
+```bash
+J=$(mktemp); curl -s -c "$J" -o /dev/null http://127.0.0.1:3001/__raven/session; curl -s -b "$J" http://127.0.0.1:3001/api/v1/system/version | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["current_version"], d["update_supported"])'; rm -f "$J"
+```
+
+After the update require:
+
+- launchd wrapper package version = `<wrapper-version>` (`raven_prefix_check "$LD_BIN" "$("$LD_PREFIX/bin/npm" prefix -g)" <wrapper-version>` prints `OK`);
+- `"$LD_BIN" version` prints `raven <engine-version>` and `raven-ui <engine-version>`;
+- the 3001 listener's ppid is the `com.raven.ui` launchd pid and its args show `--ui-path .../ui/<engine-version>`;
+- `/healthz` `"version":"<engine-version>"`; the session-cookie command above prints `<engine-version> True` (`update_supported` True, `current_version` `<engine-version>`) (`false` means the wrapper is not the supervising `0.1.37`+ one);
+- `com.raven.mcp` `ProgramArguments:0` is the stable `~/.local/share/raven/bin/raven` (after the migration), the 3003 listener runs it, and `"$MCP_BIN" --version` prints `<engine-version>` with an mtime at or after this update (`metadata.json` `installedVersion` and `installedAt` match).
+
+### Update
+
+```bash
+"$LD_PREFIX/bin/npm" install -g @shings/raven@<wrapper-version>
+raven_prefix_check "$LD_BIN" "$("$LD_PREFIX/bin/npm" prefix -g)" <wrapper-version>
+"$LD_BIN" update
+"$LD_BIN" version
+"$LD_BIN" doctor
+```
+
+`"$LD_BIN" version` prints `@shings/raven wrapper` (no wrapper number; take it from `package.json` above), `raven <engine-version>`, and `raven-ui <engine-version>`. The cache root is `RAVEN_CACHE_DIR` or `~/.local/share/raven`; it holds `versions/<version>/raven`, the active `bin/raven` (replaced atomically), `ui/<version>/index.html`, `metadata.json`, and `update-status.json` (last update attempt: `at`, `from`, `to`, `ok`, `error`). Native `raven --version` now prints the release version (`RAVEN_RELEASE_VERSION`); a locally built binary without it prints `<crate version>-dev`. Releases built before this change still print the crate version `0.1.0`.
+
+Alternative to the CLI update plus restart below: once the release is published, open the Raven UI (local or public origin) and use the sidebar `Update to v<engine-version>` button. The wrapper running `com.raven.ui` downloads and verifies the bundle, restarts the labels in `RAVEN_UPDATE_RESTART_LABELS`, and relaunches the UI on the new version. The UI only offers a version newer than the installed one and may need `Check now` (the check is cached for 6 hours). This updates only the cached bundle, not the global npm wrapper; a wrapper release still needs `"$LD_PREFIX/bin/npm" install -g @shings/raven@<wrapper-version>` (preflight above) and a `com.raven.ui` restart. Run the same verification below either way.
 
 The live UI is the launchd LaunchAgent `com.raven.ui` (`~/Library/LaunchAgents/com.raven.ui.plist`), listening on `127.0.0.1:3001` (confirmed on the Mac mini). Two processes are involved:
 
@@ -326,14 +397,14 @@ Restore the timestamped `$BACKUP` recorded above over `$PLIST` (`cp -p "$BACKUP"
 The wrapper honors `RAVEN_VERSION` (`npm/raven/src/install.js`):
 
 ```bash
-npm install -g @shings/raven@<old-wrapper-version>
-RAVEN_VERSION=<old-engine-version> raven update
-raven version
-raven doctor
+"$LD_PREFIX/bin/npm" install -g @shings/raven@<old-wrapper-version>
+RAVEN_VERSION=<old-engine-version> "$LD_BIN" update
+"$LD_BIN" version
+"$LD_BIN" doctor
 launchctl kickstart -k "gui/$(id -u)/com.raven.ui"
 ```
 
-Then re-run the section 4 UI checks with `<old-engine-version>`. Re-installing a version deletes and recreates `versions/<version>`. Never `RAVEN_VERSION`-reinstall the version the MCP plist is currently pinned to while the MCP is running.
+Derive `LD_BIN`/`LD_PREFIX` with the section 4 preflight first. Then re-run the section 4 UI checks with `<old-engine-version>`. Re-installing a version deletes and recreates `versions/<version>`. Never `RAVEN_VERSION`-reinstall the version the MCP plist is currently pinned to while the MCP is running.
 
 After the stable-binary migration, this rollback also replaces `bin/raven` used by `com.raven.mcp`. Restart it with `launchctl kickstart -k "gui/$(id -u)/com.raven.mcp"` and re-run the MCP Verify block and `ledger_audit` check. The UI button never offers a version at or below the installed one, so rollback always uses this CLI path.
 
@@ -343,8 +414,9 @@ Before claiming completion, use `verification-before-completion` and freshly ver
 
 - the release PR merged into `main` with passing `frontend` and `rust` checks;
 - `npm/raven/package.json` version matches the `npm-v<wrapper-version>` tag (when a wrapper release was made);
-- npm `latest` equals the wrapper version, and the global install was pinned to `@shings/raven@<wrapper-version>`;
-- `raven version` shows the expected wrapper, engine, and UI versions, and `raven doctor` passes;
+- npm `latest` equals the wrapper version, and the global install was pinned to `@shings/raven@<wrapper-version>` with the launchd prefix npm (`raven_prefix_check` printed `OK` with `<wrapper-version>`);
+- `"$LD_BIN" version` shows the expected engine and UI versions, and `"$LD_BIN" doctor` passes;
+- the before/after snapshot (section 4) was recorded for both services, and `GET /api/v1/system/version` (with the `/__raven/session` cookie) shows `update_supported: true` and `current_version` `<engine-version>`;
 - every triggered GitHub Actions release run concluded `success`;
 - GitHub Release has all expected assets;
 - `com.raven.ui` is running with a new wrapper pid, the `3001` listener has a new pid whose `ps` args show `--ui-path .../ui/<engine-version>`, `/healthz` returns ok with `"version":"<engine-version>"`, and the served UI hash matches `ui/<engine-version>/index.html`;
@@ -364,6 +436,7 @@ Report the release PR URL, the release URL, the Actions URLs, versions, test res
 - The MCP listener has no health or version endpoint. Version comes from the plist and process command line, or `<binary> --version` for releases built with `RAVEN_RELEASE_VERSION`.
 - Releases built before `RAVEN_RELEASE_VERSION` still report the crate version `0.1.0` from native `raven --version`; local builds report `<crate version>-dev`.
 - Until the one-time stable-binary migration (section 5) is done, `com.raven.mcp` stays pinned to `versions/<version>/raven`, and neither the UI button nor `raven update` moves it. Whether it is done on the Mac mini is not recorded here; check `ProgramArguments:0` with PlistBuddy.
+- 2026-11-19 (v0.4.40 rollout): `npm install -g @shings/raven@0.1.37` ran with `~/.local/bin/npm` (prefix `~/.local`) while `com.raven.ui` runs the `/opt/homebrew` wrapper, which stayed at `0.1.36`, so `update_supported` was `false` until `/opt/homebrew/bin/npm install -g` ran. Always run the section 4 preflight and install with `"$LD_PREFIX/bin/npm"`.
 - `RAVEN_UPDATE_RESTART_LABELS` works only on macOS, and a failed restart is logged but not reported as an update failure. Check the MCP after every UI-button update.
 - The UI update button works only when `raven ui` runs through the npm wrapper (`RAVEN_UPDATE_SUPERVISOR=1`); it updates the cached bundle, not the global npm wrapper. Rollback is CLI-only.
 - UNVERIFIED: the `main-merge-gate` ruleset still lists an Admin bypass, but direct pushes to `main` are rejected in practice. Always release through a PR.
