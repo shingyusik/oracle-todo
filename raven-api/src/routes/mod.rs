@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use crate::ApiError;
 
 pub mod dashboard;
+pub mod google_calendar;
 pub mod health;
 pub mod ledger;
 pub mod maintenance;

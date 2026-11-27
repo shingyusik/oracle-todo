@@ -589,6 +589,50 @@ textarea::placeholder {
   padding-top: 16px;
 }
 
+.sidebar-footer-item + .sidebar-footer-item {
+  margin-top: 2px;
+}
+
+.google-calendar-steps,
+.google-calendar-preview {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+}
+
+.google-calendar-steps code,
+.google-calendar-dialog .retention-hint strong {
+  overflow-wrap: anywhere;
+}
+
+.google-calendar-dialog .retention-hint strong {
+  color: var(--color-ink);
+}
+
+.google-calendar-choices {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* Each setting checkbox on its own line, spaced like the retention dialog's checkbox. */
+.google-calendar-toggles {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.google-calendar-toggles .field-checkbox {
+  margin-bottom: 0;
+}
+
+.google-calendar-dialog .retention-settings-form .field-label input[type="url"] {
+  max-width: none;
+}
+
 .update-overlay {
   position: fixed;
   inset: 0;

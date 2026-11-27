@@ -438,6 +438,11 @@ The retention purge is not exposed via MCP: there are no maintenance tools, and 
 process does not run the retention scheduler. Use the UI, `/api/v1/maintenance/retention*`, or
 `raven maintenance` instead.
 
+Google Calendar sync is not exposed via MCP either: there are no Google Calendar tools, and the
+MCP process does not run the sync scheduler. Use the UI, `/api/v1/integrations/google-calendar*`,
+or `raven google-calendar` instead. Events created or changed by sync are ordinary ToDo events
+and appear in MCP ToDo reads; imported events carry `metadata.external_source`.
+
 ## Mutations and images
 
 Regular create tools accept optional `request_key` (1..128 ASCII letters, digits, `-_.:`).

@@ -2,7 +2,8 @@
 
 use std::fs::{File, OpenOptions, TryLockError};
 
-use super::{RetentionError, RetentionPaths, fsutil};
+use super::{RetentionError, RetentionPaths};
+use crate::fsutil;
 
 /// Released when dropped (closing the file releases the OS lock).
 #[derive(Debug)]

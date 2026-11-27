@@ -78,6 +78,28 @@ domains, kinds, counts, and durations only, never record IDs, titles, paths, or 
 | `retention_backup_pruned` | `removed`; `warn` with `error_kind` when rotation fails |
 | `retention_run_completed` | `run_id`, `outcome`, `totals` (`purged=… skipped=… media_cleanup_pending=…`), `elapsed_ms` |
 
+Google Calendar sync (scheduler, API, and CLI runs alike) logs under `raven_api` with run IDs,
+triggers, outcomes, counts, HTTP statuses, and error kinds only. It never logs tokens,
+authorization codes, `state` values, client secrets, Google URLs or response bodies, calendar
+or event IDs, event titles, descriptions, or email addresses:
+
+| Event | Fields |
+| --- | --- |
+| `google_calendar_sync_started` | `run_id`, `trigger` (`scheduled`, `api`, `cli`) |
+| `google_calendar_sync_completed` | `run_id`, `outcome` (`ok`, `partial`, `failed`, `guard_tripped`, `reauth_required`, `nothing_to_do`), `counts` (JSON text), `error_kind` (empty when none), `elapsed_ms` |
+| `google_calendar_sync_skipped` | `reason`: `locked`, `disabled`, `env_disabled`, `not_connected`, `reauth_required`, `calendar_not_selected`, `todo_unavailable`, `clock_regressed`, `storage_unavailable` |
+| `google_calendar_full_resync` | `reason` (for example the sync token expired with `410 Gone`) |
+| `google_calendar_api_retry` | `operation` (for example `insert_event`), `status` (`rate_limited`), `attempt`, `backoff_ms` |
+| `google_calendar_guard_tripped` | `counts` (planned deletions and archives, threshold) |
+| `google_calendar_auth_failed` | `error_kind` (for example `invalid_grant`) |
+| `google_calendar_connected` | `scopes` |
+| `google_calendar_disconnected` | `revoked` (whether Google accepted the revoke) |
+
+Levels: `guard_tripped` and `auth_failed` are `WARN`; everything else is `INFO`, except the
+scheduler's routine skips `disabled`, `not_connected`, and `calendar_not_selected`, which are
+`DEBUG` so an idle integration does not log every poll. A scheduler waiting for the first
+sync confirmation logs nothing.
+
 The composed API creates its own request IDs for sanitized errors. Secrets, raw bearer
 tokens, UI session values, database paths in API errors, and Health image bytes must never
 be logged.

@@ -1,6 +1,8 @@
 use super::TodoService;
 use crate::application::error::{TodoError, TodoResult};
-use crate::domain::{Actor, Horizon, ItemStatus, ItemType, TodoItem};
+use crate::domain::{
+    Actor, EXTERNAL_SOURCE_KEY, ExternalSource, Horizon, ItemStatus, ItemType, TodoItem,
+};
 
 #[derive(Default)]
 pub struct CreateArea {
@@ -137,6 +139,8 @@ pub struct ProposeEvent {
     pub commitment_type: String,
     pub note: Option<String>,
     pub tags: Vec<String>,
+    /// Stored as `metadata.external_source`; postpone follow-ups keep it.
+    pub external_source: Option<ExternalSource>,
 }
 
 impl Default for ProposeEvent {
@@ -155,8 +159,24 @@ impl Default for ProposeEvent {
             commitment_type: "appointment".to_string(),
             note: None,
             tags: Vec::new(),
+            external_source: None,
         }
     }
+}
+
+const MAX_EXTERNAL_SOURCE_FIELD_CHARS: usize = 1024;
+
+fn external_source_value(source: ExternalSource) -> TodoResult<serde_json::Value> {
+    let valid = |value: &str| {
+        !value.trim().is_empty() && value.chars().count() <= MAX_EXTERNAL_SOURCE_FIELD_CHARS
+    };
+    if !valid(&source.system) || !valid(&source.id) {
+        return Err(TodoError::Validation(
+            "external_source requires a non-empty system and id".to_string(),
+        ));
+    }
+    serde_json::to_value(source)
+        .map_err(|error| TodoError::Internal(format!("failed to encode external_source: {error}")))
 }
 
 impl TodoService {
@@ -293,6 +313,15 @@ impl TodoService {
     }
 
     pub fn propose_event(&mut self, request: ProposeEvent) -> TodoResult<TodoItem> {
+        self.propose_event_with_reason(request, None)
+    }
+
+    /// [`Self::propose_event`] with an audit-history `reason`.
+    pub fn propose_event_with_reason(
+        &mut self,
+        request: ProposeEvent,
+        reason: Option<&str>,
+    ) -> TodoResult<TodoItem> {
         let scheduled = request
             .scheduled
             .map(|value| value.trim().to_string())
@@ -304,6 +333,10 @@ impl TodoService {
         let project_id = self.ensure_relation(request.project_id, ItemType::Project, "Project")?;
         super::policy::date(Some(&scheduled), "scheduled", true)?;
         super::policy::date(request.due.as_deref(), "due", false)?;
+        let external_source = request
+            .external_source
+            .map(external_source_value)
+            .transpose()?;
         let now = self.next_now();
         let mut item = TodoItem::new(
             self.next_id("evt"),
@@ -343,6 +376,10 @@ impl TodoService {
                 ),
             );
         }
-        self.store_item_and_event(item.proposed_by, "propose_event", None, item, None)
+        if let Some(external_source) = external_source {
+            item.metadata
+                .insert(EXTERNAL_SOURCE_KEY.to_string(), external_source);
+        }
+        self.store_item_and_event(item.proposed_by, "propose_event", None, item, reason)
     }
 }

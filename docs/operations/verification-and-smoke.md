@@ -243,6 +243,84 @@ Keep cookie jars and captured headers in a permission-restricted temporary direc
 session values before saving evidence, and do not copy real Access JWTs or assertions into shell
 history, command output, or test logs.
 
+## Google Calendar smoke
+
+Never call real Google from tests, smoke runs, or development servers, and never connect a
+throwaway home to a real Google account. The pure mapping, reconcile, storage, and HTTP
+client tests use fakes and loopback servers:
+
+```bash
+cargo test -p raven-api google_calendar -- --test-threads=2
+npm --prefix frontend test -- tests/domain/google-calendar-api.spec.ts tests/presentation/google-calendar-dialog.spec.tsx
+```
+
+For an end-to-end smoke, run a fake Google server on loopback and point Raven at it with the
+test-only `RAVEN_GOOGLE_API_URL`. Only plain-`http` loopback URLs (`127.0.0.1`, `localhost`,
+`[::1]`) without credentials, query, or fragment are honored; any other value is ignored and
+real Google is used. The fake must serve:
+
+- `<base>/calendar/v3/...` — Calendar API (`users/me/calendarList`, `calendars`,
+  `calendars/<id>/events` list/get/insert/patch/delete);
+- `<base>/token` — authorization-code exchange and refresh;
+- `<base>/revoke` — revoke.
+
+The browser consent URL (`accounts.google.com`) is not overridden and must not be opened.
+Complete the connection by calling the loopback callback yourself with the `state` and
+`redirect_uri` from the authorization URL and any code the fake token endpoint accepts. The
+fake token endpoint must answer the code exchange with `access_token`, `expires_in`,
+`refresh_token` and `token_type: Bearer`, and list/get/insert/patch return Google `Event`
+JSON with `etag` and `updated`; list returns `nextSyncToken`:
+
+```bash
+smoke_home="$(mktemp -d)"
+client_dir="$(mktemp -d)"
+printf '%s' '{"installed":{"client_id":"smoke.apps.googleusercontent.com","client_secret":"smoke-secret"}}' \
+  > "$client_dir/client.json"
+export RAVEN_GOOGLE_API_URL=http://127.0.0.1:39080   # fake Google
+"$raven_bin" --home "$smoke_home" init
+"$raven_bin" --home "$smoke_home" google-calendar client set --file "$client_dir/client.json"
+"$raven_bin" --home "$smoke_home" todo event create "Smoke event" "$(date -v+1d +%F)T01:00:00Z"
+"$raven_bin" --home "$smoke_home" google-calendar connect --no-open --timeout-secs 120 \
+  > "$client_dir/connect.out" 2> "$client_dir/connect.err" &
+sleep 2
+auth_url="$(grep accounts.google.com "$client_dir/connect.err")"
+callback="$(python3 -c 'import sys,urllib.parse as u; q=dict(u.parse_qsl(u.urlparse(sys.argv[1]).query)); print(q["redirect_uri"]+"?"+u.urlencode({"state":q["state"],"code":"smoke"}))' "$auth_url")"
+curl -s -i "$callback"    # 200, Cache-Control: no-store
+wait; cat "$client_dir/connect.out"   # status JSON, "connection":"connected"
+"$raven_bin" --home "$smoke_home" google-calendar calendar create
+"$raven_bin" --home "$smoke_home" google-calendar sync --dry-run --format json
+"$raven_bin" --home "$smoke_home" google-calendar sync --format json
+```
+
+Check that:
+
+- `status` reads on a fresh home create no `integrations/` directory;
+- `integrations/google-calendar/` is `0700` and its files `0600`, and Raven refuses a
+  group- or other-readable `token.json`;
+- the preview writes nothing and the first `sync` pushes and imports only events inside the
+  today − 7 days window; recurring fake events count as `skipped_recurring`;
+- a second `sync` with no changes finishes `nothing_to_do` (no echo writes);
+- archiving a pushed Raven event deletes the fake event; completing one keeps it (link
+  `frozen`); deleting a fake event archives the Raven event with reason
+  `google_calendar_deleted`;
+- a fake that deletes more than `max(10, 20%)` of linked events trips `guard_tripped` until
+  `sync --allow-mass-delete`;
+- a fake token endpoint answering `invalid_grant` moves `connection` to `reauth_required`;
+- two concurrent `sync` runs report `google_calendar_sync_in_progress` for one of them;
+- with `RAVEN_GOOGLE_CALENDAR=off`, `raven ui` reports `env_override: "disabled"` and no
+  scheduled sync, while **Sync now** still works;
+- JSONL logs and error output contain no tokens, codes, `state`, client secret, event titles,
+  fake URLs, or response bodies.
+
+For the UI path, start `raven ui` on a smoke port with the same environment and walk the
+**Menu → Google Calendar** dialog through not configured, connect, choose calendar, preview,
+**Start syncing**, and disconnect. The UI callback uses the actual listener port
+(`http://127.0.0.1:<smoke port>/__raven/google-calendar/callback`), so `POST …/connect` with the
+session cookie, `Origin: http://127.0.0.1:<smoke port>` and `X-Raven-Integration: 1`, then GET
+the callback with `state` and a fake code; it answers `200` with a link to
+`/?google_calendar=connected` (a reused `state` answers `400` with `…=error`). Port `3001`
+belongs to the live UI, so never start a smoke server on it.
+
 ## Log checks
 
 - stdout contains only command results.

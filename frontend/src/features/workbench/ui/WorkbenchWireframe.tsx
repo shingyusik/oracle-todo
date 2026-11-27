@@ -1,12 +1,17 @@
-import { IconDatabase } from "@tabler/icons-react";
+import { IconCalendar, IconDatabase } from "@tabler/icons-react";
 import React from "react";
 
 import { workbenchCopy } from "@/design/copy";
 import { workbenchLayout } from "@/design/layout";
+import {
+  useGoogleCalendarRedirect,
+  type GoogleCalendarRedirectResult,
+} from "@/features/workbench/hooks/useGoogleCalendar";
 import type {
   TableViewTarget,
   WorkbenchController,
 } from "@/features/workbench/model/workbench-model";
+import { GoogleCalendarDialog } from "@/features/workbench/ui/GoogleCalendarDialog";
 import { MainPanel } from "@/features/workbench/ui/MainPanel";
 import {
   TableViewTabConfirmationDialog,
@@ -32,7 +37,18 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
   const [retentionOpen, setRetentionOpen] = React.useState(false);
   const retentionButtonRef = React.useRef<HTMLButtonElement>(null);
   const retentionReturnFocusRef = React.useRef<HTMLElement | null>(null);
+  const [googleCalendar, setGoogleCalendar] = React.useState<{
+    redirectResult: GoogleCalendarRedirectResult | null;
+  } | null>(null);
+  const googleCalendarButtonRef = React.useRef<HTMLButtonElement>(null);
+  const googleCalendarReturnFocusRef = React.useRef<HTMLElement | null>(null);
   useModalIsolation(navigationRef, mobile && navigationOpen, "shell");
+  useGoogleCalendarRedirect((redirectResult) => {
+    googleCalendarReturnFocusRef.current = mobile
+      ? navigationToggleRef.current
+      : googleCalendarButtonRef.current;
+    setGoogleCalendar({ redirectResult });
+  });
   const confirmationAdapter: TableViewTabConfirmationDialogAdapter<TableViewTarget> = {
     confirmation: controller.tableViewTabConfirmation,
     confirm: controller.confirmTableViewTabAction,
@@ -66,6 +82,14 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
       : retentionButtonRef.current;
     if (mobile) closeNavigation(false);
     setRetentionOpen(true);
+  }
+
+  function openGoogleCalendar() {
+    googleCalendarReturnFocusRef.current = mobile
+      ? navigationToggleRef.current
+      : googleCalendarButtonRef.current;
+    if (mobile) closeNavigation(false);
+    setGoogleCalendar({ redirectResult: null });
   }
 
   function handleNavigationKeyDown(event: React.KeyboardEvent<HTMLElement>) {
@@ -162,6 +186,15 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
             <IconDatabase size={14} aria-hidden="true" />
             Data retention
           </button>
+          <button
+            ref={googleCalendarButtonRef}
+            type="button"
+            className="sidebar-footer-item"
+            onClick={openGoogleCalendar}
+          >
+            <IconCalendar size={14} aria-hidden="true" />
+            Google Calendar
+          </button>
           <SidebarVersion />
         </div>
       </aside>
@@ -170,6 +203,13 @@ export function WorkbenchWireframe({ controller }: WorkbenchWireframeProps) {
         <RetentionSettingsDialog
           returnFocusRef={retentionReturnFocusRef}
           onClose={() => setRetentionOpen(false)}
+        />
+      ) : null}
+      {googleCalendar ? (
+        <GoogleCalendarDialog
+          returnFocusRef={googleCalendarReturnFocusRef}
+          redirectResult={googleCalendar.redirectResult}
+          onClose={() => setGoogleCalendar(null)}
         />
       ) : null}
       <TableViewTabConfirmationDialog adapter={confirmationAdapter} />

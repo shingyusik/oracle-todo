@@ -1,6 +1,7 @@
 use std::env;
 use std::net::{IpAddr, SocketAddr};
 
+use raven_api::google_calendar::SchedulerTiming as GoogleCalendarTiming;
 use raven_api::retention::SchedulerTiming;
 use raven_api::{AuthMode, RavenApiConfig, ServerBind};
 use thiserror::Error;
@@ -51,6 +52,8 @@ pub fn run(paths: &RavenPaths) -> anyhow::Result<()> {
     raven_api::validate_bind(bind.addr, bind.allow_unsafe_cleartext)
         .map_err(|_| ApiCommandError::Bind)?;
     let retention = raven_api::Retention::from_config(&config);
+    let google_calendar =
+        raven_api::GoogleCalendar::from_config(&config).map_err(ApiCommandError::Server)?;
     let runtime =
         tokio::runtime::Runtime::new().map_err(|error| ApiCommandError::Server(error.into()))?;
     let result = runtime.block_on(async {
@@ -58,11 +61,13 @@ pub fn run(paths: &RavenPaths) -> anyhow::Result<()> {
         let actual = listener.local_addr()?;
         println!("Raven API listening on http://{actual}");
         retention.spawn_scheduler(SchedulerTiming::default());
-        raven_api::serve_listener_with_retention(
+        google_calendar.spawn_scheduler(GoogleCalendarTiming::default());
+        raven_api::serve_listener_with_integrations(
             config,
             listener,
             bind.allow_unsafe_cleartext,
             retention.clone(),
+            google_calendar.clone(),
         )
         .await
     });

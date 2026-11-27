@@ -73,6 +73,15 @@ pub struct TodoItem {
     pub updated_at: OffsetDateTime,
 }
 
+/// Where an item was imported from, stored as `metadata.external_source`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExternalSource {
+    pub system: String,
+    pub id: String,
+}
+
+pub const EXTERNAL_SOURCE_KEY: &str = "external_source";
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TodoEvent {
     pub id: String,
@@ -88,6 +97,13 @@ pub struct TodoEvent {
 }
 
 impl TodoItem {
+    /// `metadata.external_source`, or `None` when absent or malformed.
+    pub fn external_source(&self) -> Option<ExternalSource> {
+        self.metadata
+            .get(EXTERNAL_SOURCE_KEY)
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+    }
+
     pub fn new_task(
         id: impl Into<String>,
         title: impl Into<String>,

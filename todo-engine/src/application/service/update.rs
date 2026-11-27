@@ -41,6 +41,17 @@ impl TodoService {
         request: UpdateItem,
         expected_updated_at: Option<time::OffsetDateTime>,
     ) -> TodoResult<TodoItem> {
+        self.update_item_if_current_as(item_id, request, expected_updated_at, Actor::User)
+    }
+
+    /// [`Self::update_item_if_current`] recorded in the audit history as `actor`.
+    pub fn update_item_if_current_as(
+        &mut self,
+        item_id: &str,
+        request: UpdateItem,
+        expected_updated_at: Option<time::OffsetDateTime>,
+        actor: Actor,
+    ) -> TodoResult<TodoItem> {
         let UpdateItem {
             title,
             description,
@@ -332,7 +343,7 @@ impl TodoService {
         let now = self.next_now();
         item.updated_at = now;
         self.store_items_and_events_checked(
-            vec![(Actor::User, "update_item", before, item, reason.as_deref())],
+            vec![(actor, "update_item", before, item, reason.as_deref())],
             expected_updated_at,
         )?
         .pop()

@@ -1562,9 +1562,20 @@ async fn mcp_exposes_no_retention_maintenance_routes_or_tools() {
         adapter
             .catalog
             .iter()
-            .all(|spec| !spec.path.contains("maintenance"))
+            .all(|spec| !spec.path.contains("maintenance") && !spec.path.contains("integrations"))
+    );
+    assert!(
+        adapter
+            .catalog
+            .iter()
+            .all(|spec| !spec.tool.name.contains("google") && !spec.tool.name.contains("calendar"))
     );
     for (method, uri) in [
+        ("GET", "/api/v1/integrations/google-calendar"),
+        ("GET", "/api/v1/integrations/google-calendar/calendars"),
+        ("POST", "/api/v1/integrations/google-calendar/sync"),
+        ("POST", "/api/v1/integrations/google-calendar/connect"),
+        ("GET", "/__raven/google-calendar/callback"),
         ("GET", "/api/v1/maintenance/retention"),
         ("GET", "/api/v1/maintenance/retention/preview"),
         ("POST", "/api/v1/maintenance/retention/run"),
@@ -1588,4 +1599,5 @@ async fn mcp_exposes_no_retention_maintenance_routes_or_tools() {
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
     }
     assert!(!temp.path().join("maintenance").exists());
+    assert!(!temp.path().join("integrations").exists());
 }

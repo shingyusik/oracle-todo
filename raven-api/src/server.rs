@@ -15,8 +15,8 @@ use thiserror::Error;
 
 use crate::system::ResolvedUiOrigin;
 use crate::{
-    GithubReleases, RavenApiConfig, Retention, ServerBind, UiSessionToken, UiUpdates,
-    UpdateSettings,
+    GithubReleases, GoogleCalendar, RavenApiConfig, Retention, ServerBind, UiSessionToken,
+    UiUpdates, UpdateSettings,
 };
 
 const MAX_UI_FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -69,8 +69,26 @@ pub async fn serve_listener_with_retention(
     allow_unsafe_cleartext: bool,
     retention: Retention,
 ) -> anyhow::Result<()> {
+    let google_calendar = GoogleCalendar::from_config(&config)?;
+    serve_listener_with_integrations(
+        config,
+        listener,
+        allow_unsafe_cleartext,
+        retention,
+        google_calendar,
+    )
+    .await
+}
+
+pub async fn serve_listener_with_integrations(
+    config: RavenApiConfig,
+    listener: tokio::net::TcpListener,
+    allow_unsafe_cleartext: bool,
+    retention: Retention,
+    google_calendar: GoogleCalendar,
+) -> anyhow::Result<()> {
     validate_bind(listener.local_addr()?, allow_unsafe_cleartext)?;
-    let app = crate::router_with_retention(config, retention)?;
+    let app = crate::router_with_integrations(config, retention, google_calendar)?;
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -119,6 +137,32 @@ pub fn ui_router_with_retention(
     updates: UiUpdates,
     retention: Retention,
 ) -> anyhow::Result<Router> {
+    let google_calendar = GoogleCalendar::from_config(&config)?;
+    ui_router_with_integrations(
+        config,
+        artifact,
+        session,
+        authority,
+        public_origin,
+        updates,
+        retention,
+        google_calendar,
+    )
+}
+
+/// UI router sharing the retention and Google Calendar runtimes with the caller. The
+/// Google OAuth redirect URI is `http://<authority>/__raven/google-calendar/callback`.
+#[allow(clippy::too_many_arguments)]
+pub fn ui_router_with_integrations(
+    config: RavenApiConfig,
+    artifact: UiArtifact,
+    session: UiSessionToken,
+    authority: SocketAddr,
+    public_origin: Option<&str>,
+    updates: UiUpdates,
+    retention: Retention,
+    google_calendar: GoogleCalendar,
+) -> anyhow::Result<Router> {
     if !authority.ip().is_loopback() {
         anyhow::bail!("Raven UI authority must be loopback");
     }
@@ -145,6 +189,13 @@ pub fn ui_router_with_retention(
         }
     };
     let static_files = move |request: Request| serve_static(artifact.clone(), request);
+    let callback_uri = format!(
+        "http://{authority}{}",
+        crate::google_calendar::CALLBACK_PATH
+    );
+    let callback_calendar = google_calendar.clone();
+    let callback =
+        move |uri: Uri| crate::routes::google_calendar::callback(callback_calendar.clone(), uri);
 
     Ok(Router::new()
         .merge(crate::build_router(
@@ -152,8 +203,13 @@ pub fn ui_router_with_retention(
             updates.current_version(),
             Some(crate::system::router(updates.clone())),
             Some(retention),
+            Some(crate::routes::google_calendar::router(
+                google_calendar,
+                Some(callback_uri),
+            )),
         )?)
         .route("/__raven/session", get(bootstrap))
+        .route(crate::google_calendar::CALLBACK_PATH, get(callback))
         .fallback(static_files)
         .layer(middleware::from_fn_with_state(
             UiAuthorityState {

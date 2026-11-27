@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use raven_api::google_calendar::SchedulerTiming as GoogleCalendarTiming;
 use raven_api::retention::SchedulerTiming;
 use raven_api::{
     AuthMode, GithubReleases, RavenApiConfig, RestartSignal, UiUpdates, UpdateSettings,
@@ -50,12 +51,14 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
     let updates = ui_updates()?;
     let restart = updates.restart_signal();
     let retention = raven_api::Retention::from_config(&config);
+    let google_calendar = raven_api::GoogleCalendar::from_config(&config)?;
     let runtime = tokio::runtime::Runtime::new()?;
     let result = runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual = listener.local_addr()?;
         validate_public_origin(public_origin.as_deref(), actual)?;
-        let app = raven_api::ui_router_with_retention(
+        // The Google OAuth redirect URI uses the actual listener port.
+        let app = raven_api::ui_router_with_integrations(
             config,
             artifact,
             session,
@@ -63,12 +66,14 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
             public_origin.as_deref(),
             updates,
             retention.clone(),
+            google_calendar.clone(),
         )?;
         tokio::spawn(exit_after_restart(restart, UPDATE_RESTART_DELAY, || {
             std::process::exit(UPDATE_RESTART_EXIT_CODE)
         }));
         // Detached: the exit-75 update path and shutdown never wait for it.
         retention.spawn_scheduler(SchedulerTiming::default());
+        google_calendar.spawn_scheduler(GoogleCalendarTiming::default());
         let (url, session_url) = ui_urls(actual);
         println!("Raven UI listening on {url}");
         println!("Open Raven UI: {session_url}");
@@ -80,7 +85,8 @@ pub fn run(paths: &RavenPaths, args: UiArgs) -> anyhow::Result<()> {
         axum::serve(listener, app).await?;
         anyhow::Ok(())
     });
-    // Never block exit on an in-flight scheduled purge; its transactions are atomic.
+    // Never block exit on an in-flight scheduled purge or sync; their writes are atomic
+    // and a sync resumes from its last saved link and token.
     runtime.shutdown_background();
     result
 }

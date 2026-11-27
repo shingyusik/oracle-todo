@@ -123,6 +123,135 @@ a photo file that cannot be removed stays `cleanup_pending` and is counted as
 Purged data is recoverable only from the retention backups, which keep the newest
 `backup_keep` (default `3`) runs. See [Data Home](../operations/data-home.md#maintenance-and-retention-backups).
 
+## Google Calendar sync
+
+Raven can sync ToDo `event` items two-way with one Google calendar the user chooses (a
+dedicated "Raven" calendar or any writable calendar). Other item types are never synced.
+Rationale: [ADR-0007](decisions/adr-0007-google-calendar-sync.md). Setup:
+[Setup](../operations/setup.md#google-calendar-sync); control:
+[API](../operations/api-reference.md#google-calendar-integration) and
+[CLI](../operations/cli-reference.md#google-calendar).
+
+Sync state lives outside `todo.sqlite`, in `integrations/google-calendar/sync.sqlite`
+(`user_version` 1, its own migrations; see
+[Data Home](../operations/data-home.md#google-calendar-integration)). `todo.sqlite` has no
+schema change.
+
+### `external_source` metadata
+
+An event created from Google gets
+`metadata.external_source = {"system":"google_calendar","id":"<calendar_id>/<event_id>"}`.
+Both fields must be non-blank and at most 1024 characters. `ProposeEvent.external_source` sets
+it; CLI, HTTP, and MCP event creation never do. A postpone follow-up copies it with the rest of
+the metadata (and `postponed_from`), so the follow-up stays linked to the same Google event.
+
+### Sync pass
+
+The scheduler in `raven ui`/`raven api` runs a pass every `poll_interval_secs` (default `120`,
+`60..=3600`) when sync is enabled, connected, a calendar is selected, and the first sync was
+confirmed. Manual syncs (UI **Sync now**, `POST .../sync`, `raven google-calendar sync`) run
+at any time. One pass at a time holds `sync.lock`; a pass is skipped when the clock moved
+backwards.
+
+1. **Pull.** `events.list` with the stored sync token (`maxResults=250`,
+   `singleEvents=false`). A `410 Gone` clears the token and triggers a full resync; a linked
+   event missing from a full resync counts as deleted only after `events.get` confirms `404`
+   or `cancelled`. The new sync token is saved in the same `sync.sqlite` transaction after the
+   inbound changes are applied. An event that keeps failing goes to `pending_inbound` and is
+   retried up to 5 times.
+2. **Push.** Raven events (including archived) whose `updated_at` differs from the link's
+   `raven_updated_at` are pushed. New Raven events are inserted with a deterministic id
+   (`"raven"` + first 32 hex digits of `sha256(raven_id)`) and
+   `extendedProperties.private.raven_item_id`; a `409` means the event already exists and is
+   fetched (and restored to `confirmed` if it was cancelled). Updates use `PATCH` with
+   `If-Match` (`412` → refetch next pass). Deletes treat `404`/`410` as success. Each write
+   stores the returned etag, field hashes, and resulting Raven `updated_at` so the change is
+   not echoed back.
+3. At most 250 writes (Google and Raven together) per pass; the rest waits for the next pass
+   and the sync token is not advanced (outcome `partial`). `429` and rate-limit `403` are
+   retried up to 3 attempts per call, honoring `Retry-After` (else 1 s, 2 s; capped at 60 s);
+   still rate limited, the pass stops. A network or server error, a 401 after one token
+   refresh, or a ToDo store failure also stops the pass without advancing the token, so the
+   next pass re-reads the same changes. A Raven write that hits a stale `updated_at` is parked
+   in `pending_inbound` and retried next pass; a failed Google write is counted in `failed`
+   and the link turns `error` after 3 consecutive failures.
+
+Every Google write uses `sendUpdates=none`. Raven writes (creations, updates, archives) are
+recorded as actor `system` with `reason = "google_calendar_sync"` (archives for Google deletions:
+`google_calendar_deleted`) and go through the ToDo service, so they appear in the ToDo audit
+history like any other change.
+
+### Field mapping
+
+| Raven event | Google event | Notes |
+| --- | --- | --- |
+| `title` | `summary` | Empty on either side becomes `(No title)` |
+| `scheduled` date `YYYY-MM-DD` | `start.date` / `end.date` | All-day; exclusive end = start + `duration_days` (default 1) |
+| `scheduled` RFC 3339 timestamp | `start.dateTime` / `end.dateTime` + `timeZone` | End = start + `duration_seconds` (default `default_duration_minutes`, 60) |
+| `note` | `description` | Only when `sync_note` is true (default) |
+| `metadata.location` | `location` | |
+| `active` / `paused` | `confirmed` / `tentative` | Push only; an incoming `tentative` is ignored |
+| `tags`, `area`, `project`, `priority`, `due`, `commitment_type`, `participants` | — | Raven-only; `participants` are never mapped to attendees |
+| — | attendees, conference data, reminders, colors, other fields | Google-only; preserved because Raven patches only changed fields |
+
+Raven events have no end time. The Google duration is kept in the link row and reapplied when
+Raven moves the event. Times written into Raven from Google always carry the configured
+offset (`time_zone`, default `Asia/Seoul` → `+09:00`), never `Z`, because the planner groups
+events by the first 10 characters of `scheduled`. Times are compared as instants. A postpone
+re-links the follow-up to the same Google event and moves it as an all-day event, matching
+the date-only follow-up.
+
+### Conflicts
+
+Each field is merged three-way against the link's `base_hashes`. A field changed on only one
+side is copied to the other. A field changed differently on both sides takes the newer side
+(Raven `updated_at` vs Google `updated`) and is counted in `conflicts`. Etags are only a write
+guard.
+
+### Deletion and close rules
+
+| Change | Result |
+| --- | --- |
+| Raven `archived`, `dropped`, `cancelled`, or `rejected` | Google event deleted; link `deleted` |
+| Raven `completed` or `missed` | Google event kept; link `frozen` (later Google edits ignored) |
+| Raven `paused` | Google event `tentative` |
+| Linked Raven item vanished while the link was active | Link `orphaned`; the Google event is never deleted |
+| Retention purge removes an already-archived linked item | Only the link is dropped |
+| Google event deleted or cancelled, Raven event active/paused | Raven event archived with reason `google_calendar_deleted` |
+| Google event deleted or cancelled, Raven already `completed`/`missed` | Link dropped |
+| Google event restored after Raven archived it | New Raven event created and re-linked |
+| Google event becomes recurring | Link `unsupported` |
+
+Link states are `active`, `frozen`, `deleted`, `orphaned`, `unsupported`, and `error`
+(writes keep failing; still reconciled like `active`).
+
+### First sync and skipped events
+
+Nothing is written until the user reviews the preview counts and confirms **Start syncing**.
+The first sync pushes `active`/`paused` Raven events scheduled on or after today − 7 days
+(Asia/Seoul) and imports Google events of the selected calendar starting on or after that day
+that are non-recurring, `eventType=default`, and not cancelled. The window start is stored as
+`push_since`; later passes use the same lower bound for events that were never linked, on
+either side.
+
+Recurring Google events are skipped (`skipped_recurring`), as are non-default event types.
+Unlinked closed Raven events inside the window are not pushed (`skipped_terminal`).
+
+### Mass-change guard
+
+If a pass would delete more than `max(10, 20% of links)` Google events, or archive that many
+Raven events, it applies no deletions or archives and finishes as `guard_tripped`. Other
+changes still apply. Deletions resume after a manual sync with `allow_mass_delete`.
+
+### Changing calendar and disconnecting
+
+Selecting a different calendar removes all links of the old calendar (its events are not
+deleted), forgets its sync token, and runs the first-sync rules on the new one. Disconnect
+revokes the Google grant and deletes `token.json` but keeps settings and links, so
+reconnecting resumes. `forget_links` also deletes `sync.sqlite`; after reconnecting, existing
+events on both sides are unrelated and may be duplicated. Raven never deletes a Google
+calendar.
+
 ## Dashboard projection
 
 `GET /api/v1/dashboard` returns:

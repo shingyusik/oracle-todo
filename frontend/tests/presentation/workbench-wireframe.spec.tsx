@@ -1692,6 +1692,86 @@ describe("WorkbenchPageClient", () => {
     expect(trigger).not.toHaveAttribute("inert");
   });
 
+  it("opens Google Calendar next to Data retention and restores focus on close", async () => {
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const retention = screen.getByRole("button", { name: "Data retention" });
+    const footerItem = screen.getByRole("button", { name: "Google Calendar" });
+    const version = screen.getByRole("contentinfo", { name: "Raven version" });
+    expect(retention.compareDocumentPosition(footerItem) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(footerItem.compareDocumentPosition(version) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url)))
+      .not.toContain("/api/v1/integrations/google-calendar");
+
+    await user.click(footerItem);
+
+    const dialog = await screen.findByRole("dialog", { name: "Google Calendar" });
+    expect(within(dialog).getByText("Loading Google Calendar settings…")).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url)))
+      .toContain("/api/v1/integrations/google-calendar");
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Google Calendar" })).toBeNull();
+    await waitFor(() => expect(footerItem).toHaveFocus());
+  });
+
+  it("opens Google Calendar from the mobile navigation drawer", async () => {
+    useMobileViewport();
+    const user = userEvent.setup();
+    render(<WorkbenchPageClient />);
+
+    const trigger = screen.getByRole("button", { name: "Open Raven navigation" });
+    await user.click(trigger);
+    const drawer = screen.getByRole("dialog", { name: "Raven navigation drawer" });
+    await user.click(within(drawer).getByRole("button", { name: "Google Calendar" }));
+
+    expect(screen.queryByRole("dialog", { name: "Raven navigation drawer" })).toBeNull();
+    const dialog = await screen.findByRole("dialog", { name: "Google Calendar" });
+    expect(dialog).not.toHaveAttribute("inert");
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Google Calendar" })).toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it.each([
+    ["connected", "status", "Google Calendar connected."],
+    ["error", "alert", "Google Calendar connection didn't complete."],
+  ] as const)("opens Google Calendar after the OAuth redirect (%s) and strips the param", async (
+    result,
+    role,
+    message,
+  ) => {
+    window.history.replaceState({ keep: true }, "", `/?google_calendar=${result}#top`);
+    try {
+      render(<WorkbenchPageClient />);
+
+      const dialog = await screen.findByRole("dialog", { name: "Google Calendar" });
+      expect(within(dialog).getByRole(role)).toHaveTextContent(message);
+      expect(window.location.search).toBe("");
+      expect(window.location.hash).toBe("#top");
+      expect(window.history.state).toMatchObject({ keep: true });
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("ignores an unknown Google Calendar redirect value but still strips it", async () => {
+    window.history.replaceState(null, "", "/?google_calendar=bogus");
+    try {
+      render(<WorkbenchPageClient />);
+      await act(async () => {});
+      expect(screen.queryByRole("dialog", { name: "Google Calendar" })).toBeNull();
+      expect(window.location.search).toBe("");
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
   it("opens the mobile navigation as a modal drawer and restores focus on Escape", async () => {
     useMobileViewport();
     const user = userEvent.setup();
