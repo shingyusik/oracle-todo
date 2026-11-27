@@ -33,9 +33,16 @@ enum ErrorKind {
     Forbidden,
     UpdateInProgress,
     RetentionInProgress,
+    GoogleCalendar {
+        code: &'static str,
+        message: &'static str,
+    },
+    UpstreamUnavailable,
     UpdateNotAvailable,
     UpdateUnsupported,
-    Validation { field: Option<&'static str> },
+    Validation {
+        field: Option<&'static str>,
+    },
     PayloadTooLarge,
     UriTooLong,
     HeaderTooLarge,
@@ -44,7 +51,9 @@ enum ErrorKind {
     Busy,
     NotFound,
     Internal,
-    CleanupPending { record_id: String },
+    CleanupPending {
+        record_id: String,
+    },
 }
 
 #[derive(Debug)]
@@ -74,6 +83,20 @@ impl ApiError {
     pub(crate) fn retention_in_progress() -> Self {
         Self {
             kind: ErrorKind::RetentionInProgress,
+        }
+    }
+
+    /// 409 `google_calendar_*` state conflicts.
+    pub(crate) fn google_calendar(code: &'static str, message: &'static str) -> Self {
+        Self {
+            kind: ErrorKind::GoogleCalendar { code, message },
+        }
+    }
+
+    /// 502: an upstream service (Google) failed or was unreachable.
+    pub fn upstream_unavailable() -> Self {
+        Self {
+            kind: ErrorKind::UpstreamUnavailable,
         }
     }
 
@@ -169,6 +192,15 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "retention_in_progress",
                 "A retention run is already in progress.",
+                Map::new(),
+            ),
+            ErrorKind::GoogleCalendar { code, message } => {
+                (StatusCode::CONFLICT, code, message, Map::new())
+            }
+            ErrorKind::UpstreamUnavailable => (
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "An upstream service is unavailable.",
                 Map::new(),
             ),
             ErrorKind::UpdateNotAvailable => (

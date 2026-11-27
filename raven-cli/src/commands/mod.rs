@@ -1,4 +1,5 @@
 pub mod api;
+pub mod google_calendar;
 pub mod health;
 pub mod import;
 pub mod init;
@@ -34,6 +35,7 @@ pub fn execute(paths: &RavenPaths, command: Command) -> Result<()> {
         Command::Ui(args) => ui::run(paths, args),
         Command::Mcp(args) => mcp::run(paths, args),
         Command::Maintenance { command } => maintenance::run(paths, command),
+        Command::GoogleCalendar { command } => google_calendar::run(paths, command),
     }
 }
 

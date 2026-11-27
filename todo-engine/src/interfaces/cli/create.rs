@@ -110,6 +110,7 @@ pub(super) fn event_propose(home: &Path, args: EventProposeArgs) -> Result<()> {
         participants: args.participants,
         commitment_type: args.commitment_type,
         tags: args.tags,
+        external_source: None,
     })?;
     print_json(&item)?;
     Ok(())

@@ -5,7 +5,6 @@
 //! `backups/retention/<YYYYMMDDTHHMMSSZ>/`.
 
 mod backup;
-mod fsutil;
 mod lock;
 mod plan;
 mod run;
@@ -21,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
+
+use crate::fsutil;
 use time::{OffsetDateTime, UtcOffset};
 
 pub use plan::{DomainPreview, PreviewItem, RetentionPreview};

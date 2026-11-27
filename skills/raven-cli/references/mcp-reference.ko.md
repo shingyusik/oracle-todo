@@ -421,6 +421,10 @@ MCP 도구와 CLI 명령은 같은 애플리케이션 서비스를 호출하므�
 보존 기간 영구 삭제는 MCP로 노출하지 않습니다. 유지 관리 도구가 없고 MCP 프로세스는 보존 기간 스케줄러를 실행하지 않습니다.
 UI, `/api/v1/maintenance/retention*`, `raven maintenance`를 사용합니다.
 
+Google Calendar 동기화도 MCP로 노출하지 않습니다. Google Calendar 도구가 없고 MCP 프로세스는 동기화 스케줄러를 실행하지 않습니다.
+UI, `/api/v1/integrations/google-calendar*`, `raven google-calendar`를 사용합니다.
+동기화로 만들어지거나 바뀐 일정은 일반 ToDo 일정이므로 MCP ToDo 조회에 나타나며, Google에서 가져온 일정에는 `metadata.external_source`가 있습니다.
+
 ## 변경·재시도·사진
 
 일반 생성 도구는 선택적 `request_key`를 받습니다(ASCII 영문·숫자·`-_.:`, 1~128자).

@@ -197,6 +197,140 @@ verification evidence.
 Remote AI access uses a separate loopback `raven mcp` listener and Cloudflare Access application.
 See [remote MCP](mcp-reference.md) for startup, Tunnel routing and client authentication.
 
+## Google Calendar sync
+
+Raven can sync ToDo events two-way with one Google calendar
+([how it behaves](../architecture/data-model.md#google-calendar-sync)). Google requires every
+app that reads a calendar to have its own OAuth client, so you create one in your own Google
+Cloud project once. It is free and takes about ten minutes. You only need a Google account;
+no billing account is required.
+
+### 1. Create a Google Cloud project
+
+1. Open <https://console.cloud.google.com/> and sign in with the Google account whose
+   calendar you want to sync.
+2. Accept the terms if asked.
+3. Click the project picker at the top of the page, then **New project**.
+4. Name it `Raven` (any name works), leave the organization as is, and click **Create**.
+5. Make sure the new project is selected in the project picker before continuing.
+
+### 2. Enable the Google Calendar API
+
+1. Open the menu (☰) → **APIs & Services** → **Library**.
+2. Search for `Google Calendar API`, open it, and click **Enable**.
+
+### 3. Configure the consent screen (Google Auth Platform)
+
+Open the menu (☰) → **Google Auth Platform** (or **APIs & Services** → **OAuth consent
+screen**). If it shows **Get started**, click it; the wizard asks for the same values as the
+pages below.
+
+1. **Branding**: App name `Raven`; User support email: your Gmail address; Developer contact
+   email: your Gmail address. Leave the logo and links empty. **Save**.
+2. **Audience**: User type **External** (a personal Gmail account cannot pick Internal).
+   Under **Test users**, click **Add users** and add your own Gmail address.
+3. **Data Access**: click **Add or remove scopes**. Under **Manually add scopes**, paste these
+   three lines, click **Add to table**, then **Update** and **Save**:
+
+   ```text
+   https://www.googleapis.com/auth/calendar.events
+   https://www.googleapis.com/auth/calendar.calendarlist.readonly
+   https://www.googleapis.com/auth/calendar.app.created
+   ```
+
+   They let Raven read and write events, list your calendars so you can pick one, and create
+   a dedicated "Raven" calendar. Raven cannot delete calendars or read other Google data.
+4. **Audience** again: under **Publishing status**, click **Publish app** and confirm, so the
+   status reads **In production**.
+
+   Why: while the app is in **Testing**, Google expires its refresh tokens after 7 days, and
+   sync would stop with "reconnect" every week. Publishing does not list the app anywhere;
+   only software holding your client ID and secret, which stay on your Mac, can start a
+   sign-in with it. You do not
+   need to submit it for verification.
+
+   Because the app is not verified, Google shows **"Google hasn't verified this app"** when you
+   connect. This is expected for your own client: click **Advanced**, then
+   **Go to Raven (unsafe)** (**Continue** on some screens), and allow the calendar access.
+
+### 4. Create the OAuth client
+
+1. **Google Auth Platform** → **Clients** → **Create client**.
+2. Application type: **Desktop app**. Name: `Raven` (or the Mac's name). **Create**.
+3. In the dialog that appears, click **Download JSON**. Download it now: Google may not show
+   the client secret again. If you missed it, delete the client and create a new one.
+
+The file contains your client secret. Do not commit it, paste it into chats, or keep extra
+copies.
+
+### 5. Give the client to Raven
+
+On the Mac that runs Raven:
+
+```bash
+raven google-calendar client set --file ~/Downloads/client_secret_XXXX.json
+rm ~/Downloads/client_secret_XXXX.json
+```
+
+Raven copies only the client ID and secret into
+`$RAVEN_HOME/integrations/google-calendar/oauth-client.json` (`0600`), so the download can be
+deleted. To keep the file elsewhere instead, set `RAVEN_GOOGLE_OAUTH_CLIENT_FILE` to its path
+and skip `client set`.
+
+### 6. Connect and start syncing
+
+Connect from the Mac that runs Raven, because Google returns to `http://127.0.0.1` after you
+sign in:
+
+- **UI**: open Raven at `http://127.0.0.1:3001`, then **Menu → Google Calendar → Connect**.
+  Sign in, click through the unverified-app warning, and allow access. The browser returns to
+  Raven with the dialog open.
+- **CLI**: `raven google-calendar connect` opens the browser and waits up to 5 minutes.
+
+On another device (for example through the Cloudflare Access address), the dialog shows
+**Connect from the Mac running Raven** and a **Redirect URL** field: sign in with Google, copy
+the full address of the page that fails to load (it starts with
+`http://127.0.0.1:<UI port>/`, `3001` for the service above), and paste it into the field.
+
+Then, in the dialog (or with the CLI):
+
+1. **Choose a calendar**: pick an existing calendar you can write to, or **Create Raven
+   calendar** for a dedicated one (`raven google-calendar calendars`,
+   `calendar select <id>`, or `calendar create`). A dedicated calendar keeps Raven events
+   separate and easy to hide.
+2. **Preview**: the first-sync preview shows how many Raven events will be added to Google and
+   how many Google events will be added to Raven (events from 7 days ago onward; recurring
+   Google events are skipped). Nothing is written yet (`raven google-calendar sync --dry-run`).
+3. **Start syncing**: confirms the first sync (`raven google-calendar sync`). Afterwards Raven
+   syncs every 2 minutes while `raven ui` or `raven api` is running. **Sync now** runs a pass
+   immediately.
+
+Settings in the dialog (or `raven google-calendar set`): automatic sync on/off, check interval
+(60–3600 seconds), default length of Google events created from timed Raven events (1–1440
+minutes), and whether the Raven note syncs with the Google description.
+
+### Reconnecting
+
+The dialog shows **Sync stopped** with **Reconnect** (status `reauth_required`) when Google
+rejects Raven's refresh token. Common causes:
+
+- the app was left in **Testing** (tokens expire after 7 days) — publish it, then reconnect;
+- Raven did not sync for 6 months (Google expires unused refresh tokens);
+- you removed Raven's access at <https://myaccount.google.com/connections>;
+- more than 100 refresh tokens were issued for the same account and client (Google silently
+  invalidates the oldest), for example after many reconnects or several Raven homes sharing one
+  client — use a separate client per machine if needed.
+
+Reconnecting keeps the selected calendar and links, so syncing resumes where it stopped.
+**Disconnect** (`raven google-calendar disconnect`) revokes access and deletes the stored token;
+Google events and calendars are never deleted.
+
+| Variable | Purpose |
+| --- | --- |
+| `RAVEN_GOOGLE_CALENDAR=off` | Disables only the automatic sync scheduler in `raven ui`/`raven api`; manual sync still works |
+| `RAVEN_GOOGLE_OAUTH_CLIENT_FILE` | Path to a Desktop-app client JSON used instead of `integrations/google-calendar/oauth-client.json` |
+| `RAVEN_GOOGLE_API_URL` | Tests only. Replaces Google's Calendar, token, and revoke endpoints with a plain-`http` loopback fake (`<base>/calendar/v3`, `<base>/token`, `<base>/revoke`); other values are ignored. Never set it in a live environment |
+
 ## ToDo import
 
 ```bash

@@ -209,10 +209,11 @@ impl TodoService {
         item_id: &str,
         status: ItemStatus,
         action: &str,
+        actor: Actor,
         reason: Option<&str>,
     ) -> TodoResult<TodoItem> {
         let item = self.get(item_id)?;
-        self.set_terminal_status_from(item, status, action, reason)
+        self.set_terminal_status_from(item, status, action, actor, reason)
     }
 
     pub(super) fn set_terminal_status_from(
@@ -220,6 +221,7 @@ impl TodoService {
         mut item: TodoItem,
         status: ItemStatus,
         action: &str,
+        actor: Actor,
         reason: Option<&str>,
     ) -> TodoResult<TodoItem> {
         let before = Some(serde_json::to_value(&item).map_err(|error| {
@@ -229,7 +231,7 @@ impl TodoService {
         item.status = status;
         item.archived_at = Some(now);
         item.updated_at = now;
-        self.store_item_and_event(Actor::User, action, before, item, reason)
+        self.store_item_and_event(actor, action, before, item, reason)
     }
 
     pub(super) fn ensure_relation(

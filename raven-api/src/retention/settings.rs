@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{RetentionError, RetentionPaths, fsutil};
+use super::{RetentionError, RetentionPaths};
+use crate::fsutil;
 
 const VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 4096;

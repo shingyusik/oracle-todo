@@ -235,6 +235,7 @@ pub(super) async fn propose_event(
                 .commitment_type
                 .unwrap_or_else(|| "appointment".to_string()),
             tags: body.tags.unwrap_or_default(),
+            external_source: None,
         })
     })?;
     Ok(Json(item))

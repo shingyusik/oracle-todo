@@ -32,6 +32,7 @@ impl TodoService {
         let paused = self.store_item_and_event(Actor::User, "pause", before, item, reason)?;
         if paused.item_type == ItemType::Routine {
             self.cascade_routine_generated_tasks(
+                Actor::User,
                 &paused.id,
                 ItemStatus::Waiting,
                 "routine_pause_generated_task",
@@ -76,6 +77,7 @@ impl TodoService {
         let resumed = self.store_item_and_event(Actor::User, "resume", before, item, reason)?;
         if resumed.item_type == ItemType::Routine {
             self.cascade_routine_generated_tasks(
+                Actor::User,
                 &resumed.id,
                 ItemStatus::Active,
                 "routine_resume_generated_task",
@@ -268,11 +270,22 @@ impl TodoService {
     }
 
     pub fn archive(&mut self, item_id: &str, reason: Option<&str>) -> TodoResult<TodoItem> {
+        self.archive_as(item_id, Actor::User, reason)
+    }
+
+    /// [`Self::archive`] recorded in the audit history as `actor`.
+    pub fn archive_as(
+        &mut self,
+        item_id: &str,
+        actor: Actor,
+        reason: Option<&str>,
+    ) -> TodoResult<TodoItem> {
         let archived =
-            self.set_terminal_status(item_id, ItemStatus::Archived, "archive", reason)?;
-        self.record_generated_task_occurrence(&archived, Actor::User, reason)?;
+            self.set_terminal_status(item_id, ItemStatus::Archived, "archive", actor, reason)?;
+        self.record_generated_task_occurrence(&archived, actor, reason)?;
         if archived.item_type == ItemType::Routine {
             self.cascade_routine_generated_tasks(
+                actor,
                 &archived.id,
                 ItemStatus::Archived,
                 "routine_archive_generated_task",
@@ -286,6 +299,7 @@ impl TodoService {
 
     pub(super) fn cascade_routine_generated_tasks(
         &mut self,
+        actor: Actor,
         routine_id: &str,
         status: ItemStatus,
         action: &str,
@@ -301,13 +315,14 @@ impl TodoService {
             if from_status.is_some_and(|expected| task.status != expected) {
                 continue;
             }
-            changed.push(self.transition_generated_task(task, status, action, reason)?);
+            changed.push(self.transition_generated_task(actor, task, status, action, reason)?);
         }
         Ok(changed)
     }
 
     pub(super) fn transition_generated_task(
         &mut self,
+        actor: Actor,
         mut task: TodoItem,
         status: ItemStatus,
         action: &str,
@@ -325,8 +340,8 @@ impl TodoService {
                 task.completed_at = Some(now);
             }
         }
-        let task = self.store_item_and_event(Actor::User, action, before, task, reason)?;
-        self.record_generated_task_occurrence(&task, Actor::User, reason)?;
+        let task = self.store_item_and_event(actor, action, before, task, reason)?;
+        self.record_generated_task_occurrence(&task, actor, reason)?;
         Ok(task)
     }
 

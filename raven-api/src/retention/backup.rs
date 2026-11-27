@@ -15,7 +15,8 @@ use time::macros::format_description;
 
 use super::plan::EnginePlan;
 use super::state::format_instant;
-use super::{Domain, LOG_TARGET, RetentionPaths, fsutil};
+use super::{Domain, LOG_TARGET, RetentionPaths};
+use crate::fsutil;
 
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const MEDIA_DIR: &str = "media";

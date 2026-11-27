@@ -32,6 +32,7 @@ help는 데이터 홈 없이 실행되며 저장소나 로그를 초기화하지
 | `raven mcp [--port <u16>]` | Access 인증 Streamable HTTP MCP 실행. 루프백 `/mcp`, 기본 포트 `3003` |
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | 루프백 UI와 쿠키 인증 API 실행 |
 | `raven maintenance retention show\|set`, `raven maintenance purge` | 보존 기간 삭제 설정, 미리보기, 수동 실행. [유지 관리](#유지-관리) 참고 |
+| `raven google-calendar ...` | Google Calendar 동기화 클라이언트, 연결, 캘린더, 설정, 수동 동기화. [Google Calendar](#google-calendar) 참고 |
 
 `--ui-path`가 없으면 `RAVEN_UI_PATH`에서 UI 파일 경로를 읽습니다.
 
@@ -298,6 +299,53 @@ raven maintenance purge (--dry-run|--apply) [--limit <1..=200>] [--format table|
 
 `partial`, `failed`, `insufficient_disk`일 때는 오류 전에 실행 보고서를 stdout에 출력합니다.
 `retention set` 검증 실패는 `fields`에 필드를 담아 `2`로 종료하고, 설정·상태 파일을 읽을 수 없으면 `storage_error`로 `1`로 종료합니다.
+
+## Google Calendar
+
+`raven google-calendar`는 선택한 홈의 [Google Calendar 동기화](../architecture/data-model.md#google-calendar-sync)를 관리합니다.
+`raven ui`·`raven api` 스케줄러, [Google Calendar API](api-reference.md#google-calendar-integration)와 같은 코어를 씁니다.
+Google Cloud Console 단계를 포함한 처음 설정은 [Setup](setup.md#google-calendar-sync)을 참고합니다.
+
+```text
+raven google-calendar client set --file <path>
+raven google-calendar client show [--format table|json]
+raven google-calendar connect [--no-open] [--timeout-secs 300]
+raven google-calendar status [--format table|json]
+raven google-calendar calendars [--format table|json]
+raven google-calendar calendar select <calendar-id>
+raven google-calendar calendar create [--summary Raven]
+raven google-calendar set [--enabled true|false] [--poll-interval-secs <60..=3600>] [--default-duration-minutes <1..=1440>] [--sync-note true|false]
+raven google-calendar sync [--dry-run] [--allow-mass-delete] [--format table|json]
+raven google-calendar disconnect [--forget-links]
+```
+
+- `client set --file`은 내려받은 Google "Desktop app" 클라이언트 JSON을 검증하고 `client_id`와 `client_secret`만
+  `integrations/google-calendar/oauth-client.json`(`0600`)에 복사합니다. 복사한 뒤 내려받은 파일은 지웁니다.
+  출력은 `{"configured":true,"client_id":"…"}`입니다. `client show`는 `configured`와 `client_id`만 출력하고(없으면 JSON `{"configured":false,"client_id":null}`) 비밀값은 출력하지 않습니다.
+  `RAVEN_GOOGLE_OAUTH_CLIENT_FILE`을 지정하면 저장된 파일 대신 그 파일을 씁니다. 상태의 `configured`는 이런 유효한 클라이언트 파일이 있다는 뜻입니다.
+- `connect`는 `127.0.0.1:0`(임의 포트)에 임시 루프백 리스너를 열고(리디렉션 `http://127.0.0.1:<port>/__raven/google-calendar/callback`), 동의 URL을 stderr에 출력한 뒤 브라우저로 엽니다(macOS는 `open`, `--no-open`이면 출력만).
+  `--timeout-secs`(`10..=3600`, 기본 `300`) 동안 리디렉션을 기다리고, 성공하면 상태 문서를 compact JSON으로 stdout에 출력합니다.
+  브라우저가 있는 컴퓨터에서 실행해야 하며, 시간이 지나면 `google_calendar_connect_timeout`으로 `1` 종료합니다.
+- `status`는 `GET /api/v1/integrations/google-calendar` 문서를 출력합니다. CLI 프로세스에서는 `scheduler_active`가 `false`, `next_run_at`이 `null`입니다.
+  조회는 `integrations/` 파일을 만들지 않습니다.
+- `calendars`는 쓰기 가능한 캘린더를 나열하고(JSON은 `GET /calendars`와 같음), `calendar select`·`calendar create`로 동기화할 캘린더를 정한 뒤 상태 문서를 출력합니다.
+  `calendar create`는 `settings.time_zone`(기본 `Asia/Seoul`)으로 캘린더를 만듭니다.
+  캘린더를 바꾸면 이전 캘린더의 연결을 모두 끊고(Google 일정은 남음) 첫 동기화를 다시 대기 상태로 둡니다.
+- `set`은 옵션이 하나 이상 필요하며, 생략한 옵션은 기존 값을 유지하고 상태 문서를 출력합니다.
+  `set`, `calendar select|create`, `disconnect`, `client set`은 변경 명령이라 compact JSON을 출력합니다.
+- `sync`는 트리거 `cli`로 즉시 실행합니다. `enabled`, 주기, `RAVEN_GOOGLE_CALENDAR=off`를 무시합니다.
+  `--dry-run`은 미리보기 개수만 출력하고 아무것도 쓰지 않으며 기록도 남기지 않습니다. 첫 동기화 대기 중에는 `sync --dry-run`으로 확인한 뒤 `sync`로 시작(확인)하고, 예약 동기화를 원하면 `set --enabled true`를 실행합니다.
+  JSON 출력은 `POST /sync` 응답(`{"dry_run":…,"last_sync":{…}}`)과 같습니다.
+  `--allow-mass-delete`는 대량 변경 보호가 보류한 삭제를 적용하게 합니다.
+- `disconnect`는 Google 권한을 철회하고 `token.json`을 지웁니다. 설정과 연결은 남으므로 다시 연결하면 이어서 동기화합니다.
+  `--forget-links`는 `sync.sqlite`도 지우며, 이후 동기화에서 기존 일정이 중복될 수 있습니다. Google 일정과 캘린더는 지우지 않습니다.
+
+오류는 공통 종료 코드를 따릅니다. `google_calendar_not_configured`, `google_calendar_not_connected`,
+`google_calendar_reauth_required`, `google_calendar_calendar_not_selected`, `google_calendar_sync_in_progress`(재시도 가능),
+`validation_error`는 `2`, `upstream_unavailable`과 저장소 실패(`storage_error`)는 `1`로 종료합니다.
+기록된 동기화는 먼저 보고서를 stdout에 출력한 뒤, 결과가 `partial`·`failed`면 `google_calendar_sync_failed`(재시도 가능)로 `1`,
+`guard_tripped`면 `google_calendar_guard_tripped`로 `2`, `reauth_required`면 `google_calendar_reauth_required`로 `2` 종료합니다.
+출력에는 토큰, 인증 코드, 클라이언트 비밀값, 일정 제목, 이메일 주소가 나오지 않습니다.
 
 ## UI 테이블 검색과 선택 후보
 

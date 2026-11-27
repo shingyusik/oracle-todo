@@ -593,7 +593,7 @@ Unreadable settings or state return `500 internal_error`.
   "env_override": null,
   "schedule": {"interval_hours": 24, "scheduler_active": true, "next_run_at": "2026-11-20T00:05:00Z"},
   "last_run": {
-    "run_id": "uuid-hex",
+    "run_id": "3f0c2a8e-5b1d-4c7a-9e2f-6a1b0c9d8e7f",
     "trigger": "scheduled",
     "started_at": "2026-11-19T00:05:00Z",
     "finished_at": "2026-11-19T00:05:02Z",
@@ -668,6 +668,170 @@ A manual run ignores the schedule, `enabled`, and `RAVEN_RETENTION`.
 | `200` | `{"last_run":<previous or null>,"skipped":"clock_regressed"}` | System clock is earlier than the last run's finish; nothing ran |
 | `403` | `forbidden` | Missing or mismatched `Origin` or `X-Raven-Maintenance` |
 | `409` | `retention_in_progress` | Another run holds `maintenance/retention.lock` |
+
+## Google Calendar integration
+
+These routes control [Google Calendar sync](../architecture/data-model.md#google-calendar-sync).
+Base path: `/api/v1/integrations/google-calendar`. They exist on the `raven ui` listener
+(session cookie) and on standalone `raven api` (bearer token), except the connect routes,
+which are UI-only. They are never exposed via MCP. Responses carry `Cache-Control: no-store`.
+Error bodies never contain Google URLs, response bodies, tokens, authorization codes, `state`
+values, client secrets, event titles, or email addresses.
+
+| Method | Route | Behavior |
+| --- | --- | --- |
+| `GET` | `/api/v1/integrations/google-calendar` | Status, settings, schedule, and last sync |
+| `PUT` | `/api/v1/integrations/google-calendar` | Update settings; returns the status document |
+| `GET` | `/api/v1/integrations/google-calendar/calendars` | Writable calendars of the connected account |
+| `POST` | `/api/v1/integrations/google-calendar/calendar` | Select an existing calendar or create a dedicated one |
+| `GET` | `/api/v1/integrations/google-calendar/preview` | Read-only counts of what the next sync would do |
+| `POST` | `/api/v1/integrations/google-calendar/sync` | Sync now (also confirms the first sync) |
+| `POST` | `/api/v1/integrations/google-calendar/disconnect` | Revoke the grant and delete the token |
+| `POST` | `/api/v1/integrations/google-calendar/connect` | UI only: start OAuth |
+| `POST` | `/api/v1/integrations/google-calendar/connect/complete` | UI only: finish OAuth from a pasted redirect URL |
+| `GET` | `/__raven/google-calendar/callback` | UI only, unauthenticated: OAuth loopback redirect target |
+
+`GET /api/v1/integrations/google-calendar`:
+
+```json
+{
+  "configured": true,
+  "connection": "connected",
+  "scopes": [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+    "https://www.googleapis.com/auth/calendar.app.created"
+  ],
+  "calendar": {"id": "…@group.calendar.google.com", "summary": "Raven", "time_zone": null, "primary": false},
+  "settings": {
+    "enabled": true, "calendar_id": "…@group.calendar.google.com", "calendar_summary": "Raven",
+    "time_zone": "Asia/Seoul", "poll_interval_secs": 120, "default_duration_minutes": 60,
+    "sync_note": true, "push_since": "2026-11-13"
+  },
+  "env_override": null,
+  "schedule": {"scheduler_active": true, "next_run_at": "2026-11-20T01:02:00Z"},
+  "first_sync_pending": false,
+  "last_sync": {
+    "run_id": "3f0c2a8e-5b1d-4c7a-9e2f-6a1b0c9d8e7f",
+    "trigger": "scheduled",
+    "started_at": "2026-11-20T01:00:00Z",
+    "finished_at": "2026-11-20T01:00:01Z",
+    "outcome": "ok",
+    "counts": {
+      "google_created": 1, "google_updated": 0, "google_deleted": 0,
+      "raven_created": 0, "raven_updated": 2, "raven_archived": 0,
+      "conflicts": 0, "skipped_recurring": 3, "skipped_terminal": 0, "failed": 0
+    },
+    "error_kind": null
+  },
+  "links": {"total": 42, "error": 0}
+}
+```
+
+- `configured` is true when an OAuth client is available (`oauth-client.json` or
+  `RAVEN_GOOGLE_OAUTH_CLIENT_FILE`). `connection` is `disconnected`, `connected`, or
+  `reauth_required` (Google rejected the refresh token; reconnect). `calendar` is `null` until
+  one is selected; its `time_zone` is always `null` (Raven does not store the calendar's zone;
+  `GET /calendars` shows it) and `primary` is true only for the literal id `primary`.
+  `settings` mirrors `settings.json`: `time_zone` is the zone written with synced times and
+  `push_since` the first-sync window start (`YYYY-MM-DD`, set when the first sync completes).
+  `first_sync_pending` is true while a calendar is selected and the first sync is not
+  confirmed. `scopes` come from `token.json` (`[]` when disconnected).
+- `env_override` is `"disabled"` when the process started with `RAVEN_GOOGLE_CALENDAR=off`. That
+  stops only the scheduler; manual syncs through the UI, API, and CLI still work.
+- `scheduler_active` is true only in a process whose scheduler is running; `next_run_at` is
+  `null` when no scheduled sync will happen.
+- `last_sync` is `null` before the first sync. `trigger` is `scheduled`, `api`, or `cli`.
+  `outcome` is `ok`, `partial` (some events failed), `failed`, `guard_tripped` (deletions held
+  back by the mass-change guard), `reauth_required`, or `nothing_to_do`. `error_kind` is a
+  short kind such as `network` or `rate_limited`, never a message.
+
+`PUT /api/v1/integrations/google-calendar` accepts
+`{"enabled":true,"sync_note":true,"poll_interval_secs":120,"default_duration_minutes":60}`;
+every field is optional and omitted fields keep their value. It returns the status document.
+`poll_interval_secs` is `60..=3600` and `default_duration_minutes` `1..=1440`; unknown fields or
+out-of-range values return `400 validation_error`. The calendar and time zone are not set here.
+
+`GET /api/v1/integrations/google-calendar/calendars` lists the calendars the account can write
+to (`accessRole` `writer` or `owner`):
+
+```json
+{"calendars": [{"id": "primary@example.com", "summary": "Personal", "primary": true, "access_role": "owner", "time_zone": "Asia/Seoul"}]}
+```
+
+`POST /api/v1/integrations/google-calendar/calendar` takes either `{"select":"<calendar id>"}`
+or `{"create":{"summary":"Raven"}}` (exactly one) and returns the status document. Select
+accepts only a writable calendar of the connected account (else `400 validation_error` on
+`select`); create makes a new secondary calendar in `settings.time_zone` (summary 1..255
+characters). Choosing a different calendar than the current one unlinks every link of the old
+calendar (its events stay in Google), clears its sync token and `push_since`, and makes the
+first sync pending again.
+
+`GET /api/v1/integrations/google-calendar/preview` writes nothing to Raven or Google (no
+lock, and no `sync.sqlite` is created) and returns
+`{"counts":{...},"guard_tripped":false,"first_sync":true}` with the same count keys as
+`last_sync.counts`; `guard_tripped` tells whether the mass-change guard would hold deletions
+back.
+
+`POST /api/v1/integrations/google-calendar/sync` accepts
+`{"dry_run":false,"allow_mass_delete":false}` (both optional; an empty body equals `{}`) and
+returns `{"dry_run":false,"last_sync":{...}}` with the recorded run. A dry run returns the
+planned counts in the same shape (`"dry_run":true`) without recording it. It ignores
+`enabled`, the poll interval, and `RAVEN_GOOGLE_CALENDAR=off`. When `first_sync_pending` is
+true, a non-dry run is the **Start syncing** confirmation: the first run that finishes `ok`,
+`partial`, or `nothing_to_do` sets `first_sync_completed_at` and `push_since`. The UI then sends
+`PUT {"enabled":true}` so the scheduler takes over. Set `allow_mass_delete` only after checking
+why a previous run reported `guard_tripped`.
+
+`POST /api/v1/integrations/google-calendar/disconnect` accepts `{"forget_links":false}` and
+returns the status document. It revokes the Google grant (best effort), deletes `token.json`,
+and keeps settings and links; `forget_links: true` also deletes `sync.sqlite` and makes the
+first sync pending again. Google events and calendars are never deleted.
+
+### Connecting (UI only)
+
+`POST /api/v1/integrations/google-calendar/connect` returns
+`{"authorization_url":"https://accounts.google.com/…","expires_at":"…"}`. The URL uses PKCE and
+a single-use `state` valid for 10 minutes (kept in memory of that `raven ui` process), and
+redirects to `http://127.0.0.1:<UI port>/__raven/google-calendar/callback` — the actual
+listener port (`3001` for the usual service). The callback needs no session (the `state`
+authenticates it), stores the refresh token, and returns a no-store, `Referrer-Policy:
+no-referrer` HTML page linking to `/?google_calendar=connected` (`200`) or
+`/?google_calendar=error` (`400`); the UI opens the Google Calendar dialog for that parameter
+and removes it from the address bar.
+
+The callback only reaches Raven from the Mac running it. From another device (for example the
+Cloudflare Access origin), sign in, copy the address of the page that fails to load, and send
+it to `POST /api/v1/integrations/google-calendar/connect/complete` as
+`{"redirect_url":"http://127.0.0.1:3001/__raven/google-calendar/callback?..."}`. It returns the
+status document; an unknown, expired, or reused `state` returns `400 validation_error` on
+`state`, and a redirect carrying `error=` (consent denied) or no `code` on `code`.
+
+### Request guard and errors
+
+Every `POST` and `PUT` requires exactly one `Origin` and `X-Raven-Integration: 1`, with the same
+Origin rules as the [maintenance run](#maintenance-retention): the served UI origin (local or
+`RAVEN_UI_PUBLIC_ORIGIN`) plus the session cookie on `raven ui`, and `http://<Host>` on bearer
+`raven api`:
+
+```bash
+curl -X POST -H "Authorization: Bearer $RAVEN_API_TOKEN" \
+  -H 'Origin: http://127.0.0.1:3002' -H 'X-Raven-Integration: 1' \
+  -H 'Content-Type: application/json' -d '{"dry_run":true}' \
+  http://127.0.0.1:3002/api/v1/integrations/google-calendar/sync
+```
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| `400` | `validation_error` | Invalid body or field |
+| `403` | `forbidden` | Missing or mismatched `Origin` or `X-Raven-Integration` |
+| `409` | `google_calendar_not_configured` | No OAuth client; run `raven google-calendar client set` |
+| `409` | `google_calendar_not_connected` | No Google account connected |
+| `409` | `google_calendar_reauth_required` | Google rejected the refresh token; reconnect |
+| `409` | `google_calendar_calendar_not_selected` | Choose a calendar first |
+| `409` | `google_calendar_sync_in_progress` | Another sync holds `sync.lock`; retry later |
+| `502` | `upstream_unavailable` | Google could not be reached or returned an error |
+| `500` | `internal_error` | Unreadable integration settings, state, or store, or no ToDo store |
 
 ## UI static boundary
 

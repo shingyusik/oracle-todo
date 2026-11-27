@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use super::{RetentionError, RetentionPaths, fsutil};
+use super::{RetentionError, RetentionPaths};
+use crate::fsutil;
 
 const VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 256 * 1024;

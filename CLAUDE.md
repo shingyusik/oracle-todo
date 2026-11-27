@@ -65,7 +65,8 @@ npm --prefix npm/raven test
 
 - Home: `--home`, `RAVEN_HOME`, then `~/.raven`.
 - Layout: three SQLite files, `media/health/`, `logs/raven.log.jsonl(.1-.3)`,
-  `maintenance/` (retention settings/state/lock) and `backups/retention/<UTC stamp>/`.
+  `maintenance/` (retention settings/state/lock), `backups/retention/<UTC stamp>/`, and
+  `integrations/google-calendar/` (sync settings/state/token/client, `sync.sqlite`, lock).
 - Logs: `RAVEN_CONSOLE_LOG`, `RAVEN_FILE_LOG`, `RAVEN_LOG_MAX_BYTES`, `RAVEN_LOG_MAX_FILES`.
 - API auth: exactly one of `RAVEN_API_TOKEN` or `RAVEN_API_TOKEN_FILE`.
 - API bind: `RAVEN_API_BIND_HOST`, `RAVEN_API_BIND_PORT`; non-loopback cleartext also
@@ -79,6 +80,11 @@ npm --prefix npm/raven test
 - Retention purge: `maintenance/retention.json` (default enabled, 30 days, `backup_keep` 3).
   `RAVEN_RETENTION=off` disables only the `raven ui`/`raven api` scheduler; manual
   API/CLI runs still work. Maintenance routes are not exposed via MCP.
+- Google Calendar sync (ToDo events only, ADR-0007): `RAVEN_GOOGLE_CALENDAR=off` disables only
+  the `raven ui`/`raven api` scheduler; manual sync still works. `RAVEN_GOOGLE_OAUTH_CLIENT_FILE`
+  overrides `integrations/google-calendar/oauth-client.json`; test-only loopback
+  `RAVEN_GOOGLE_API_URL`. Routes `/api/v1/integrations/google-calendar*` and
+  `raven google-calendar`; not exposed via MCP. Never call real Google in tests.
 - MCP: loopback port `3003`; requires `RAVEN_MCP_PUBLIC_ORIGIN`, `RAVEN_MCP_ACCESS_ISSUER`
   and `RAVEN_MCP_ACCESS_AUDIENCE`; validates Cloudflare Access JWT signatures and application claims.
   Requires a caller allowlist (`RAVEN_MCP_GATEWAY_CLIENT_ID` + `RAVEN_MCP_GATEWAY_PUBLIC_KEY`
@@ -100,6 +106,8 @@ npm --prefix npm/raven test
 - Health database and `media/health` must be backed up together.
 - Dashboard reads must not create or migrate missing stores; domain failures stay isolated.
 - Do not expose API token/session values, image bytes, paths, SQL, or raw storage errors.
+- Never log or return Google tokens, codes, `state`, client secrets, URLs/bodies, event titles,
+  or emails. `token.json` and `oauth-client.json` are excluded from retention backups.
 - ToDo import is read-only source → temporary validated copy → no-clobber destination.
 
 ## Skills & Hooks

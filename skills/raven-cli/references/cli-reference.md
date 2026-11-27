@@ -33,6 +33,7 @@ See [AI CLI usage](ai-cli-usage.md) for a complete query, update, and retry work
 | `raven mcp [--port <u16>]` | Serve Access-authenticated Streamable HTTP MCP at loopback `/mcp`; default port `3003` |
 | `raven ui [--ui-path <dir>] [--port <u16>] [--no-open]` | Serve loopback UI and cookie-authenticated API |
 | `raven maintenance retention show\|set`, `raven maintenance purge` | Retention purge settings, preview, and manual run; see [Maintenance](#maintenance) |
+| `raven google-calendar ...` | Google Calendar sync client, connection, calendar, settings, and manual sync; see [Google Calendar](#google-calendar) |
 
 `RAVEN_UI_PATH` supplies the UI artifact when `--ui-path` is absent.
 
@@ -303,6 +304,69 @@ Local dates for routine protection use UTC+09:00.
 For `partial`, `failed`, and `insufficient_disk` the run report is printed on stdout before
 the error. `retention set` validation failures exit `2` with the field in `fields`; unreadable
 settings or state exit `1` with `storage_error`.
+
+## Google Calendar
+
+`raven google-calendar` manages [Google Calendar sync](../architecture/data-model.md#google-calendar-sync)
+for the selected home. It uses the same core as the `raven ui`/`raven api` scheduler and the
+[Google Calendar API](api-reference.md#google-calendar-integration). First-time setup, including
+the Google Cloud Console steps, is in [Setup](setup.md#google-calendar-sync).
+
+```text
+raven google-calendar client set --file <path>
+raven google-calendar client show [--format table|json]
+raven google-calendar connect [--no-open] [--timeout-secs 300]
+raven google-calendar status [--format table|json]
+raven google-calendar calendars [--format table|json]
+raven google-calendar calendar select <calendar-id>
+raven google-calendar calendar create [--summary Raven]
+raven google-calendar set [--enabled true|false] [--poll-interval-secs <60..=3600>] [--default-duration-minutes <1..=1440>] [--sync-note true|false]
+raven google-calendar sync [--dry-run] [--allow-mass-delete] [--format table|json]
+raven google-calendar disconnect [--forget-links]
+```
+
+- `client set --file` validates the downloaded Google "Desktop app" client JSON and copies only
+  `client_id` and `client_secret` to `integrations/google-calendar/oauth-client.json` (`0600`).
+  Delete the downloaded file afterwards. It prints `{"configured":true,"client_id":"…"}`.
+  `client show` prints `configured` and `client_id` (JSON: `{"configured":false,"client_id":null}`
+  when none), never the secret. `RAVEN_GOOGLE_OAUTH_CLIENT_FILE` overrides the stored file.
+  The status field `configured` means such a client file is present and valid.
+- `connect` starts a temporary loopback listener on `127.0.0.1:0` (random port, redirect
+  `http://127.0.0.1:<port>/__raven/google-calendar/callback`), prints the consent URL on
+  stderr, opens it in the browser (`open` on macOS; `--no-open` only prints it), and waits up to
+  `--timeout-secs` (`10..=3600`, default `300`) for the redirect. On success it prints the
+  status document as compact JSON on stdout. It must run on a machine with a browser; a
+  timeout exits `1` with `google_calendar_connect_timeout`.
+- `status` prints the `GET /api/v1/integrations/google-calendar` document; from the CLI process
+  `scheduler_active` is `false` and `next_run_at` is `null`. Reading never creates
+  `integrations/` files.
+- `calendars` lists writable calendars (JSON equals `GET /calendars`); `calendar select` and
+  `calendar create` choose the synced calendar and print the status document. `calendar create`
+  makes the calendar in `settings.time_zone` (default `Asia/Seoul`). Changing it unlinks the old
+  calendar's events (they stay in Google) and makes the first sync pending again.
+- `set` requires at least one option; omitted options keep their value. It prints the status
+  document. `set`, `calendar select|create`, `disconnect`, and `client set` are mutations and
+  print compact JSON.
+- `sync` runs immediately with trigger `cli`, ignoring `enabled`, the poll interval, and
+  `RAVEN_GOOGLE_CALENDAR=off`. `--dry-run` prints the preview counts and writes nothing. While
+  the first sync is pending, run `sync --dry-run` to preview, then `sync` to start syncing (the
+  confirmation), then `set --enabled true` for scheduled syncs. JSON output equals the
+  `POST /sync` body (`{"dry_run":…,"last_sync":{…}}`); a dry run is not recorded.
+  `--allow-mass-delete` lets a run apply deletions held back by the mass-change guard.
+- `disconnect` revokes the Google grant and deletes `token.json`; settings and links are kept so
+  reconnecting resumes. `--forget-links` also deletes `sync.sqlite`, after which existing events
+  may be duplicated on the next sync. Google events and calendars are never deleted.
+
+Errors use the shared exit codes: `google_calendar_not_configured`,
+`google_calendar_not_connected`, `google_calendar_reauth_required`,
+`google_calendar_calendar_not_selected`, `google_calendar_sync_in_progress` (retryable), and
+`validation_error` exit `2`; `upstream_unavailable` and storage failures (`storage_error`) exit
+`1`. A recorded sync prints its report on stdout first; then outcome `partial` or `failed` exits
+`1` with `google_calendar_sync_failed` (retryable), `guard_tripped` exits `2` with
+`google_calendar_guard_tripped`, and `reauth_required` exits `2` with
+`google_calendar_reauth_required`.
+Output never contains tokens, authorization codes, client secrets, event titles, or email
+addresses.
 
 ## UI table queries and choice lookups
 

@@ -84,8 +84,8 @@ impl McpAdapter {
             .join("retry.sqlite");
         Ok(Self {
             receipt_path,
-            // MCP never exposes maintenance routes.
-            api: crate::build_router(config, crate::version::RELEASE_VERSION, None, None)?,
+            // MCP never exposes maintenance or integration routes.
+            api: crate::build_router(config, crate::version::RELEASE_VERSION, None, None, None)?,
             authorization: format!("Bearer {token}").parse()?,
             catalog: Arc::new(catalog::build()),
         })

@@ -208,3 +208,42 @@ async fn busy_errors_alone_preserve_definite_safe_retry_classification() {
         assert_ne!(value["retryable"], true);
     }
 }
+
+#[tokio::test]
+async fn google_calendar_errors_use_stable_codes() {
+    use raven_api::google_calendar::GoogleCalendarError;
+    use raven_api::google_calendar::client::GoogleApiError;
+
+    for (error, code) in [
+        (
+            GoogleCalendarError::NotConfigured,
+            "google_calendar_not_configured",
+        ),
+        (
+            GoogleCalendarError::NotConnected,
+            "google_calendar_not_connected",
+        ),
+        (
+            GoogleCalendarError::ReauthRequired,
+            "google_calendar_reauth_required",
+        ),
+        (
+            GoogleCalendarError::SyncInProgress,
+            "google_calendar_sync_in_progress",
+        ),
+        (
+            GoogleCalendarError::CalendarNotSelected,
+            "google_calendar_calendar_not_selected",
+        ),
+    ] {
+        let response = ApiError::from(error).into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(body(response).await["code"], code);
+    }
+    let response =
+        ApiError::from(GoogleCalendarError::Upstream(GoogleApiError::Network)).into_response();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let value = body(response).await;
+    assert_eq!(value["code"], "upstream_unavailable");
+    assert_eq!(value["message"], "An upstream service is unavailable.");
+}

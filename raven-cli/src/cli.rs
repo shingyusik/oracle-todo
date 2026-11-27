@@ -63,6 +63,111 @@ pub enum Command {
         #[command(subcommand)]
         command: MaintenanceCommand,
     },
+    /// Google Calendar two-way sync of ToDo events.
+    GoogleCalendar {
+        #[command(subcommand)]
+        command: GoogleCalendarCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GoogleCalendarCommand {
+    /// Store or show the Google "Desktop app" OAuth client.
+    Client {
+        #[command(subcommand)]
+        command: GoogleClientCommand,
+    },
+    /// Connect a Google account through a temporary loopback listener.
+    Connect(GoogleConnectArgs),
+    /// Show connection, calendar, settings and the last sync.
+    Status(GoogleFormatArgs),
+    /// List writable calendars of the connected account.
+    Calendars(GoogleFormatArgs),
+    /// Choose the synced calendar.
+    Calendar {
+        #[command(subcommand)]
+        command: GoogleCalendarChoiceCommand,
+    },
+    /// Change settings; omitted options keep their value.
+    Set(GoogleSetArgs),
+    /// Run a sync now (or preview it with --dry-run).
+    Sync(GoogleSyncArgs),
+    /// Revoke and delete the Google token (settings and links are kept).
+    Disconnect(GoogleDisconnectArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GoogleClientCommand {
+    /// Validate a downloaded client JSON and store only its id and secret.
+    Set {
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Show whether a client is configured and its client ID (never the secret).
+    Show(GoogleFormatArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GoogleCalendarChoiceCommand {
+    /// Select an existing writable calendar by id.
+    Select { calendar_id: String },
+    /// Create a dedicated calendar and select it.
+    Create {
+        #[arg(long, default_value = "Raven")]
+        summary: String,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct GoogleFormatArgs {
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct GoogleConnectArgs {
+    /// Print the consent URL without opening a browser.
+    #[arg(long)]
+    pub no_open: bool,
+    /// Seconds to wait for Google's redirect (10..=3600).
+    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(10..=3600))]
+    pub timeout_secs: u64,
+}
+
+#[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["enabled", "poll_interval_secs", "default_duration_minutes", "sync_note"])))]
+pub struct GoogleSetArgs {
+    /// Enable or disable the scheduled sync in `raven ui`/`raven api`.
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub enabled: Option<bool>,
+    /// Scheduler poll interval (60..=3600 seconds).
+    #[arg(long)]
+    pub poll_interval_secs: Option<u64>,
+    /// Google duration of timed Raven events without a stored one (1..=1440 minutes).
+    #[arg(long)]
+    pub default_duration_minutes: Option<u32>,
+    /// Sync Raven note <-> Google description.
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub sync_note: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+pub struct GoogleSyncArgs {
+    /// Plan only; writes nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Apply deletions held back by the mass-change guard.
+    #[arg(long)]
+    pub allow_mass_delete: bool,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct GoogleDisconnectArgs {
+    /// Also delete sync.sqlite (all links).
+    #[arg(long)]
+    pub forget_links: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1041,6 +1146,7 @@ impl Command {
             Self::Ui(_) => "ui",
             Self::Mcp(_) => "mcp",
             Self::Maintenance { .. } => "maintenance",
+            Self::GoogleCalendar { .. } => "google-calendar",
         }
     }
 
@@ -1057,7 +1163,8 @@ impl Command {
             | Self::Api
             | Self::Ui(_)
             | Self::Mcp(_)
-            | Self::Maintenance { .. } => "raven",
+            | Self::Maintenance { .. }
+            | Self::GoogleCalendar { .. } => "raven",
         }
     }
 }

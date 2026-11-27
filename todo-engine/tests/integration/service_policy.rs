@@ -2,7 +2,7 @@ use todo_engine::application::error::TodoError;
 use todo_engine::application::service::{
     CreateArea, ProposeEvent, ProposeProject, ProposeRoutine, ProposeTask, TodoService,
 };
-use todo_engine::domain::{Actor, ItemStatus, ItemType, terminal_status};
+use todo_engine::domain::{Actor, ExternalSource, ItemStatus, ItemType, terminal_status};
 
 #[test]
 fn miss_task_records_missed_status_without_archiving() {
@@ -820,4 +820,111 @@ fn miss_and_postpone_reject_unsupported_item_types() {
             TodoError::Policy("Only tasks and events can be postponed".to_string())
         );
     }
+}
+
+fn google_source() -> ExternalSource {
+    ExternalSource {
+        system: "google_calendar".to_string(),
+        id: "primary/abc123".to_string(),
+    }
+}
+
+#[test]
+fn propose_event_stores_external_source_in_metadata() {
+    let mut service = TodoService::in_memory();
+    let event = service
+        .propose_event(ProposeEvent {
+            title: "외부 일정".to_string(),
+            actor: Actor::System,
+            scheduled: Some("2026-07-14T10:00:00+09:00".to_string()),
+            external_source: Some(google_source()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(
+        event.metadata["external_source"],
+        serde_json::json!({"system": "google_calendar", "id": "primary/abc123"})
+    );
+    assert_eq!(event.external_source(), Some(google_source()));
+    let stored = service.get(&event.id).unwrap();
+    assert_eq!(stored.external_source(), Some(google_source()));
+}
+
+#[test]
+fn propose_event_without_external_source_has_no_metadata_key() {
+    let mut service = TodoService::in_memory();
+    let event = service
+        .propose_event(ProposeEvent {
+            title: "내부 일정".to_string(),
+            actor: Actor::User,
+            scheduled: Some("2026-07-14".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert!(!event.metadata.contains_key("external_source"));
+    assert_eq!(event.external_source(), None);
+}
+
+#[test]
+fn propose_event_rejects_blank_external_source_fields() {
+    let mut service = TodoService::in_memory();
+    for (system, id) in [("", "x"), ("google_calendar", " "), ("  ", "")] {
+        let error = service
+            .propose_event(ProposeEvent {
+                title: "잘못된 출처".to_string(),
+                actor: Actor::System,
+                scheduled: Some("2026-07-14".to_string()),
+                external_source: Some(ExternalSource {
+                    system: system.to_string(),
+                    id: id.to_string(),
+                }),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(
+            matches!(error, TodoError::Validation(_)),
+            "{system:?}/{id:?}"
+        );
+    }
+}
+
+#[test]
+fn postpone_event_copies_external_source_to_follow_up() {
+    let mut service = TodoService::in_memory();
+    let event = service
+        .propose_event(ProposeEvent {
+            title: "가져온 일정".to_string(),
+            actor: Actor::System,
+            scheduled: Some("2026-05-31T10:00:00+09:00".to_string()),
+            external_source: Some(google_source()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let (source, follow_up) = service
+        .postpone(&event.id, "2026-06-01", "2026-05-31", None)
+        .unwrap();
+
+    assert_eq!(source.external_source(), Some(google_source()));
+    assert_eq!(follow_up.external_source(), Some(google_source()));
+    assert_eq!(follow_up.metadata["postponed_from"], event.id);
+}
+
+#[test]
+fn external_source_ignores_malformed_metadata() {
+    let mut service = TodoService::in_memory();
+    let mut event = service
+        .propose_event(ProposeEvent {
+            title: "형식 오류".to_string(),
+            actor: Actor::User,
+            scheduled: Some("2026-07-14".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+    event
+        .metadata
+        .insert("external_source".to_string(), serde_json::json!("oops"));
+    assert_eq!(event.external_source(), None);
 }
